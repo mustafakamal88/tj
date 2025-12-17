@@ -43,8 +43,10 @@ function useProfileState(): ProfileContextValue {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
+  const refreshSeqRef = useRef(0);
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeqRef.current;
     const supabase = getSupabaseClient();
     let nextProfile: Profile | null = null;
 
@@ -56,6 +58,15 @@ function useProfileState(): ProfileContextValue {
     }
 
     if (mountedRef.current) setLoading(true);
+
+    // Never allow UI to be stuck on Loading forever (network hangs, ad-blockers, etc.).
+    const loadingTimeout = window.setTimeout(() => {
+      if (!mountedRef.current) return;
+      if (refreshSeqRef.current !== seq) return;
+      console.warn('[useProfile] timed out while loading profile; showing fallback UI');
+      setLoading(false);
+    }, 8000);
+
     try {
       // Use getSession() for a fast local check; it avoids a network roundtrip in many cases.
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -105,7 +116,10 @@ function useProfileState(): ProfileContextValue {
       console.error('[useProfile] refresh failed', err);
       nextProfile = null;
     } finally {
+      window.clearTimeout(loadingTimeout);
       if (!mountedRef.current) return;
+      // Ignore stale refresh results if a newer refresh started.
+      if (refreshSeqRef.current !== seq) return;
       setProfile(nextProfile);
       setLoading(false);
     }
