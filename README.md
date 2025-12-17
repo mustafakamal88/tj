@@ -9,6 +9,18 @@
   - `VITE_SUPABASE_URL`
   - `VITE_SUPABASE_ANON_KEY`
   - Optional (MT4/MT5 direct sync): `VITE_MT_BRIDGE_URL`
+  - Optional debug: `VITE_DEBUG_PROFILE=true` (logs auth/profile fetches in browser console)
+
+  ## Supabase Auth URL configuration (important for Vercel)
+
+  In Supabase Dashboard → Authentication → URL Configuration:
+
+  - Site URL: set to your production domain (e.g. `https://<your-vercel-domain>`)
+  - Additional Redirect URLs: include:
+    - `http://localhost:5173` (local dev)
+    - `https://<your-vercel-domain>` (production)
+
+  If these are not set, login/signup can work locally but fail or behave differently on Vercel.
 
   ## Running the code
 

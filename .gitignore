@@ -4,6 +4,7 @@ mt-bridge/node_modules/
 
 # Builds
 dist/
+.vite/
 
 # Env files (credentials/secrets)
 **/.env
