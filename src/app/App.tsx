@@ -13,6 +13,7 @@ import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { getSupabaseClient } from './utils/supabase';
 import { ensureProfile, getMyProfile } from './utils/profile';
+import { ProfileProvider } from './utils/use-profile';
 
 export type Page = 'home' | 'dashboard' | 'journal' | 'analytics' | 'learn' | 'billing';
 
@@ -177,7 +178,9 @@ function AppContent() {
 export default function App() {
   return (
     <ThemeProvider defaultTheme="light" storageKey="trade-journal-theme">
-      <AppContent />
+      <ProfileProvider>
+        <AppContent />
+      </ProfileProvider>
     </ThemeProvider>
   );
 }

@@ -4,16 +4,17 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Separator } from './ui/separator';
 import { toast } from 'sonner';
-import { getUserSubscription, type SubscriptionPlan, USER_SUBSCRIPTION_KEY } from '../utils/data-limit';
+import type { SubscriptionPlan } from '../utils/data-limit';
 import { getSupabaseClient } from '../utils/supabase';
+import { useProfile } from '../utils/use-profile';
 
 type PaymentMethod = 'stripe' | 'paypal' | 'applepay' | 'googlepay' | 'crypto';
 
 const isEnabled = (key: string) => (import.meta.env[key] as string | undefined) === 'true';
 
 export function BillingPage() {
-  const [currentPlan, setCurrentPlan] = useState<SubscriptionPlan>('free');
   const [isLoading, setIsLoading] = useState(false);
+  const { plan, isActive, loading: profileLoading, refresh } = useProfile();
 
   const enableStripe = isEnabled('VITE_ENABLE_STRIPE');
   const enablePayPal = isEnabled('VITE_ENABLE_PAYPAL');
@@ -21,13 +22,9 @@ export function BillingPage() {
   const enableGooglePay = isEnabled('VITE_ENABLE_GOOGLEPAY');
   const enableCrypto = isEnabled('VITE_ENABLE_CRYPTO');
   const usdtAddress = (import.meta.env.VITE_USDT_ADDRESS as string | undefined) ?? '';
-
-  useEffect(() => {
-    setCurrentPlan(getUserSubscription());
-    const update = () => setCurrentPlan(getUserSubscription());
-    window.addEventListener('subscription-changed', update);
-    return () => window.removeEventListener('subscription-changed', update);
-  }, []);
+  const isPaidActive = !profileLoading && isActive && (plan === 'pro' || plan === 'premium');
+  const currentPlan: SubscriptionPlan | null = profileLoading ? null : isPaidActive ? plan : 'free';
+  const disableAllPaid = isPaidActive && plan === 'premium';
 
   const plans = useMemo(
     () =>
@@ -106,16 +103,14 @@ export function BillingPage() {
     setIsLoading(true);
     try {
       if (stripeSession) {
-        const res = await invokeBilling<{ plan: SubscriptionPlan }>('stripe_verify_session', { sessionId: stripeSession });
-        localStorage.setItem(USER_SUBSCRIPTION_KEY, res.plan);
-        window.dispatchEvent(new CustomEvent('subscription-changed', { detail: { plan: res.plan } }));
+        await invokeBilling<{ plan: SubscriptionPlan }>('stripe_verify_session', { sessionId: stripeSession });
+        await refresh();
         toast.success('Subscription activated.');
       } else if (paypalSub) {
-        const res = await invokeBilling<{ plan: SubscriptionPlan }>('paypal_verify_subscription', {
+        await invokeBilling<{ plan: SubscriptionPlan }>('paypal_verify_subscription', {
           subscriptionId: paypalSub,
         });
-        localStorage.setItem(USER_SUBSCRIPTION_KEY, res.plan);
-        window.dispatchEvent(new CustomEvent('subscription-changed', { detail: { plan: res.plan } }));
+        await refresh();
         toast.success('Subscription activated.');
       }
       // clean URL
@@ -143,12 +138,21 @@ export function BillingPage() {
             <h1 className="text-3xl mb-2">Billing</h1>
             <p className="text-muted-foreground">Upgrade to Pro/Premium to unlock imports, MT sync, and advanced analytics.</p>
           </div>
-          <Badge variant="secondary">Current: {currentPlan.toUpperCase()}</Badge>
+          {profileLoading ? (
+            <Badge variant="secondary">Loading…</Badge>
+          ) : (
+            <Badge
+              variant="secondary"
+              className={isPaidActive ? 'bg-[#34a85a] text-white border-transparent' : undefined}
+            >
+              {isPaidActive ? `Current: ${plan.toUpperCase()}` : 'Current: FREE'}
+            </Badge>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {plans.map((plan) => {
-            const isCurrent = plan.key === currentPlan;
+            const isCurrent = currentPlan ? plan.key === currentPlan : false;
             return (
               <Card key={plan.key} className={`p-6 ${plan.highlighted ? 'border-[#34a85a]/60 shadow-lg' : ''}`}>
                 <div className="flex items-start justify-between gap-4">
@@ -174,13 +178,13 @@ export function BillingPage() {
 
                 {plan.key === 'free' ? (
                   <Button className="w-full" variant="outline" disabled>
-                    {isCurrent ? 'Current plan' : 'Free'}
+                    {profileLoading ? 'Loading…' : isCurrent ? 'Current plan' : 'Free'}
                   </Button>
                 ) : (
                   <div className="space-y-3">
                     <Button
                       className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
-                      disabled={isLoading || isCurrent || !enableStripe}
+                      disabled={profileLoading || isLoading || isCurrent || disableAllPaid || !enableStripe}
                       onClick={() => void startCheckout(plan.key, 'stripe')}
                     >
                       {enableStripe ? 'Pay with Stripe (test)' : 'Stripe (disabled)'}
@@ -188,7 +192,7 @@ export function BillingPage() {
                     <Button
                       className="w-full"
                       variant="outline"
-                      disabled={isLoading || isCurrent || !enablePayPal}
+                      disabled={profileLoading || isLoading || isCurrent || disableAllPaid || !enablePayPal}
                       onClick={() => void startCheckout(plan.key, 'paypal')}
                     >
                       {enablePayPal ? 'Pay with PayPal (test)' : 'PayPal (disabled)'}
@@ -224,4 +228,3 @@ export function BillingPage() {
     </div>
   );
 }
-

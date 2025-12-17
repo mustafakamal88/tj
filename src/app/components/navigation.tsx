@@ -3,6 +3,7 @@ import { Button } from './ui/button';
 import { useState } from 'react';
 import type { Page } from '../App';
 import { ThemeToggle } from './theme-toggle';
+import { PlanBadge } from './plan-badge';
 import svgPaths from '../../imports/svg-4h62f17bbh';
 import {
   DropdownMenu,
@@ -93,6 +94,7 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
           {/* Right Side Actions */}
           <div className="hidden md:flex items-center gap-2">
             <ThemeToggle />
+            {user ? <PlanBadge className="hidden lg:inline-flex" /> : null}
             
             {user ? (
               <DropdownMenu>
@@ -184,7 +186,10 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                 {user ? (
                   <>
                     <div className="px-4 py-2 text-sm text-muted-foreground">
-                      {user}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate">{user}</span>
+                        <PlanBadge className="shrink-0" />
+                      </div>
                     </div>
                     <Button
                       variant="ghost"

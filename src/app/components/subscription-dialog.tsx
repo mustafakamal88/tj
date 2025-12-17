@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { getUserSubscription, USER_SUBSCRIPTION_KEY, type SubscriptionPlan } from '../utils/data-limit';
+import type { SubscriptionPlan } from '../utils/data-limit';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Separator } from './ui/separator';
+import { useProfile } from '../utils/use-profile';
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -14,21 +15,11 @@ interface SubscriptionDialogProps {
 }
 
 export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogProps) {
-  const [currentPlan, setCurrentPlan] = useState<SubscriptionPlan>('free');
   const [isUpdating, setIsUpdating] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const update = () => setCurrentPlan(getUserSubscription());
-    update();
-
-    window.addEventListener('subscription-changed', update);
-    return () => window.removeEventListener('subscription-changed', update);
-  }, [open]);
+  const { plan: currentPlan, loading: profileLoading } = useProfile();
 
   const handleSubscribe = async (plan: SubscriptionPlan) => {
-    if (isUpdating || plan === currentPlan) return;
+    if (profileLoading || isUpdating || plan === currentPlan) return;
     setIsUpdating(true);
     try {
       if (plan === 'free') {
