@@ -1,0 +1,77 @@
+import type { User } from '@supabase/supabase-js';
+import type { SubscriptionPlan } from './data-limit';
+import { requireSupabaseClient } from './supabase';
+
+export type Profile = {
+  id: string;
+  email: string;
+  fullName: string | null;
+  subscriptionPlan: SubscriptionPlan;
+  trialStartAt: string;
+  isAdmin: boolean;
+};
+
+type ProfileRow = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  subscription_plan: SubscriptionPlan;
+  trial_start_at: string;
+  is_admin: boolean;
+};
+
+export async function getMyProfile(): Promise<Profile | null> {
+  const supabase = requireSupabaseClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const user = authData.user;
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id,email,full_name,subscription_plan,trial_start_at,is_admin')
+    .eq('id', user.id)
+    .maybeSingle<ProfileRow>();
+
+  if (error || !data) return null;
+
+  return {
+    id: data.id,
+    email: data.email,
+    fullName: data.full_name,
+    subscriptionPlan: data.subscription_plan,
+    trialStartAt: data.trial_start_at,
+    isAdmin: data.is_admin,
+  };
+}
+
+export async function ensureProfile(user: User): Promise<void> {
+  const supabase = requireSupabaseClient();
+  if (!user.email) return;
+
+  const fullName =
+    typeof user.user_metadata?.full_name === 'string' ? (user.user_metadata.full_name as string) : null;
+
+  await supabase.from('profiles').upsert(
+    {
+      id: user.id,
+      email: user.email,
+      full_name: fullName,
+    },
+    { onConflict: 'id' },
+  );
+}
+
+export async function updateMySubscriptionPlan(plan: SubscriptionPlan): Promise<boolean> {
+  const supabase = requireSupabaseClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const user = authData.user;
+  if (!user) return false;
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ subscription_plan: plan })
+    .eq('id', user.id);
+
+  return !error;
+}
+

@@ -2,9 +2,16 @@ import { useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Settings } from 'lucide-react';
+<<<<<<< HEAD
 import { loadTrades } from '../utils/local-storage';
 import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
 import { filterTradesForFreeUser } from '../utils/data-limit';
+=======
+import { fetchTrades } from '../utils/trades-api';
+import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
+import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
+import { mtBridgeSync } from '../utils/mt-bridge';
+>>>>>>> f8d36ea (Initial commit)
 import type { Trade } from '../types/trade';
 import { 
   format, 
@@ -27,6 +34,7 @@ export function Dashboard() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
 
+<<<<<<< HEAD
   useEffect(() => {
     const allTrades = loadTrades();
     // Apply 2-week limit for free users
@@ -43,6 +51,85 @@ export function Dashboard() {
     setTrades(filteredTrades);
   };
 
+=======
+  const refreshTrades = async () => {
+    const allTrades = await fetchTrades();
+    const subscription = getUserSubscription();
+    const filteredTrades = subscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
+    setTrades(filteredTrades);
+  };
+
+  useEffect(() => {
+    void refreshTrades();
+
+    const handleSubscriptionChanged = () => {
+      void refreshTrades();
+    };
+
+    window.addEventListener('subscription-changed', handleSubscriptionChanged);
+
+    let autoSyncInterval: number | null = null;
+
+    const readMtConnection = () => {
+      try {
+        const raw = localStorage.getItem('mt-connection');
+        if (!raw) return null;
+        return JSON.parse(raw) as { autoSync?: unknown; method?: unknown };
+      } catch {
+        // ignore
+      }
+      return null;
+    };
+
+    const readAutoSyncEnabled = () => {
+      const parsed = readMtConnection();
+      if (typeof parsed?.autoSync === 'boolean') return parsed.autoSync;
+      return localStorage.getItem('mt-auto-sync') === 'true';
+    };
+
+    const updateAutoSync = (runOnce = false) => {
+      if (autoSyncInterval) {
+        window.clearInterval(autoSyncInterval);
+        autoSyncInterval = null;
+      }
+
+      const enabled = readAutoSyncEnabled();
+      if (!enabled) return;
+
+      const tick = async () => {
+        const connection = readMtConnection();
+        if (connection?.method === 'metaapi') {
+          await mtBridgeSync().catch(() => null);
+        }
+        await refreshTrades();
+      };
+
+      // Keep the dashboard fresh while the user stays on this screen.
+      autoSyncInterval = window.setInterval(() => {
+        void tick();
+      }, 5 * 60 * 1000);
+
+      if (runOnce) void tick();
+    };
+
+    updateAutoSync(true);
+
+    const handleMtConnectionChanged = () => {
+      const enabled = readAutoSyncEnabled();
+      updateAutoSync(true);
+      if (!enabled) void refreshTrades();
+    };
+
+    window.addEventListener('mt-connection-changed', handleMtConnectionChanged);
+
+    return () => {
+      window.removeEventListener('subscription-changed', handleSubscriptionChanged);
+      window.removeEventListener('mt-connection-changed', handleMtConnectionChanged);
+      if (autoSyncInterval) window.clearInterval(autoSyncInterval);
+    };
+  }, []);
+
+>>>>>>> f8d36ea (Initial commit)
   // Get trades for current month
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -370,4 +457,8 @@ export function Dashboard() {
       />
     </div>
   );
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> f8d36ea (Initial commit)

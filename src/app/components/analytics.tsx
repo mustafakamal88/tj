@@ -1,8 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
+<<<<<<< HEAD
 import { loadTrades } from '../utils/local-storage';
 import { filterTradesForFreeUser } from '../utils/data-limit';
+=======
+import { Button } from './ui/button';
+import { fetchTrades } from '../utils/trades-api';
+import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
+import { isMtBridgeConfigured, mtBridgeMetrics, mtBridgeSync } from '../utils/mt-bridge';
+>>>>>>> f8d36ea (Initial commit)
 import {
   calculateWinRate,
   calculateTotalPnL,
@@ -18,12 +25,112 @@ import { format } from 'date-fns';
 
 export function Analytics() {
   const [trades, setTrades] = useState<Trade[]>([]);
+<<<<<<< HEAD
 
   useEffect(() => {
     const allTrades = loadTrades();
     const userSubscription = localStorage.getItem('user-subscription') || 'free';
     const filteredTrades = userSubscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
     setTrades(filteredTrades);
+=======
+  const [brokerMetrics, setBrokerMetrics] = useState<unknown>(null);
+  const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
+
+  const refreshTrades = async () => {
+    const allTrades = await fetchTrades();
+    const subscription = getUserSubscription();
+    const filteredTrades = subscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
+    setTrades(filteredTrades);
+  };
+
+  const refreshBrokerMetrics = async () => {
+    try {
+      const raw = localStorage.getItem('mt-connection');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { method?: unknown };
+      if (parsed.method !== 'metaapi') return;
+      if (!isMtBridgeConfigured()) return;
+
+      setIsLoadingMetrics(true);
+      const result = await mtBridgeMetrics(false);
+      setBrokerMetrics(result.metrics ?? null);
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingMetrics(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshTrades();
+    void refreshBrokerMetrics();
+
+    const handleSubscriptionChanged = () => {
+      void refreshTrades();
+    };
+
+    window.addEventListener('subscription-changed', handleSubscriptionChanged);
+
+    let autoSyncInterval: number | null = null;
+
+    const readMtConnection = () => {
+      try {
+        const raw = localStorage.getItem('mt-connection');
+        if (!raw) return null;
+        return JSON.parse(raw) as { autoSync?: unknown; method?: unknown };
+      } catch {
+        // ignore
+      }
+      return null;
+    };
+
+    const readAutoSyncEnabled = () => {
+      const parsed = readMtConnection();
+      if (typeof parsed?.autoSync === 'boolean') return parsed.autoSync;
+      return localStorage.getItem('mt-auto-sync') === 'true';
+    };
+
+    const updateAutoSync = (runOnce = false) => {
+      if (autoSyncInterval) {
+        window.clearInterval(autoSyncInterval);
+        autoSyncInterval = null;
+      }
+
+      const enabled = readAutoSyncEnabled();
+      if (!enabled) return;
+
+      const tick = async () => {
+        const connection = readMtConnection();
+        if (connection?.method === 'metaapi') {
+          await mtBridgeSync().catch(() => null);
+        }
+        await refreshTrades();
+      };
+
+      autoSyncInterval = window.setInterval(() => {
+        void tick();
+      }, 5 * 60 * 1000);
+
+      if (runOnce) void tick();
+    };
+
+    updateAutoSync(true);
+
+    const handleMtConnectionChanged = () => {
+      const enabled = readAutoSyncEnabled();
+      updateAutoSync(true);
+      if (!enabled) void refreshTrades();
+      void refreshBrokerMetrics();
+    };
+
+    window.addEventListener('mt-connection-changed', handleMtConnectionChanged);
+
+    return () => {
+      window.removeEventListener('subscription-changed', handleSubscriptionChanged);
+      window.removeEventListener('mt-connection-changed', handleMtConnectionChanged);
+      if (autoSyncInterval) window.clearInterval(autoSyncInterval);
+    };
+>>>>>>> f8d36ea (Initial commit)
   }, []);
 
   // Calculate statistics
@@ -91,6 +198,30 @@ export function Analytics() {
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 5);
 
+<<<<<<< HEAD
+=======
+  const pickNumber = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  const getPath = (obj: any, path: string): unknown => {
+    return path.split('.').reduce((acc, key) => (acc && typeof acc === 'object' ? acc[key] : undefined), obj);
+  };
+
+  const pickMetric = (paths: string[]): number | null => {
+    for (const p of paths) {
+      const v = pickNumber(getPath(brokerMetrics as any, p));
+      if (v !== null) return v;
+    }
+    return null;
+  };
+
+>>>>>>> f8d36ea (Initial commit)
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -152,6 +283,67 @@ export function Analytics() {
               </Card>
             </div>
 
+<<<<<<< HEAD
+=======
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-lg">Broker Metrics</h2>
+                  <p className="text-sm text-muted-foreground">MetaStats (via MetaApi bridge)</p>
+                </div>
+                <Button variant="outline" onClick={() => void refreshBrokerMetrics()} disabled={isLoadingMetrics}>
+                  {isLoadingMetrics ? (
+                    <>
+                      <Activity className="w-4 h-4 mr-2 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    'Refresh'
+                  )}
+                </Button>
+              </div>
+
+              {!isMtBridgeConfigured() ? (
+                <p className="text-sm text-muted-foreground">
+                  Set <span className="font-mono">VITE_MT_BRIDGE_URL</span> to enable broker metrics.
+                </p>
+              ) : brokerMetrics ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="rounded-lg border p-4">
+                    <div className="text-sm text-muted-foreground">Balance</div>
+                    <div className="text-xl">{pickMetric(['balance', 'account.balance', 'metrics.balance']) ?? '—'}</div>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <div className="text-sm text-muted-foreground">Equity</div>
+                    <div className="text-xl">{pickMetric(['equity', 'account.equity', 'metrics.equity']) ?? '—'}</div>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <div className="text-sm text-muted-foreground">Win Rate</div>
+                    <div className="text-xl">
+                      {(() => {
+                        const v = pickMetric(['winRate', 'metrics.winRate', 'performance.winRate']);
+                        return v === null ? '—' : `${v.toFixed(1)}%`;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <div className="text-sm text-muted-foreground">Profit Factor</div>
+                    <div className="text-xl">
+                      {(() => {
+                        const v = pickMetric(['profitFactor', 'metrics.profitFactor', 'performance.profitFactor']);
+                        return v === null ? '—' : v.toFixed(2);
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Connect your MT4/MT5 account via “Direct (MetaApi)” to load metrics.
+                </p>
+              )}
+            </Card>
+
+>>>>>>> f8d36ea (Initial commit)
             {/* Additional Stats */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="p-6">
@@ -284,4 +476,8 @@ export function Analytics() {
       </div>
     </div>
   );
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> f8d36ea (Initial commit)

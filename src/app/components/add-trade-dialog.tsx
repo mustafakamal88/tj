@@ -6,7 +6,11 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
+<<<<<<< HEAD
 import { addTrade } from '../utils/local-storage';
+=======
+import { createTrade } from '../utils/trades-api';
+>>>>>>> f8d36ea (Initial commit)
 import { calculatePnL, determineOutcome } from '../utils/trade-calculations';
 import type { TradeType, Trade } from '../types/trade';
 
@@ -30,7 +34,11 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     mistakes: '',
   });
 
+<<<<<<< HEAD
   const handleSubmit = (e: React.FormEvent) => {
+=======
+  const handleSubmit = async (e: React.FormEvent) => {
+>>>>>>> f8d36ea (Initial commit)
     e.preventDefault();
 
     // Validation
@@ -57,9 +65,13 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     const { pnl, pnlPercentage } = calculatePnL(entry, exit, quantity, formData.type);
     const outcome = determineOutcome(pnl);
 
+<<<<<<< HEAD
     // Create trade object
     const trade: Trade = {
       id: `trade_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+=======
+    const trade = {
+>>>>>>> f8d36ea (Initial commit)
       date: formData.date,
       symbol: formData.symbol.toUpperCase(),
       type: formData.type,
@@ -73,11 +85,24 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       emotions: formData.emotions || undefined,
       setup: formData.setup || undefined,
       mistakes: formData.mistakes || undefined,
+<<<<<<< HEAD
       createdAt: new Date().toISOString(),
     };
 
     // Save trade
     addTrade(trade);
+=======
+    };
+
+    // Save trade
+    const result = await createTrade(trade);
+    if (!result.ok) {
+      toast.error(result.message);
+      onOpenChange(false);
+      window.dispatchEvent(new Event('open-subscription-dialog'));
+      return;
+    }
+>>>>>>> f8d36ea (Initial commit)
     toast.success('Trade added successfully!');
     
     // Reset form

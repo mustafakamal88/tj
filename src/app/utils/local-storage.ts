@@ -1,4 +1,12 @@
 import type { Trade } from '../types/trade';
+<<<<<<< HEAD
+=======
+import {
+  getFreePlanAddTradeBlockMessage,
+  getFreePlanAddTradeBlockReason,
+  getUserSubscription,
+} from './data-limit';
+>>>>>>> f8d36ea (Initial commit)
 
 const STORAGE_KEY = 'trade_journal_data';
 
@@ -21,10 +29,31 @@ export function saveTrades(trades: Trade[]): void {
   }
 }
 
+<<<<<<< HEAD
 export function addTrade(trade: Trade): void {
   const trades = loadTrades();
   trades.push(trade);
   saveTrades(trades);
+=======
+export type AddTradeResult =
+  | { ok: true }
+  | { ok: false; reason: 'trade_limit' | 'trial_expired'; message: string };
+
+export function addTrade(trade: Trade): AddTradeResult {
+  const trades = loadTrades();
+
+  const subscription = getUserSubscription();
+  if (subscription === 'free') {
+    const reason = getFreePlanAddTradeBlockReason(trades.length);
+    if (reason) {
+      return { ok: false, reason, message: getFreePlanAddTradeBlockMessage(reason) };
+    }
+  }
+
+  trades.push(trade);
+  saveTrades(trades);
+  return { ok: true };
+>>>>>>> f8d36ea (Initial commit)
 }
 
 export function updateTrade(tradeId: string, updatedTrade: Trade): void {

@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+mt-bridge/node_modules/
+
+# Builds
+dist/
+
+# Env files (credentials/secrets)
+**/.env
+**/.env.local
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Supabase local dev
+.supabase/
+supabase/.temp/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Keys/certs
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
