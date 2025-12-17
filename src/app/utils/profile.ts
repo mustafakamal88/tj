@@ -32,7 +32,11 @@ export async function getMyProfile(): Promise<Profile | null> {
     .eq('id', user.id)
     .maybeSingle<ProfileRow>();
 
-  if (error || !data) return null;
+  if (error) {
+    console.error('[profile] getMyProfile failed', error);
+    return null;
+  }
+  if (!data) return null;
 
   return {
     id: data.id,
@@ -44,14 +48,14 @@ export async function getMyProfile(): Promise<Profile | null> {
   };
 }
 
-export async function ensureProfile(user: User): Promise<void> {
+export async function ensureProfile(user: User): Promise<boolean> {
   const supabase = requireSupabaseClient();
-  if (!user.email) return;
+  if (!user.email) return false;
 
   const fullName =
     typeof user.user_metadata?.full_name === 'string' ? (user.user_metadata.full_name as string) : null;
 
-  await supabase.from('profiles').upsert(
+  const { error } = await supabase.from('profiles').upsert(
     {
       id: user.id,
       email: user.email,
@@ -59,6 +63,11 @@ export async function ensureProfile(user: User): Promise<void> {
     },
     { onConflict: 'id' },
   );
+  if (error) {
+    console.error('[profile] ensureProfile upsert failed', error);
+    return false;
+  }
+  return true;
 }
 
 export async function updateMySubscriptionPlan(plan: SubscriptionPlan): Promise<boolean> {
@@ -74,4 +83,3 @@ export async function updateMySubscriptionPlan(plan: SubscriptionPlan): Promise<
 
   return !error;
 }
-

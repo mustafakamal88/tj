@@ -4,10 +4,13 @@ import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Upload, FileText, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { createTrades, type TradeInput } from '../utils/trades-api';
+import { createTradesWithProgress, type TradeInput } from '../utils/trades-api';
 import type { TradeType } from '../types/trade';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { calculatePnL, determineOutcome } from '../utils/trade-calculations';
+import { Card } from './ui/card';
+import { Progress } from './ui/progress';
+import { getUserSubscription } from '../utils/data-limit';
 
 interface MTImportDialogProps {
   open: boolean;
@@ -17,6 +20,12 @@ interface MTImportDialogProps {
 
 export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImportDialogProps) {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [parsedFormat, setParsedFormat] = useState<'mt' | 'csv' | null>(null);
+  const [parsedTrades, setParsedTrades] = useState<TradeInput[] | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ inserted: number; total: number } | null>(null);
 
   const decodeText = (buffer: ArrayBuffer): { text: string; encoding: string } => {
     const bytes = new Uint8Array(buffer);
@@ -638,7 +647,15 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
     const typeIdx = headers.findIndex((h) => h.includes('type') || h.includes('side'));
     const entryIdx = headers.findIndex((h) => h.includes('entry') || h.includes('open'));
     const exitIdx = headers.findIndex((h) => h.includes('exit') || h.includes('close'));
-    const sizeIdx = headers.findIndex((h) => h.includes('size') || h.includes('volume') || h.includes('quantity'));
+    const sizeIdx = headers.findIndex(
+      (h) =>
+        h.includes('size') ||
+        h.includes('volume') ||
+        h.includes('quantity') ||
+        h.includes('qty') ||
+        h.includes('lots') ||
+        h.includes('lot'),
+    );
     const profitIdx = headers.findIndex((h) => h.includes('profit') || h.includes('p&l') || h.includes('pnl'));
 
     const result: TradeInput[] = [];
@@ -688,49 +705,81 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
     return result;
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, format: 'mt' | 'csv') => {
+  const handleFileParse = async (e: React.ChangeEvent<HTMLInputElement>, format: 'mt' | 'csv') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setSelectedFileName(file.name);
+    setParsedFormat(format);
+    setParsedTrades(null);
+    setParseError(null);
     setIsProcessing(true);
 
     try {
-      let trades: TradeInput[] = [];
-      
-      if (format === 'mt') {
-        trades = await parseMT4MT5File(file);
-      } else {
-        trades = await parseCSVFile(file);
-      }
-
+      // Allow the UI to paint the "Parsing..." state before heavy work.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const trades = format === 'mt' ? await parseMT4MT5File(file) : await parseCSVFile(file);
       if (trades.length === 0) {
-        toast.error('No valid trades found in file. Please check the format.');
+        setParseError('No valid trades found. This file does not match the expected format.');
         return;
       }
-
-      const result = await createTrades(trades);
-      if (!result.ok) {
-        toast.error(result.message);
-        onOpenChange(false);
-
-        if (result.reason === 'trade_limit' || result.reason === 'trial_expired') {
-          window.dispatchEvent(new Event('open-subscription-dialog'));
-        }
-        return;
-      }
-      
-      toast.success(`Successfully imported ${trades.length} trades!`);
-      onImportComplete();
-      onOpenChange(false);
+      setParsedTrades(trades);
     } catch (error) {
       console.error('Import error:', error);
-      toast.error('Failed to import trades. Please check the file format.');
+      setParseError(error instanceof Error ? error.message : 'Failed to parse file.');
     } finally {
       setIsProcessing(false);
       // Reset file input
       e.target.value = '';
     }
   };
+
+  const handleImport = async () => {
+    if (!parsedTrades || parsedTrades.length === 0) return;
+    if (isImporting) return;
+    setIsImporting(true);
+    setImportProgress({ inserted: 0, total: parsedTrades.length });
+    try {
+      const result = await createTradesWithProgress(parsedTrades, {
+        chunkSize: 250,
+        onProgress: (p) => setImportProgress(p),
+      });
+      if (!result.ok) {
+        toast.error(result.message);
+        if (result.reason === 'trade_limit' || result.reason === 'trial_expired') {
+          window.dispatchEvent(new Event('open-subscription-dialog'));
+        }
+        return;
+      }
+
+      toast.success(`Imported ${parsedTrades.length} trades.`);
+
+      const subscription = getUserSubscription();
+      if (subscription === 'free') {
+        const now = new Date();
+        const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+        const hasOlderThanFreeWindow = parsedTrades.some((t) => new Date(t.date) < twoWeeksAgo);
+        if (hasOlderThanFreeWindow) {
+          toast.info('Imported successfully, but Free plan only displays the last 2 weeks. Upgrade to view full history.');
+        }
+      }
+
+      onImportComplete();
+      onOpenChange(false);
+      setSelectedFileName(null);
+      setParsedFormat(null);
+      setParsedTrades(null);
+      setParseError(null);
+    } catch (error) {
+      console.error('Create trades error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to import trades.');
+    } finally {
+      setIsImporting(false);
+      setImportProgress(null);
+    }
+  };
+
+  const preview = parsedTrades?.slice(0, 5) ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -741,6 +790,85 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
             Upload your trading history from MetaTrader 4/5 or CSV file
           </DialogDescription>
         </DialogHeader>
+
+        {(selectedFileName || parseError || parsedTrades) && (
+          <Card className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium truncate">
+                  {selectedFileName ? selectedFileName : 'Import preview'}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {parseError
+                    ? 'Unable to parse this file.'
+                    : parsedTrades
+                      ? `Parsed ${parsedTrades.length} trades (${parsedFormat?.toUpperCase()}).`
+                      : isProcessing
+                        ? 'Parsing…'
+                        : 'Select a file to parse.'}
+                </p>
+              </div>
+
+              {parsedTrades?.length ? (
+                <Button type="button" onClick={() => void handleImport()} disabled={isImporting}>
+                  {isImporting
+                    ? `Importing… ${importProgress?.inserted ?? 0}/${importProgress?.total ?? parsedTrades.length}`
+                    : 'Import'}
+                </Button>
+              ) : null}
+            </div>
+
+            {isImporting && importProgress ? (
+              <div className="mt-3 space-y-2">
+                <Progress value={(importProgress.inserted / Math.max(1, importProgress.total)) * 100} />
+                <p className="text-xs text-muted-foreground">
+                  Uploading to database: {importProgress.inserted}/{importProgress.total}
+                </p>
+              </div>
+            ) : null}
+
+            {parseError ? (
+              <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                <p className="text-destructive">{parseError}</p>
+                <p className="text-muted-foreground mt-1">
+                  CSV requires columns like <code className="font-mono">date,symbol,type,entry,exit,quantity</code>. MT
+                  imports require a MetaTrader Account History “Save as Report” file (HTML/XML/TXT).
+                </p>
+              </div>
+            ) : null}
+
+            {preview.length ? (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-muted-foreground border-b">
+                      <th className="py-2 pr-3">Date</th>
+                      <th className="py-2 pr-3">Symbol</th>
+                      <th className="py-2 pr-3">Type</th>
+                      <th className="py-2 pr-3">Entry</th>
+                      <th className="py-2 pr-3">Exit</th>
+                      <th className="py-2 pr-3">Qty</th>
+                      <th className="py-2 pr-3">PnL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((t, idx) => (
+                      <tr key={idx} className="border-b last:border-b-0">
+                        <td className="py-2 pr-3 whitespace-nowrap">{t.date}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{t.symbol}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{t.type}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{t.entry}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{t.exit}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{t.quantity}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{t.pnl}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </Card>
+        )}
 
         <Tabs defaultValue="mt" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
@@ -770,7 +898,7 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
               <input
                 type="file"
                 accept=".htm,.html,.xml,.txt"
-                onChange={(e) => handleFileUpload(e, 'mt')}
+                onChange={(e) => handleFileParse(e, 'mt')}
                 className="hidden"
                 id="mt-file-upload"
                 disabled={isProcessing}
@@ -778,7 +906,7 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
               <label htmlFor="mt-file-upload" className="cursor-pointer">
                 <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                 <p className="mb-2">
-                  {isProcessing ? 'Processing...' : 'Click to upload MT4/MT5 report'}
+                  {isProcessing ? 'Parsing...' : 'Click to upload MT4/MT5 report'}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Supports HTML, XML, or TXT format
@@ -805,7 +933,7 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
               <input
                 type="file"
                 accept=".csv"
-                onChange={(e) => handleFileUpload(e, 'csv')}
+                onChange={(e) => handleFileParse(e, 'csv')}
                 className="hidden"
                 id="csv-file-upload"
                 disabled={isProcessing}
@@ -813,7 +941,7 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
               <label htmlFor="csv-file-upload" className="cursor-pointer">
                 <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                 <p className="mb-2">
-                  {isProcessing ? 'Processing...' : 'Click to upload CSV file'}
+                  {isProcessing ? 'Parsing...' : 'Click to upload CSV file'}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   CSV format with trading data

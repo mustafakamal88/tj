@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Settings } from 'lucide-react';
@@ -104,73 +104,91 @@ export function Dashboard() {
       if (autoSyncInterval) window.clearInterval(autoSyncInterval);
     };
   }, []);
-  // Get trades for current month
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
-  const currentMonthTrades = trades.filter(trade => {
-    const tradeDate = new Date(trade.date);
-    return tradeDate >= monthStart && tradeDate <= monthEnd;
-  });
+  const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
+  const monthEnd = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
+
+  const currentMonthTrades = useMemo(() => {
+    return trades.filter((trade) => {
+      const tradeDate = new Date(trade.date);
+      return tradeDate >= monthStart && tradeDate <= monthEnd;
+    });
+  }, [trades, monthStart, monthEnd]);
 
   // Calculate statistics
-  const totalPnL = calculateTotalPnL(currentMonthTrades);
-  const winRate = calculateWinRate(currentMonthTrades);
+  const totalPnL = useMemo(() => calculateTotalPnL(currentMonthTrades), [currentMonthTrades]);
+  const winRate = useMemo(() => calculateWinRate(currentMonthTrades), [currentMonthTrades]);
   const totalTrades = currentMonthTrades.length;
-  const wins = currentMonthTrades.filter(t => t.outcome === 'win').length;
-  const losses = currentMonthTrades.filter(t => t.outcome === 'loss').length;
+  const wins = useMemo(() => currentMonthTrades.filter((t) => t.outcome === 'win').length, [currentMonthTrades]);
+  const losses = useMemo(
+    () => currentMonthTrades.filter((t) => t.outcome === 'loss').length,
+    [currentMonthTrades],
+  );
 
-  // Get all days in the current month
-  const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const monthDays = useMemo(() => eachDayOfInterval({ start: monthStart, end: monthEnd }), [monthStart, monthEnd]);
 
   // Group days by week
-  const weeks: Date[][] = [];
-  let currentWeek: Date[] = [];
-  
-  // Add empty cells for days before the month starts
-  const firstDayOfWeek = getDay(monthStart);
-  for (let i = 0; i < firstDayOfWeek; i++) {
-    currentWeek.push(new Date(0)); // Placeholder for empty cell
-  }
-
-  monthDays.forEach((day, index) => {
-    currentWeek.push(day);
-    
-    if (getDay(day) === 6 || index === monthDays.length - 1) {
-      // End of week (Saturday) or end of month
-      weeks.push([...currentWeek]);
-      currentWeek = [];
+  const weeks: Date[][] = useMemo(() => {
+    const out: Date[][] = [];
+    let currentWeekDays: Date[] = [];
+    const firstDayOfWeek = getDay(monthStart);
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      currentWeekDays.push(new Date(0));
     }
-  });
+    monthDays.forEach((day, index) => {
+      currentWeekDays.push(day);
+      if (getDay(day) === 6 || index === monthDays.length - 1) {
+        out.push([...currentWeekDays]);
+        currentWeekDays = [];
+      }
+    });
+    return out;
+  }, [monthDays, monthStart]);
+
+  const dayStats = useMemo(() => {
+    const map = new Map<string, { count: number; pnl: number }>();
+    for (const trade of trades) {
+      const key = trade.date;
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+        existing.pnl += trade.pnl;
+      } else {
+        map.set(key, { count: 1, pnl: trade.pnl });
+      }
+    }
+    return map;
+  }, [trades]);
 
   // Calculate trade data for each day
   const getDayData = (day: Date) => {
     if (day.getTime() === 0) return null; // Empty cell
     
-    const dayTrades = trades.filter(trade => isSameDay(new Date(trade.date), day));
-    const totalPnL = dayTrades.reduce((sum, trade) => sum + trade.pnl, 0);
+    const key = format(day, 'yyyy-MM-dd');
+    const stat = dayStats.get(key);
     
     return {
-      trades: dayTrades,
-      count: dayTrades.length,
-      pnl: totalPnL,
-      isClosed: dayTrades.length === 0
+      count: stat?.count ?? 0,
+      pnl: stat?.pnl ?? 0,
+      isClosed: !stat
     };
   };
 
   // Calculate weekly totals
   const getWeekData = (week: Date[]) => {
     const validDays = week.filter(d => d.getTime() !== 0);
-    const weekTrades = validDays.flatMap(day => 
-      trades.filter(trade => isSameDay(new Date(trade.date), day))
-    );
-    const totalPnL = weekTrades.reduce((sum, trade) => sum + trade.pnl, 0);
-    const tradingDays = validDays.filter(day => {
-      const dayTrades = trades.filter(trade => isSameDay(new Date(trade.date), day));
-      return dayTrades.length > 0;
-    }).length;
+    let totalWeekPnL = 0;
+    let tradingDays = 0;
+    for (const day of validDays) {
+      const key = format(day, 'yyyy-MM-dd');
+      const stat = dayStats.get(key);
+      if (stat) {
+        tradingDays += 1;
+        totalWeekPnL += stat.pnl;
+      }
+    }
     
     return {
-      pnl: totalPnL,
+      pnl: totalWeekPnL,
       days: tradingDays
     };
   };

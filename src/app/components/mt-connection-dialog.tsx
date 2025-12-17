@@ -240,8 +240,10 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
 
   const handleDisconnect = async () => {
     try {
-      if (connectionMethod === 'bridge') {
-        if (isMtBridgeConfigured()) {
+      if (connectionMethod === 'metaapi') {
+        if (!isMtBridgeConfigured()) {
+          toast.error('MT bridge is not configured. Set VITE_MT_BRIDGE_URL.');
+        } else {
           await mtBridgeDisconnect();
         }
       } else {
@@ -269,6 +271,10 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
 
   const handleSyncNow = async () => {
     if (connectionMethod !== 'metaapi') return;
+    if (!isMtBridgeConfigured()) {
+      toast.error('MT bridge is not configured. Set VITE_MT_BRIDGE_URL.');
+      return;
+    }
     setIsSyncingNow(true);
 
     try {

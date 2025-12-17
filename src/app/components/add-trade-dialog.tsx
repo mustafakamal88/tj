@@ -17,6 +17,8 @@ interface AddTradeDialogProps {
 }
 
 export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDialogProps) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     symbol: '',
@@ -32,10 +34,18 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setFieldErrors({});
 
     // Validation
     if (!formData.symbol || !formData.entry || !formData.exit || !formData.quantity) {
       toast.error('Please fill in all required fields');
+      setFieldErrors({
+        symbol: !formData.symbol ? 'Required' : '',
+        entry: !formData.entry ? 'Required' : '',
+        exit: !formData.exit ? 'Required' : '',
+        quantity: !formData.quantity ? 'Required' : '',
+      });
       return;
     }
 
@@ -73,32 +83,37 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       mistakes: formData.mistakes || undefined,
     };
 
-    // Save trade
-    const result = await createTrade(trade);
-    if (!result.ok) {
-      toast.error(result.message);
-      onOpenChange(false);
-      window.dispatchEvent(new Event('open-subscription-dialog'));
-      return;
-    }
-    toast.success('Trade added successfully!');
+    setIsSubmitting(true);
+    try {
+      const result = await createTrade(trade);
+      if (!result.ok) {
+        toast.error(result.message);
+        if (result.reason === 'trade_limit' || result.reason === 'trial_expired') {
+          window.dispatchEvent(new Event('open-subscription-dialog'));
+        }
+        return;
+      }
+      toast.success('Trade added successfully!');
     
-    // Reset form
-    setFormData({
-      date: new Date().toISOString().split('T')[0],
-      symbol: '',
-      type: 'long',
-      entry: '',
-      exit: '',
-      quantity: '',
-      notes: '',
-      emotions: '',
-      setup: '',
-      mistakes: '',
-    });
+      // Reset form
+      setFormData({
+        date: new Date().toISOString().split('T')[0],
+        symbol: '',
+        type: 'long',
+        entry: '',
+        exit: '',
+        quantity: '',
+        notes: '',
+        emotions: '',
+        setup: '',
+        mistakes: '',
+      });
 
-    onTradeAdded();
-    onOpenChange(false);
+      onTradeAdded();
+      onOpenChange(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -131,6 +146,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
                 onChange={(e) => setFormData({ ...formData, symbol: e.target.value })}
                 required
               />
+              {fieldErrors.symbol ? <p className="text-xs text-destructive">{fieldErrors.symbol}</p> : null}
             </div>
           </div>
 
@@ -163,6 +179,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
                 onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
                 required
               />
+              {fieldErrors.quantity ? <p className="text-xs text-destructive">{fieldErrors.quantity}</p> : null}
             </div>
           </div>
 
@@ -178,6 +195,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
                 onChange={(e) => setFormData({ ...formData, entry: e.target.value })}
                 required
               />
+              {fieldErrors.entry ? <p className="text-xs text-destructive">{fieldErrors.entry}</p> : null}
             </div>
 
             <div className="space-y-2">
@@ -191,6 +209,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
                 onChange={(e) => setFormData({ ...formData, exit: e.target.value })}
                 required
               />
+              {fieldErrors.exit ? <p className="text-xs text-destructive">{fieldErrors.exit}</p> : null}
             </div>
           </div>
 
@@ -244,7 +263,9 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit">Add Trade</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Adding…' : 'Add Trade'}
+            </Button>
           </div>
         </form>
       </DialogContent>

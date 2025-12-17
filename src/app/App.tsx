@@ -42,7 +42,10 @@ function AppContent() {
         setUser(sessionUser?.email ?? null);
 
         if (sessionUser) {
-          await ensureProfile(sessionUser);
+          const ok = await ensureProfile(sessionUser);
+          if (!ok) {
+            toast.error('Profile setup failed. Apply the Supabase schema/policies, then reload.');
+          }
           await syncProfileToLocalCache();
         }
       })
@@ -55,7 +58,10 @@ function AppContent() {
       setUser(sessionUser?.email ?? null);
 
       if (sessionUser) {
-        await ensureProfile(sessionUser);
+        const ok = await ensureProfile(sessionUser);
+        if (!ok) {
+          toast.error('Profile setup failed. Apply the Supabase schema/policies, then reload.');
+        }
         await syncProfileToLocalCache();
 
         if (event === 'SIGNED_IN') {

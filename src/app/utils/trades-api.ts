@@ -51,6 +51,12 @@ type TradeRow = {
 
 const toNumber = (value: number | string): number => (typeof value === 'number' ? value : Number(value));
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'Unknown error';
+}
+
 function mapTrade(row: TradeRow): Trade {
   return {
     id: row.id,
@@ -74,33 +80,58 @@ function mapTrade(row: TradeRow): Trade {
 }
 
 export async function fetchTrades(): Promise<Trade[]> {
-  const supabase = requireSupabaseClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) return [];
+  try {
+    const supabase = requireSupabaseClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) return [];
 
-  const { data, error } = await supabase
-    .from('trades')
-    .select(
-      'id,date,symbol,type,entry,exit,quantity,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at',
-    )
-    .order('date', { ascending: false })
-    .returns<TradeRow[]>();
+    const { data, error } = await supabase
+      .from('trades')
+      .select(
+        'id,date,symbol,type,entry,exit,quantity,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at',
+      )
+      .order('date', { ascending: false })
+      .returns<TradeRow[]>();
 
-  if (error || !data) return [];
-  return data.map(mapTrade);
+    if (error) {
+      console.error('[trades-api] fetchTrades failed', error);
+      return [];
+    }
+    if (!data) return [];
+    return data.map(mapTrade);
+  } catch (error) {
+    console.error('[trades-api] fetchTrades exception', error);
+    return [];
+  }
 }
 
 async function getMyTradeCount(): Promise<number> {
-  const supabase = requireSupabaseClient();
-  const { count } = await supabase
-    .from('trades')
-    .select('id', { count: 'exact', head: true });
-
-  return count ?? 0;
+  try {
+    const supabase = requireSupabaseClient();
+    const { count, error } = await supabase.from('trades').select('id', { count: 'exact', head: true });
+    if (error) {
+      console.error('[trades-api] getMyTradeCount failed', error);
+      return 0;
+    }
+    return count ?? 0;
+  } catch (error) {
+    console.error('[trades-api] getMyTradeCount exception', error);
+    return 0;
+  }
 }
 
 async function canAddTrades(tradeCountToAdd: number): Promise<AddTradeResult> {
-  const profile = await getMyProfile();
+  let profile: Awaited<ReturnType<typeof getMyProfile>> = null;
+  try {
+    profile = await getMyProfile();
+  } catch (error) {
+    console.error('[trades-api] getMyProfile exception', error);
+    return {
+      ok: false,
+      reason: 'unknown',
+      message: `Failed to read profile: ${errorMessage(error)}`,
+    };
+  }
   if (!profile) {
     return { ok: false, reason: 'not_authenticated', message: 'Please login to add trades.' };
   }
@@ -127,71 +158,99 @@ async function canAddTrades(tradeCountToAdd: number): Promise<AddTradeResult> {
 }
 
 export async function createTrade(trade: TradeInput): Promise<AddTradeResult> {
-  const supabase = requireSupabaseClient();
-  const allowed = await canAddTrades(1);
-  if (!allowed.ok) return allowed;
+  try {
+    const supabase = requireSupabaseClient();
+    const allowed = await canAddTrades(1);
+    if (!allowed.ok) return allowed;
 
-  const { error } = await supabase.from('trades').insert({
-    date: trade.date,
-    symbol: trade.symbol,
-    type: trade.type,
-    entry: trade.entry,
-    exit: trade.exit,
-    quantity: trade.quantity,
-    outcome: trade.outcome,
-    pnl: trade.pnl,
-    pnl_percentage: trade.pnlPercentage,
-    notes: trade.notes ?? null,
-    emotions: trade.emotions ?? null,
-    setup: trade.setup ?? null,
-    mistakes: trade.mistakes ?? null,
-    screenshots: trade.screenshots ?? null,
-    tags: trade.tags ?? null,
-  });
+    const { error } = await supabase.from('trades').insert({
+      date: trade.date,
+      symbol: trade.symbol,
+      type: trade.type,
+      entry: trade.entry,
+      exit: trade.exit,
+      quantity: trade.quantity,
+      outcome: trade.outcome,
+      pnl: trade.pnl,
+      pnl_percentage: trade.pnlPercentage,
+      notes: trade.notes ?? null,
+      emotions: trade.emotions ?? null,
+      setup: trade.setup ?? null,
+      mistakes: trade.mistakes ?? null,
+      screenshots: trade.screenshots ?? null,
+      tags: trade.tags ?? null,
+    });
 
-  if (error) {
-    return { ok: false, reason: 'unknown', message: error.message };
+    if (error) {
+      return { ok: false, reason: 'unknown', message: error.message };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: 'unknown', message: errorMessage(error) };
   }
-
-  return { ok: true };
 }
 
 export async function createTrades(trades: TradeInput[]): Promise<AddTradeResult> {
-  const supabase = requireSupabaseClient();
-  if (trades.length === 0) return { ok: true };
+  return createTradesWithProgress(trades);
+}
 
-  const allowed = await canAddTrades(trades.length);
-  if (!allowed.ok) return allowed;
+export async function createTradesWithProgress(
+  trades: TradeInput[],
+  options?: { chunkSize?: number; onProgress?: (p: { inserted: number; total: number }) => void },
+): Promise<AddTradeResult> {
+  try {
+    const supabase = requireSupabaseClient();
+    if (trades.length === 0) return { ok: true };
 
-  const rows = trades.map((trade) => ({
-    date: trade.date,
-    symbol: trade.symbol,
-    type: trade.type,
-    entry: trade.entry,
-    exit: trade.exit,
-    quantity: trade.quantity,
-    outcome: trade.outcome,
-    pnl: trade.pnl,
-    pnl_percentage: trade.pnlPercentage,
-    notes: trade.notes ?? null,
-    emotions: trade.emotions ?? null,
-    setup: trade.setup ?? null,
-    mistakes: trade.mistakes ?? null,
-    screenshots: trade.screenshots ?? null,
-    tags: trade.tags ?? null,
-  }));
+    const allowed = await canAddTrades(trades.length);
+    if (!allowed.ok) return allowed;
 
-  const { error } = await supabase.from('trades').insert(rows);
-  if (error) {
-    return { ok: false, reason: 'unknown', message: error.message };
+    const rows = trades.map((trade) => ({
+      date: trade.date,
+      symbol: trade.symbol,
+      type: trade.type,
+      entry: trade.entry,
+      exit: trade.exit,
+      quantity: trade.quantity,
+      outcome: trade.outcome,
+      pnl: trade.pnl,
+      pnl_percentage: trade.pnlPercentage,
+      notes: trade.notes ?? null,
+      emotions: trade.emotions ?? null,
+      setup: trade.setup ?? null,
+      mistakes: trade.mistakes ?? null,
+      screenshots: trade.screenshots ?? null,
+      tags: trade.tags ?? null,
+    }));
+
+    const chunkSize = Math.max(1, Math.min(1000, options?.chunkSize ?? 250));
+    let inserted = 0;
+
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const { error } = await supabase.from('trades').insert(chunk);
+      if (error) {
+        return { ok: false, reason: 'unknown', message: error.message };
+      }
+      inserted += chunk.length;
+      options?.onProgress?.({ inserted, total: rows.length });
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: 'unknown', message: errorMessage(error) };
   }
-
-  return { ok: true };
 }
 
 export async function deleteTrade(tradeId: string): Promise<boolean> {
-  const supabase = requireSupabaseClient();
-  const { error } = await supabase.from('trades').delete().eq('id', tradeId);
-  return !error;
+  try {
+    const supabase = requireSupabaseClient();
+    const { error } = await supabase.from('trades').delete().eq('id', tradeId);
+    if (error) console.error('[trades-api] deleteTrade failed', error);
+    return !error;
+  } catch (error) {
+    console.error('[trades-api] deleteTrade exception', error);
+    return false;
+  }
 }
-
