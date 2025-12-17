@@ -3,6 +3,8 @@ import { createContext, createElement, useCallback, useContext, useEffect, useMe
 import type { SubscriptionPlan } from './data-limit';
 import { getSupabaseClient } from './supabase';
 
+const DEBUG_PROFILE = (import.meta.env.VITE_DEBUG_PROFILE as string | undefined) === 'true';
+
 export type Profile = {
   id: string;
   email: string;
@@ -44,24 +46,29 @@ function useProfileState(): ProfileContextValue {
 
   const refresh = useCallback(async () => {
     const supabase = getSupabaseClient();
+    let nextProfile: Profile | null = null;
+
     if (!supabase) {
+      if (!mountedRef.current) return;
       setProfile(null);
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    if (mountedRef.current) setLoading(true);
     try {
-      const { data: authData, error: authError } = await supabase.auth.getUser();
-      if (authError) {
-        console.error('[useProfile] auth.getUser failed', authError);
+      // Use getSession() for a fast local check; it avoids a network roundtrip in many cases.
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (DEBUG_PROFILE) {
+        console.log('[useProfile] getSession', { sessionError, user: sessionData.session?.user ?? null });
+      }
+      if (sessionError) {
+        console.error('[useProfile] auth.getSession failed', sessionError);
       }
 
-      const user = authData.user;
+      const user = sessionData.session?.user ?? null;
       if (!user) {
-        if (!mountedRef.current) return;
-        setProfile(null);
-        setLoading(false);
+        nextProfile = null;
         return;
       }
 
@@ -71,34 +78,35 @@ function useProfileState(): ProfileContextValue {
         .eq('id', user.id)
         .maybeSingle<ProfileRow>();
 
+      if (DEBUG_PROFILE) {
+        console.log('[useProfile] profiles query', { data, error });
+      }
+
       if (error) {
         console.error('[useProfile] profiles select failed', error);
-        if (!mountedRef.current) return;
-        setProfile(null);
-        setLoading(false);
+        nextProfile = null;
         return;
       }
 
-      if (!mountedRef.current) return;
       if (!data) {
-        setProfile(null);
-        setLoading(false);
+        nextProfile = null;
         return;
       }
 
-      setProfile({
+      nextProfile = {
         id: data.id,
         email: data.email,
         isAdmin: data.is_admin,
         subscriptionPlan: normalizePlan(data.subscription_plan),
         subscriptionStatus: data.subscription_status ? String(data.subscription_status) : null,
         currentPeriodEnd: data.current_period_end ? String(data.current_period_end) : null,
-      });
-      setLoading(false);
+      };
     } catch (err) {
       console.error('[useProfile] refresh failed', err);
+      nextProfile = null;
+    } finally {
       if (!mountedRef.current) return;
-      setProfile(null);
+      setProfile(nextProfile);
       setLoading(false);
     }
   }, []);
