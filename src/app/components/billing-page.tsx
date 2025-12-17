@@ -1,0 +1,227 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Card } from './ui/card';
+import { Separator } from './ui/separator';
+import { toast } from 'sonner';
+import { getUserSubscription, type SubscriptionPlan, USER_SUBSCRIPTION_KEY } from '../utils/data-limit';
+import { getSupabaseClient } from '../utils/supabase';
+
+type PaymentMethod = 'stripe' | 'paypal' | 'applepay' | 'googlepay' | 'crypto';
+
+const isEnabled = (key: string) => (import.meta.env[key] as string | undefined) === 'true';
+
+export function BillingPage() {
+  const [currentPlan, setCurrentPlan] = useState<SubscriptionPlan>('free');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const enableStripe = isEnabled('VITE_ENABLE_STRIPE');
+  const enablePayPal = isEnabled('VITE_ENABLE_PAYPAL');
+  const enableApplePay = isEnabled('VITE_ENABLE_APPLEPAY');
+  const enableGooglePay = isEnabled('VITE_ENABLE_GOOGLEPAY');
+  const enableCrypto = isEnabled('VITE_ENABLE_CRYPTO');
+  const usdtAddress = (import.meta.env.VITE_USDT_ADDRESS as string | undefined) ?? '';
+
+  useEffect(() => {
+    setCurrentPlan(getUserSubscription());
+    const update = () => setCurrentPlan(getUserSubscription());
+    window.addEventListener('subscription-changed', update);
+    return () => window.removeEventListener('subscription-changed', update);
+  }, []);
+
+  const plans = useMemo(
+    () =>
+      [
+        {
+          key: 'free' as const,
+          name: 'Free',
+          price: '$0',
+          period: '14-day trial',
+          description: 'Try the essentials.',
+          bullets: ['Manual entry only', 'No imports', 'No MT sync', 'Up to 15 trades during trial'],
+          highlighted: false,
+        },
+        {
+          key: 'pro' as const,
+          name: 'Pro',
+          price: '$15.34',
+          period: '/month',
+          description: 'Unlimited trades + imports.',
+          bullets: ['Unlimited trades', 'CSV/XML/HTML imports', 'MT4/MT5 sync', 'Advanced analytics'],
+          highlighted: true,
+        },
+        {
+          key: 'premium' as const,
+          name: 'Premium',
+          price: '$28.37',
+          period: '/month',
+          description: 'Pro + priority access.',
+          bullets: ['Everything in Pro', 'Priority badge', 'Tradovate/Ninja (coming soon) unlocked'],
+          highlighted: false,
+        },
+      ] as const,
+    [],
+  );
+
+  const invokeBilling = async <T,>(action: string, body: Record<string, unknown>): Promise<T> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+    const { data, error } = await supabase.functions.invoke('billing', { body: { action, ...body } });
+    if (error) throw new Error(error.message);
+    if (!data?.ok) throw new Error(data?.error ?? 'Billing request failed.');
+    return data.data as T;
+  };
+
+  const startCheckout = async (plan: Exclude<SubscriptionPlan, 'free'>, method: PaymentMethod) => {
+    if (isLoading) return;
+    setIsLoading(true);
+    try {
+      if (method === 'stripe') {
+        if (!enableStripe) throw new Error('Stripe is disabled. Set VITE_ENABLE_STRIPE=true.');
+        const res = await invokeBilling<{ url: string }>('stripe_create_checkout', { plan });
+        window.location.href = res.url;
+        return;
+      }
+      if (method === 'paypal') {
+        if (!enablePayPal) throw new Error('PayPal is disabled. Set VITE_ENABLE_PAYPAL=true.');
+        const res = await invokeBilling<{ url: string }>('paypal_create_subscription', { plan });
+        window.location.href = res.url;
+        return;
+      }
+      toast.info('Coming soon.');
+    } catch (error) {
+      console.error('[billing] startCheckout failed', error);
+      toast.error(error instanceof Error ? error.message : 'Billing failed.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyFromUrl = async () => {
+    const params = new URLSearchParams(window.location.search);
+    const stripeSession = params.get('stripe_session_id');
+    const paypalSub = params.get('paypal_subscription_id');
+    if (!stripeSession && !paypalSub) return;
+
+    setIsLoading(true);
+    try {
+      if (stripeSession) {
+        const res = await invokeBilling<{ plan: SubscriptionPlan }>('stripe_verify_session', { sessionId: stripeSession });
+        localStorage.setItem(USER_SUBSCRIPTION_KEY, res.plan);
+        window.dispatchEvent(new CustomEvent('subscription-changed', { detail: { plan: res.plan } }));
+        toast.success('Subscription activated.');
+      } else if (paypalSub) {
+        const res = await invokeBilling<{ plan: SubscriptionPlan }>('paypal_verify_subscription', {
+          subscriptionId: paypalSub,
+        });
+        localStorage.setItem(USER_SUBSCRIPTION_KEY, res.plan);
+        window.dispatchEvent(new CustomEvent('subscription-changed', { detail: { plan: res.plan } }));
+        toast.success('Subscription activated.');
+      }
+      // clean URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete('stripe_session_id');
+      url.searchParams.delete('paypal_subscription_id');
+      window.history.replaceState({}, '', url.toString());
+    } catch (error) {
+      console.error('[billing] verify failed', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to verify subscription.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void verifyFromUrl();
+  }, []);
+
+  return (
+    <div className="min-h-[calc(100vh-4rem)] bg-background">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="flex items-start justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl mb-2">Billing</h1>
+            <p className="text-muted-foreground">Upgrade to Pro/Premium to unlock imports, MT sync, and advanced analytics.</p>
+          </div>
+          <Badge variant="secondary">Current: {currentPlan.toUpperCase()}</Badge>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {plans.map((plan) => {
+            const isCurrent = plan.key === currentPlan;
+            return (
+              <Card key={plan.key} className={`p-6 ${plan.highlighted ? 'border-[#34a85a]/60 shadow-lg' : ''}`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-semibold">{plan.name}</h2>
+                    <p className="text-sm text-muted-foreground mt-1">{plan.description}</p>
+                  </div>
+                  {plan.key === 'premium' ? <Badge>Priority</Badge> : plan.key === 'pro' ? <Badge className="bg-[#34a85a] text-white">Popular</Badge> : null}
+                </div>
+
+                <div className="mt-6 flex items-baseline gap-2">
+                  <span className="text-4xl font-semibold tracking-tight tabular-nums">{plan.price}</span>
+                  <span className="text-sm text-muted-foreground">{plan.period}</span>
+                </div>
+
+                <ul className="mt-6 space-y-2 text-sm text-muted-foreground">
+                  {plan.bullets.map((b) => (
+                    <li key={b}>• {b}</li>
+                  ))}
+                </ul>
+
+                <Separator className="my-6" />
+
+                {plan.key === 'free' ? (
+                  <Button className="w-full" variant="outline" disabled>
+                    {isCurrent ? 'Current plan' : 'Free'}
+                  </Button>
+                ) : (
+                  <div className="space-y-3">
+                    <Button
+                      className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
+                      disabled={isLoading || isCurrent || !enableStripe}
+                      onClick={() => void startCheckout(plan.key, 'stripe')}
+                    >
+                      {enableStripe ? 'Pay with Stripe (test)' : 'Stripe (disabled)'}
+                    </Button>
+                    <Button
+                      className="w-full"
+                      variant="outline"
+                      disabled={isLoading || isCurrent || !enablePayPal}
+                      onClick={() => void startCheckout(plan.key, 'paypal')}
+                    >
+                      {enablePayPal ? 'Pay with PayPal (test)' : 'PayPal (disabled)'}
+                    </Button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button className="w-full" variant="outline" disabled={!enableApplePay}>
+                        Apple Pay {enableApplePay ? '' : '(soon)'}
+                      </Button>
+                      <Button className="w-full" variant="outline" disabled={!enableGooglePay}>
+                        Google Pay {enableGooglePay ? '' : '(soon)'}
+                      </Button>
+                    </div>
+                    <Button className="w-full" variant="outline" disabled={!enableCrypto || !usdtAddress}>
+                      Crypto (USDT) {enableCrypto && usdtAddress ? '' : '(soon)'}
+                    </Button>
+                    {enableCrypto && usdtAddress ? (
+                      <p className="text-xs text-muted-foreground break-all">USDT address: {usdtAddress}</p>
+                    ) : null}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+
+        <div className="mt-8 text-sm text-muted-foreground">
+          <p>
+            Dev note: Stripe/PayPal require server-side keys configured in the Supabase Edge Function environment. The UI
+            won’t crash if keys are missing; buttons are disabled via `VITE_ENABLE_*` flags.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+

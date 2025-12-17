@@ -9,6 +9,7 @@ import { deleteTrade, fetchTrades } from '../utils/trades-api';
 import { formatCurrency, formatPercentage } from '../utils/trade-calculations';
 import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
 import { mtBridgeSync } from '../utils/mt-bridge';
+import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 import type { Trade } from '../types/trade';
 import { format } from 'date-fns';
 import { AddTradeDialog } from './add-trade-dialog';
@@ -31,6 +32,9 @@ export function TradeJournal() {
     const filteredTrades = subscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
     setTrades(filteredTrades);
   };
+
+  const subscription = getUserSubscription();
+  const access = getFeatureAccess(subscription);
 
   useEffect(() => {
     void refreshTrades();
@@ -133,7 +137,17 @@ export function TradeJournal() {
             <p className="text-muted-foreground">View and manage all your trades</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setIsImportDialogOpen(true)} className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!access.import) {
+                  requestUpgrade('import');
+                  return;
+                }
+                setIsImportDialogOpen(true);
+              }}
+              className="gap-2"
+            >
               <Upload className="w-4 h-4" />
               Import
             </Button>

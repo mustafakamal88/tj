@@ -88,7 +88,9 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       const result = await createTrade(trade);
       if (!result.ok) {
         toast.error(result.message);
-        if (result.reason === 'trade_limit' || result.reason === 'trial_expired') {
+        if (result.reason === 'upgrade_required') {
+          window.dispatchEvent(new Event('open-billing'));
+        } else if (result.reason === 'trade_limit' || result.reason === 'trial_expired') {
           window.dispatchEvent(new Event('open-subscription-dialog'));
         }
         return;

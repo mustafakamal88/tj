@@ -9,7 +9,7 @@ import { requireSupabaseClient } from './supabase';
 
 export type AddTradeResult =
   | { ok: true }
-  | { ok: false; reason: 'trade_limit' | 'trial_expired' | 'not_authenticated' | 'unknown'; message: string };
+  | { ok: false; reason: 'trade_limit' | 'trial_expired' | 'not_authenticated' | 'upgrade_required' | 'unknown'; message: string };
 
 export type TradeInput = {
   date: string;
@@ -137,6 +137,11 @@ async function canAddTrades(tradeCountToAdd: number): Promise<AddTradeResult> {
   }
 
   if (profile.subscriptionPlan !== 'free') return { ok: true };
+
+  // MVP rule: imports (bulk adds) require Pro/Premium even during the trial.
+  if (tradeCountToAdd > 1) {
+    return { ok: false, reason: 'upgrade_required', message: 'Imports require Pro or Premium.' };
+  }
 
   const existingCount = await getMyTradeCount();
   const now = new Date();

@@ -1,4 +1,4 @@
-import { TrendingUp, LayoutDashboard, BookOpen, BarChart3, Menu, X, LogOut, User, CreditCard, Lock, GraduationCap } from 'lucide-react';
+import { TrendingUp, LayoutDashboard, BookOpen, BarChart3, Menu, X, LogOut, User, CreditCard, Lock, GraduationCap, Receipt } from 'lucide-react';
 import { Button } from './ui/button';
 import { useState } from 'react';
 import type { Page } from '../App';
@@ -20,9 +20,10 @@ interface NavigationProps {
   onAuthClick: () => void;
   onLogout: () => void;
   onSubscriptionClick: () => void;
+  onBillingClick: () => void;
 }
 
-export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogout, onSubscriptionClick }: NavigationProps) {
+export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogout, onSubscriptionClick, onBillingClick }: NavigationProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
@@ -112,6 +113,10 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                     <CreditCard className="w-4 h-4 mr-2" />
                     Subscription
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onBillingClick}>
+                    <Receipt className="w-4 h-4 mr-2" />
+                    Billing
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={onLogout}>
                     <LogOut className="w-4 h-4 mr-2" />
                     Logout
@@ -191,6 +196,17 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                     >
                       <CreditCard className="w-4 h-4" />
                       Subscription
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        onBillingClick();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="gap-2 justify-start w-full"
+                    >
+                      <Receipt className="w-4 h-4" />
+                      Billing
                     </Button>
                     <Button
                       variant="ghost"

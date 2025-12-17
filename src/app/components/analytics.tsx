@@ -17,11 +17,14 @@ import type { Trade } from '../types/trade';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Target, DollarSign, Percent, Activity } from 'lucide-react';
 import { format } from 'date-fns';
+import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 
 export function Analytics() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [brokerMetrics, setBrokerMetrics] = useState<unknown>(null);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
+  const subscription = getUserSubscription();
+  const access = getFeatureAccess(subscription);
 
   const refreshTrades = async () => {
     const allTrades = await fetchTrades();
@@ -214,7 +217,21 @@ export function Analytics() {
           <p className="text-muted-foreground">Analyze your trading performance</p>
         </div>
 
-        {trades.length === 0 ? (
+        {!access.advanced_analytics ? (
+          <Card className="p-10">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl mb-1">Advanced analytics are a Pro feature</h2>
+                <p className="text-sm text-muted-foreground">
+                  Upgrade to Pro to unlock imports, MT4/MT5 sync, and deeper analytics.
+                </p>
+              </div>
+              <Button onClick={() => requestUpgrade('advanced_analytics')} className="bg-[#34a85a] hover:bg-[#2d9450]">
+                Upgrade to Pro
+              </Button>
+            </div>
+          </Card>
+        ) : trades.length === 0 ? (
           <Card className="p-12 text-center">
             <Activity className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
             <p className="text-muted-foreground mb-2">No trading data yet</p>

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getUserSubscription, USER_SUBSCRIPTION_KEY, type SubscriptionPlan } from '../utils/data-limit';
-import { updateMySubscriptionPlan } from '../utils/profile';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -30,24 +29,14 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
 
   const handleSubscribe = async (plan: SubscriptionPlan) => {
     if (isUpdating || plan === currentPlan) return;
-
     setIsUpdating(true);
     try {
-      const ok = await updateMySubscriptionPlan(plan);
-      if (!ok) {
-        toast.error('Please sign in to change your subscription plan.');
+      if (plan === 'free') {
+        toast.info('Downgrades are not implemented in MVP.');
         return;
       }
-
-      localStorage.setItem(USER_SUBSCRIPTION_KEY, plan);
-      window.dispatchEvent(new CustomEvent('subscription-changed', { detail: { plan } }));
-      setCurrentPlan(plan);
-
-      toast.success(`Plan updated: ${plan.toUpperCase()}`);
+      window.dispatchEvent(new Event('open-billing'));
       onOpenChange(false);
-    } catch (error) {
-      console.error('Failed to update subscription plan', error);
-      toast.error('Failed to update plan. Please try again.');
     } finally {
       setIsUpdating(false);
     }
@@ -258,7 +247,7 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
                     onClick={() => handleSubscribe(plan.key)}
                     disabled={isCurrent || isUpdating}
                   >
-                    {isCurrent ? 'Current Plan' : plan.name === 'Free' ? 'Switch to Free' : `Get ${plan.name}`}
+                    {isCurrent ? 'Current Plan' : plan.name === 'Free' ? 'Free' : `Upgrade to ${plan.name}`}
                   </Button>
                 </div>
               </Card>

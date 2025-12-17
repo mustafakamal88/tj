@@ -5,6 +5,7 @@ import { Dashboard } from './components/dashboard';
 import { TradeJournal } from './components/trade-journal';
 import { Analytics } from './components/analytics';
 import { LearnMorePage } from './components/learn-more-page';
+import { BillingPage } from './components/billing-page';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
 import { ThemeProvider } from './components/theme-provider';
@@ -13,7 +14,7 @@ import { toast } from 'sonner';
 import { getSupabaseClient } from './utils/supabase';
 import { ensureProfile, getMyProfile } from './utils/profile';
 
-export type Page = 'home' | 'dashboard' | 'journal' | 'analytics' | 'learn';
+export type Page = 'home' | 'dashboard' | 'journal' | 'analytics' | 'learn' | 'billing';
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<Page>('home');
@@ -88,10 +89,16 @@ function AppContent() {
       window.removeEventListener('open-subscription-dialog', openSubscription as EventListener);
   }, []);
 
+  useEffect(() => {
+    const openBilling = () => setCurrentPage('billing');
+    window.addEventListener('open-billing', openBilling as EventListener);
+    return () => window.removeEventListener('open-billing', openBilling as EventListener);
+  }, []);
+
   // Protected route logic
   const handleNavigate = (page: Page) => {
     // Check if trying to access protected routes
-    if ((page === 'dashboard' || page === 'journal' || page === 'analytics') && !user) {
+    if ((page === 'dashboard' || page === 'journal' || page === 'analytics' || page === 'billing') && !user) {
       toast.error('Please login to access this page');
       setIsAuthDialogOpen(true);
       return;
@@ -116,6 +123,8 @@ function AppContent() {
         return <Analytics />;
       case 'learn':
         return <LearnMorePage />;
+      case 'billing':
+        return <BillingPage />;
       default:
         return <HomePage onGetStarted={() => user ? setCurrentPage('dashboard') : setIsAuthDialogOpen(true)} onLearnMore={() => setCurrentPage('learn')} />;
     }
@@ -149,6 +158,7 @@ function AppContent() {
         onAuthClick={() => setIsAuthDialogOpen(true)}
         onLogout={handleLogout}
         onSubscriptionClick={() => setIsSubscriptionDialogOpen(true)}
+        onBillingClick={() => setCurrentPage('billing')}
       />
       {renderPage()}
       <AuthDialog

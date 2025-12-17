@@ -6,6 +6,7 @@ import { fetchTrades } from '../utils/trades-api';
 import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
 import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
 import { mtBridgeSync } from '../utils/mt-bridge';
+import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 import type { Trade } from '../types/trade';
 import { 
   format, 
@@ -34,6 +35,9 @@ export function Dashboard() {
     const filteredTrades = subscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
     setTrades(filteredTrades);
   };
+
+  const subscription = getUserSubscription();
+  const access = getFeatureAccess(subscription);
 
   useEffect(() => {
     void refreshTrades();
@@ -208,11 +212,31 @@ export function Dashboard() {
             <p className="text-muted-foreground">Track your trading performance</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setIsConnectionDialogOpen(true)} className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!access.mt_sync) {
+                  requestUpgrade('mt_sync');
+                  return;
+                }
+                setIsConnectionDialogOpen(true);
+              }}
+              className="gap-2"
+            >
               <Settings className="w-4 h-4" />
               MT4/MT5 Sync
             </Button>
-            <Button variant="outline" onClick={() => setIsImportDialogOpen(true)} className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!access.import) {
+                  requestUpgrade('import');
+                  return;
+                }
+                setIsImportDialogOpen(true);
+              }}
+              className="gap-2"
+            >
               <Upload className="w-4 h-4" />
               Import
             </Button>
