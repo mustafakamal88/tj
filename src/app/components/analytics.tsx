@@ -1,15 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
-<<<<<<< HEAD
-import { loadTrades } from '../utils/local-storage';
-import { filterTradesForFreeUser } from '../utils/data-limit';
-=======
 import { Button } from './ui/button';
 import { fetchTrades } from '../utils/trades-api';
 import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
 import { isMtBridgeConfigured, mtBridgeMetrics, mtBridgeSync } from '../utils/mt-bridge';
->>>>>>> f8d36ea (Initial commit)
 import {
   calculateWinRate,
   calculateTotalPnL,
@@ -25,14 +20,6 @@ import { format } from 'date-fns';
 
 export function Analytics() {
   const [trades, setTrades] = useState<Trade[]>([]);
-<<<<<<< HEAD
-
-  useEffect(() => {
-    const allTrades = loadTrades();
-    const userSubscription = localStorage.getItem('user-subscription') || 'free';
-    const filteredTrades = userSubscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
-    setTrades(filteredTrades);
-=======
   const [brokerMetrics, setBrokerMetrics] = useState<unknown>(null);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
 
@@ -130,7 +117,6 @@ export function Analytics() {
       window.removeEventListener('mt-connection-changed', handleMtConnectionChanged);
       if (autoSyncInterval) window.clearInterval(autoSyncInterval);
     };
->>>>>>> f8d36ea (Initial commit)
   }, []);
 
   // Calculate statistics
@@ -198,8 +184,6 @@ export function Analytics() {
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 5);
 
-<<<<<<< HEAD
-=======
   const pickNumber = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string') {
@@ -221,7 +205,6 @@ export function Analytics() {
     return null;
   };
 
->>>>>>> f8d36ea (Initial commit)
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -283,8 +266,6 @@ export function Analytics() {
               </Card>
             </div>
 
-<<<<<<< HEAD
-=======
             <Card className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -343,7 +324,6 @@ export function Analytics() {
               )}
             </Card>
 
->>>>>>> f8d36ea (Initial commit)
             {/* Additional Stats */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="p-6">
@@ -476,8 +456,4 @@ export function Analytics() {
       </div>
     </div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> f8d36ea (Initial commit)

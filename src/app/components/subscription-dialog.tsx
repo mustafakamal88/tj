@@ -1,18 +1,3 @@
-<<<<<<< HEAD
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "./ui/dialog";
-import { Button } from "./ui/button";
-import { Card } from "./ui/card";
-import { Badge } from "./ui/badge";
-import { Separator } from "./ui/separator";
-import { Check, X } from "lucide-react";
-import { toast } from "sonner";
-=======
 import { useEffect, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -23,7 +8,6 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Separator } from './ui/separator';
->>>>>>> f8d36ea (Initial commit)
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -31,33 +15,6 @@ interface SubscriptionDialogProps {
 }
 
 export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogProps) {
-<<<<<<< HEAD
-  const handleSubscribe = (plan: string, price: string) => {
-    toast.info(`Redirecting to payment for ${plan} plan...`);
-    console.log("Payment integration placeholder for:", plan, price);
-  };
-
-  const plans = [
-    {
-      name: "Free",
-      icon: "⚡",
-      price: "$0",
-      period: "forever",
-      description: "Perfect for getting started",
-      features: [
-        "Last 2 weeks of data only",
-        "Up to 50 trades per month",
-        "Basic calendar dashboard",
-        "Manual trade entry",
-        "Basic analytics",
-        "Trade notes & tags",
-      ],
-      notIncluded: [
-        "No historical data beyond 2 weeks",
-        "No MT4/MT5 auto-sync",
-        "No CSV/Excel export",
-        "No advanced analytics",
-=======
   const [currentPlan, setCurrentPlan] = useState<SubscriptionPlan>('free');
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -128,29 +85,11 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
         'No MT4/MT5 auto-sync',
         'No CSV/Excel export',
         'No advanced analytics',
->>>>>>> f8d36ea (Initial commit)
       ],
       highlighted: false,
       popular: false,
     },
     {
-<<<<<<< HEAD
-      name: "Pro",
-      icon: "👑",
-      price: "$15.34",
-      period: "/month",
-      description: "For serious traders",
-      features: [
-        "Unlimited historical data",
-        "Unlimited trades",
-        "MT4/MT5 auto-sync (every 5 min)",
-        "Advanced analytics & charts",
-        "CSV/Excel export",
-        "Performance insights",
-        "Custom reports",
-        "Priority email support",
-        "Risk management tools",
-=======
       key: 'pro',
       name: 'Pro',
       icon: '👑',
@@ -167,30 +106,12 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
         'Custom reports',
         'Priority email support',
         'Risk management tools',
->>>>>>> f8d36ea (Initial commit)
       ],
       notIncluded: [],
       highlighted: true,
       popular: true,
     },
     {
-<<<<<<< HEAD
-      name: "Premium",
-      icon: "🚀",
-      price: "$28.37",
-      period: "/month",
-      description: "For professional traders",
-      features: [
-        "Everything in Pro, plus:",
-        "Real-time MT4/MT5 sync",
-        "AI-powered trade insights",
-        "Performance coaching tips",
-        "Advanced risk analysis",
-        "Multiple account management",
-        "API access for integrations",
-        "White-label reports",
-        "Priority phone support",
-=======
       key: 'premium',
       name: 'Premium',
       icon: '🚀',
@@ -207,7 +128,6 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
         'API access for integrations',
         'White-label reports',
         'Priority phone support',
->>>>>>> f8d36ea (Initial commit)
       ],
       notIncluded: [],
       highlighted: false,
@@ -240,30 +160,6 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
 
           {/* Plans Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mt-10 mb-6">
-<<<<<<< HEAD
-            {plans.map((plan) => (
-              <Card
-                key={plan.name}
-                className={`flex flex-col relative overflow-hidden h-full transition-all ${
-                  plan.highlighted
-                    ? "border-[#34a85a] dark:border-[#34a85a] border-2 shadow-2xl shadow-green-200 dark:shadow-green-900/20 scale-[1.02] z-10"
-                    : "border-border"
-                }`}
-              >
-                {/* Header Section */}
-                <div
-                  className={`p-8 pb-6 text-center ${
-                    plan.highlighted
-                      ? "bg-gradient-to-br from-[#34a85a]/10 to-[#34a85a]/5"
-                      : "bg-muted/30"
-                  }`}
-                >
-                  {plan.popular && (
-                    <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#34a85a] hover:bg-[#2d9450] text-white border-0 px-4 py-1">
-                      Most Popular
-                    </Badge>
-                  )}
-=======
             {plans.map((plan) => {
               const isCurrent = currentPlan === plan.key;
 
@@ -289,16 +185,11 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
                         Most Popular
                       </Badge>
                     )}
->>>>>>> f8d36ea (Initial commit)
 
                   {/* Icon */}
                   <div
                     className={`inline-flex items-center justify-center w-24 h-24 rounded-2xl mb-4 ${
-<<<<<<< HEAD
-                      plan.highlighted ? "bg-[#34a85a]" : "bg-muted"
-=======
                       plan.highlighted ? 'bg-[#34a85a]' : 'bg-muted'
->>>>>>> f8d36ea (Initial commit)
                     }`}
                   >
                     <span className="text-5xl">{plan.icon}</span>
@@ -361,19 +252,6 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
                   <Button
                     size="lg"
                     className={`w-full mt-auto ${
-<<<<<<< HEAD
-                      plan.highlighted ? "bg-[#34a85a] hover:bg-[#2d9450] text-white" : ""
-                    }`}
-                    variant={plan.highlighted ? "default" : "outline"}
-                    onClick={() => handleSubscribe(plan.name, plan.price)}
-                    disabled={plan.name === "Free"}
-                  >
-                    {plan.name === "Free" ? "Current Plan" : `Get ${plan.name}`}
-                  </Button>
-                </div>
-              </Card>
-            ))}
-=======
                       plan.highlighted ? 'bg-[#34a85a] hover:bg-[#2d9450] text-white' : ''
                     }`}
                     variant={plan.highlighted ? 'default' : 'outline'}
@@ -386,7 +264,6 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
               </Card>
               );
             })}
->>>>>>> f8d36ea (Initial commit)
           </div>
 
           {/* Footer Info */}

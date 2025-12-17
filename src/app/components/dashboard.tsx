@@ -2,16 +2,10 @@ import { useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Settings } from 'lucide-react';
-<<<<<<< HEAD
-import { loadTrades } from '../utils/local-storage';
-import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
-import { filterTradesForFreeUser } from '../utils/data-limit';
-=======
 import { fetchTrades } from '../utils/trades-api';
 import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
 import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
 import { mtBridgeSync } from '../utils/mt-bridge';
->>>>>>> f8d36ea (Initial commit)
 import type { Trade } from '../types/trade';
 import { 
   format, 
@@ -34,24 +28,6 @@ export function Dashboard() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
 
-<<<<<<< HEAD
-  useEffect(() => {
-    const allTrades = loadTrades();
-    // Apply 2-week limit for free users
-    // In production, check user subscription status
-    const userSubscription = localStorage.getItem('user-subscription') || 'free';
-    const filteredTrades = userSubscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
-    setTrades(filteredTrades);
-  }, []);
-
-  const refreshTrades = () => {
-    const allTrades = loadTrades();
-    const userSubscription = localStorage.getItem('user-subscription') || 'free';
-    const filteredTrades = userSubscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
-    setTrades(filteredTrades);
-  };
-
-=======
   const refreshTrades = async () => {
     const allTrades = await fetchTrades();
     const subscription = getUserSubscription();
@@ -128,8 +104,6 @@ export function Dashboard() {
       if (autoSyncInterval) window.clearInterval(autoSyncInterval);
     };
   }, []);
-
->>>>>>> f8d36ea (Initial commit)
   // Get trades for current month
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -457,8 +431,4 @@ export function Dashboard() {
       />
     </div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> f8d36ea (Initial commit)

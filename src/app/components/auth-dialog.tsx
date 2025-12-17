@@ -5,24 +5,14 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { toast } from 'sonner';
-<<<<<<< HEAD
-=======
 import { getSupabaseClient } from '../utils/supabase';
->>>>>>> f8d36ea (Initial commit)
 
 interface AuthDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-<<<<<<< HEAD
-  onAuthSuccess: (email: string) => void;
-}
-
-export function AuthDialog({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) {
-=======
 }
 
 export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
->>>>>>> f8d36ea (Initial commit)
   const [isLoading, setIsLoading] = useState(false);
 
   // Login state
@@ -46,15 +36,6 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     setIsLoading(true);
 
     try {
-<<<<<<< HEAD
-      // For demo purposes, we'll simulate authentication
-      // In production, you would call your Supabase auth endpoint
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Simulate successful login
-      toast.success('Logged in successfully!');
-      onAuthSuccess(loginEmail);
-=======
       const supabase = getSupabaseClient();
       if (!supabase) {
         toast.error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
@@ -72,7 +53,6 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       }
 
       toast.success('Logged in successfully!');
->>>>>>> f8d36ea (Initial commit)
       onOpenChange(false);
       
       // Reset form
@@ -106,15 +86,6 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     setIsLoading(true);
 
     try {
-<<<<<<< HEAD
-      // For demo purposes, we'll simulate account creation
-      // In production, you would call your Supabase auth endpoint
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Simulate successful signup
-      toast.success('Account created successfully!');
-      onAuthSuccess(signupEmail);
-=======
       const supabase = getSupabaseClient();
       if (!supabase) {
         toast.error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
@@ -137,8 +108,6 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       } else {
         toast.success('Account created! Please check your email to confirm your account.');
       }
-
->>>>>>> f8d36ea (Initial commit)
       onOpenChange(false);
       
       // Reset form
@@ -155,11 +124,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-<<<<<<< HEAD
-      <DialogContent className="sm:max-w-md">
-=======
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
->>>>>>> f8d36ea (Initial commit)
         <DialogHeader>
           <DialogTitle>Welcome to TradeJournal</DialogTitle>
           <DialogDescription>

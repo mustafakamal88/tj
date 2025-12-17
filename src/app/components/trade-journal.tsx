@@ -5,16 +5,10 @@ import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Plus, Search, Filter, Trash2, Eye, Upload } from 'lucide-react';
-<<<<<<< HEAD
-import { loadTrades, deleteTrade } from '../utils/local-storage';
-import { formatCurrency, formatPercentage } from '../utils/trade-calculations';
-import { filterTradesForFreeUser } from '../utils/data-limit';
-=======
 import { deleteTrade, fetchTrades } from '../utils/trades-api';
 import { formatCurrency, formatPercentage } from '../utils/trade-calculations';
 import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
 import { mtBridgeSync } from '../utils/mt-bridge';
->>>>>>> f8d36ea (Initial commit)
 import type { Trade } from '../types/trade';
 import { format } from 'date-fns';
 import { AddTradeDialog } from './add-trade-dialog';
@@ -31,27 +25,6 @@ export function TradeJournal() {
   const [filterType, setFilterType] = useState<'all' | 'long' | 'short'>('all');
   const [filterOutcome, setFilterOutcome] = useState<'all' | 'win' | 'loss' | 'breakeven'>('all');
 
-<<<<<<< HEAD
-  useEffect(() => {
-    const allTrades = loadTrades();
-    const userSubscription = localStorage.getItem('user-subscription') || 'free';
-    const filteredTrades = userSubscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
-    setTrades(filteredTrades);
-  }, []);
-
-  const refreshTrades = () => {
-    const allTrades = loadTrades();
-    const userSubscription = localStorage.getItem('user-subscription') || 'free';
-    const filteredTrades = userSubscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
-    setTrades(filteredTrades);
-  };
-
-  const handleDeleteTrade = (tradeId: string, symbol: string) => {
-    if (window.confirm(`Are you sure you want to delete the trade for ${symbol}?`)) {
-      deleteTrade(tradeId);
-      toast.success('Trade deleted successfully');
-      refreshTrades();
-=======
   const refreshTrades = async () => {
     const allTrades = await fetchTrades();
     const subscription = getUserSubscription();
@@ -137,7 +110,6 @@ export function TradeJournal() {
       }
       toast.success('Trade deleted successfully');
       void refreshTrades();
->>>>>>> f8d36ea (Initial commit)
     }
   };
 
@@ -350,8 +322,4 @@ export function TradeJournal() {
       )}
     </div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> f8d36ea (Initial commit)

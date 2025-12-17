@@ -2,8 +2,6 @@ import type { Trade } from '../types/trade';
 
 const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000; // 14 days in milliseconds
 
-<<<<<<< HEAD
-=======
 export const FREE_TRADE_LIMIT = 15;
 
 export const USER_SUBSCRIPTION_KEY = 'user-subscription';
@@ -63,7 +61,6 @@ export function getFreePlanAddTradeBlockMessage(reason: FreePlanBlockReason): st
   }
 }
 
->>>>>>> f8d36ea (Initial commit)
 export function filterTradesForFreeUser(trades: Trade[]): Trade[] {
   const now = new Date();
   const twoWeeksAgo = new Date(now.getTime() - TWO_WEEKS_MS);
@@ -83,9 +80,5 @@ export function isTradeWithinFreeLimit(tradeDate: string): boolean {
 }
 
 export function getDataLimitMessage(): string {
-<<<<<<< HEAD
-  return 'Free plan is limited to the last 2 weeks of data. Upgrade to Pro or Premium for unlimited historical data.';
-=======
   return `Free plan is limited to the last 2 weeks of data and ${FREE_TRADE_LIMIT} trades (or 14 days). Upgrade to Pro or Premium for unlimited access.`;
->>>>>>> f8d36ea (Initial commit)
 }

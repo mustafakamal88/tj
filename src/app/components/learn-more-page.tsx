@@ -102,11 +102,7 @@ export function LearnMorePage() {
     },
     {
       question: 'How do I connect MT4/MT5 for auto-sync?',
-<<<<<<< HEAD
-      answer: 'Click "MT4/MT5 Sync" on the dashboard, enter your broker server, account number, and password. Enable auto-sync to import trades every 5 minutes (requires Pro or Premium plan).',
-=======
       answer: 'Click "MT4/MT5 Sync" on the dashboard, enter your broker server and account number, then copy the Sync URL + Sync Key into the TJ MetaTrader connector (EA). Keep MetaTrader running to push trades automatically (requires Pro or Premium plan).',
->>>>>>> f8d36ea (Initial commit)
     },
   ];
 
@@ -185,8 +181,4 @@ export function LearnMorePage() {
       </div>
     </div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> f8d36ea (Initial commit)

@@ -34,18 +34,6 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
   ];
 
   return (
-<<<<<<< HEAD
-    <nav className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          {/* Logo */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => onNavigate('home')}>
-            <svg width="40" height="40" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d={svgPaths.p20226f80} fill="#34a85a"/>
-            </svg>
-            <span className="font-bold text-lg text-foreground">Trade Journal</span>
-          </div>
-=======
     <nav className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
@@ -70,37 +58,22 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
               <span className="text-[#34a85a]">Journal</span>
             </span>
           </button>
->>>>>>> f8d36ea (Initial commit)
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isProtected = item.protected && !user;
-<<<<<<< HEAD
-              return (
-                <Button
-                  key={item.id}
-                  variant={currentPage === item.id ? 'default' : 'ghost'}
-=======
               const isActive = currentPage === item.id;
               return (
                 <Button
                   key={item.id}
                   variant="ghost"
                   size="sm"
->>>>>>> f8d36ea (Initial commit)
                   onClick={() => {
                     onNavigate(item.id);
                     setMobileMenuOpen(false);
                   }}
-<<<<<<< HEAD
-                  className={`gap-2 ${currentPage === item.id ? 'bg-[#34a85a] hover:bg-[#2d9450] text-white' : ''}`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {item.label}
-                  {isProtected && <Lock className="w-3 h-3 text-muted-foreground" />}
-=======
                   aria-current={isActive ? 'page' : undefined}
                   className={`gap-2 ${
                     isActive
@@ -111,7 +84,6 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                   <Icon className="w-4 h-4 hidden lg:block" />
                   {item.label}
                   {isProtected && <Lock className="w-3 h-3 opacity-70" />}
->>>>>>> f8d36ea (Initial commit)
                 </Button>
               );
             })}
@@ -147,9 +119,6 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-<<<<<<< HEAD
-              <Button onClick={onAuthClick} className="bg-[#34a85a] hover:bg-[#2d9450]">Login</Button>
-=======
               <>
                 <Button variant="ghost" onClick={onAuthClick}>
                   Log in
@@ -158,7 +127,6 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                   Get started
                 </Button>
               </>
->>>>>>> f8d36ea (Initial commit)
             )}
           </div>
 
@@ -169,11 +137,8 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
               variant="ghost"
               size="icon"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-<<<<<<< HEAD
-=======
               aria-expanded={mobileMenuOpen}
               aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
->>>>>>> f8d36ea (Initial commit)
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </Button>
@@ -186,29 +151,16 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
             <div className="flex flex-col gap-2">
               {navItems.map((item) => {
                 const Icon = item.icon;
-<<<<<<< HEAD
-                return (
-                  <Button
-                    key={item.id}
-                    variant={currentPage === item.id ? 'default' : 'ghost'}
-=======
                 const isProtected = item.protected && !user;
                 const isActive = currentPage === item.id;
                 return (
                   <Button
                     key={item.id}
                     variant="ghost"
->>>>>>> f8d36ea (Initial commit)
                     onClick={() => {
                       onNavigate(item.id);
                       setMobileMenuOpen(false);
                     }}
-<<<<<<< HEAD
-                    className={`gap-2 justify-start ${currentPage === item.id ? 'bg-[#34a85a] hover:bg-[#2d9450] text-white' : ''}`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {item.label}
-=======
                     aria-current={isActive ? 'page' : undefined}
                     className={`gap-2 justify-start ${
                       isActive
@@ -219,7 +171,6 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                     <Icon className="w-4 h-4" />
                     {item.label}
                     {isProtected && <Lock className="w-3 h-3 opacity-70" />}
->>>>>>> f8d36ea (Initial commit)
                   </Button>
                 );
               })}
@@ -254,17 +205,6 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                     </Button>
                   </>
                 ) : (
-<<<<<<< HEAD
-                  <Button
-                    onClick={() => {
-                      onAuthClick();
-                      setMobileMenuOpen(false);
-                    }}
-                    className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
-                  >
-                    Login
-                  </Button>
-=======
                   <div className="grid grid-cols-1 gap-2">
                     <Button
                       variant="outline"
@@ -286,7 +226,6 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                       Get started
                     </Button>
                   </div>
->>>>>>> f8d36ea (Initial commit)
                 )}
               </div>
             </div>
@@ -295,8 +234,4 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
       </div>
     </nav>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> f8d36ea (Initial commit)

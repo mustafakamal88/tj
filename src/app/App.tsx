@@ -10,11 +10,8 @@ import { SubscriptionDialog } from './components/subscription-dialog';
 import { ThemeProvider } from './components/theme-provider';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
-<<<<<<< HEAD
-=======
 import { getSupabaseClient } from './utils/supabase';
 import { ensureProfile, getMyProfile } from './utils/profile';
->>>>>>> f8d36ea (Initial commit)
 
 export type Page = 'home' | 'dashboard' | 'journal' | 'analytics' | 'learn';
 
@@ -24,14 +21,6 @@ function AppContent() {
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [isSubscriptionDialogOpen, setIsSubscriptionDialogOpen] = useState(false);
 
-<<<<<<< HEAD
-  // Load user from localStorage on mount
-  useEffect(() => {
-    const savedUser = localStorage.getItem('trade-journal-user');
-    if (savedUser) {
-      setUser(savedUser);
-    }
-=======
   useEffect(() => {
     const supabase = getSupabaseClient();
     if (!supabase) return;
@@ -91,7 +80,6 @@ function AppContent() {
     window.addEventListener('open-subscription-dialog', openSubscription as EventListener);
     return () =>
       window.removeEventListener('open-subscription-dialog', openSubscription as EventListener);
->>>>>>> f8d36ea (Initial commit)
   }, []);
 
   // Protected route logic
@@ -127,20 +115,6 @@ function AppContent() {
     }
   };
 
-<<<<<<< HEAD
-  const handleAuthSuccess = (email: string) => {
-    setUser(email);
-    localStorage.setItem('trade-journal-user', email);
-    toast.success('Welcome back!');
-    // Auto navigate to dashboard after login
-    setCurrentPage('dashboard');
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('trade-journal-user');
-    setCurrentPage('home');
-=======
   const handleLogout = async () => {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -157,7 +131,6 @@ function AppContent() {
     }
 
     // onAuthStateChange will also run; keep this message simple.
->>>>>>> f8d36ea (Initial commit)
     toast.success('Logged out successfully');
   };
 
@@ -175,10 +148,6 @@ function AppContent() {
       <AuthDialog
         open={isAuthDialogOpen}
         onOpenChange={setIsAuthDialogOpen}
-<<<<<<< HEAD
-        onAuthSuccess={handleAuthSuccess}
-=======
->>>>>>> f8d36ea (Initial commit)
       />
       <SubscriptionDialog
         open={isSubscriptionDialogOpen}
@@ -195,8 +164,4 @@ export default function App() {
       <AppContent />
     </ThemeProvider>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> f8d36ea (Initial commit)

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import { useState } from 'react';
-=======
 import { useEffect, useMemo, useState } from 'react';
->>>>>>> f8d36ea (Initial commit)
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -11,29 +7,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Switch } from './ui/switch';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
-<<<<<<< HEAD
-import { toast } from 'sonner';
-import { Activity, CheckCircle2, XCircle } from 'lucide-react';
-=======
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
 import { Activity, CheckCircle2, Copy, XCircle } from 'lucide-react';
 import { getUserSubscription } from '../utils/data-limit';
 import { getSupabaseClient } from '../utils/supabase';
 import { isMtBridgeConfigured, mtBridgeConnect, mtBridgeDisconnect, mtBridgeSync } from '../utils/mt-bridge';
->>>>>>> f8d36ea (Initial commit)
 
 interface MTConnectionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-<<<<<<< HEAD
-export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogProps) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [autoSync, setAutoSync] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-=======
 type SavedMtConnection = {
   method?: 'connector' | 'metaapi';
   platform: 'MT4' | 'MT5';
@@ -62,24 +47,16 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
   const [connectedPlatform, setConnectedPlatform] = useState<'MT4' | 'MT5' | null>(null);
   const [connectedAt, setConnectedAt] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
->>>>>>> f8d36ea (Initial commit)
 
   // MT4 Connection
   const [mt4Server, setMt4Server] = useState('');
   const [mt4Account, setMt4Account] = useState('');
-<<<<<<< HEAD
-  const [mt4Password, setMt4Password] = useState('');
-=======
   const [mt4InvestorPassword, setMt4InvestorPassword] = useState('');
   const [mt4AccountType, setMt4AccountType] = useState<'live' | 'demo'>('live');
->>>>>>> f8d36ea (Initial commit)
 
   // MT5 Connection
   const [mt5Server, setMt5Server] = useState('');
   const [mt5Account, setMt5Account] = useState('');
-<<<<<<< HEAD
-  const [mt5Password, setMt5Password] = useState('');
-=======
   const [mt5InvestorPassword, setMt5InvestorPassword] = useState('');
   const [mt5AccountType, setMt5AccountType] = useState<'live' | 'demo'>('live');
   
@@ -133,36 +110,11 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
       toast.error('Failed to copy');
     }
   };
->>>>>>> f8d36ea (Initial commit)
 
   const handleConnect = async (platform: 'MT4' | 'MT5') => {
     setIsConnecting(true);
 
     try {
-<<<<<<< HEAD
-      // Simulate API connection
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Save connection details to localStorage
-      const connectionData = {
-        platform,
-        server: platform === 'MT4' ? mt4Server : mt5Server,
-        account: platform === 'MT4' ? mt4Account : mt5Account,
-        connectedAt: new Date().toISOString(),
-      };
-      
-      localStorage.setItem('mt-connection', JSON.stringify(connectionData));
-      localStorage.setItem('mt-auto-sync', autoSync.toString());
-      
-      setIsConnected(true);
-      toast.success(`Connected to ${platform} successfully!`);
-      
-      if (autoSync) {
-        toast.info('Auto-sync enabled. Trades will sync every 5 minutes.');
-      }
-    } catch (error) {
-      toast.error('Connection failed. Please check your credentials.');
-=======
       const server = platform === 'MT4' ? mt4Server : mt5Server;
       const account = platform === 'MT4' ? mt4Account : mt5Account;
       const desiredAutoSync = isAutoSyncLocked ? false : autoSync;
@@ -281,21 +233,11 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
     } catch (error) {
       console.error('MT connect error', error);
       toast.error(error instanceof Error ? error.message : 'Connection failed. Please try again.');
->>>>>>> f8d36ea (Initial commit)
     } finally {
       setIsConnecting(false);
     }
   };
 
-<<<<<<< HEAD
-  const handleDisconnect = () => {
-    localStorage.removeItem('mt-connection');
-    localStorage.removeItem('mt-auto-sync');
-    setIsConnected(false);
-    toast.success('Disconnected from MetaTrader');
-  };
-
-=======
   const handleDisconnect = async () => {
     try {
       if (connectionMethod === 'bridge') {
@@ -354,7 +296,6 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
     }
   };
 
->>>>>>> f8d36ea (Initial commit)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
@@ -375,13 +316,9 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
                   <div>
                     <p className="font-medium">Connected</p>
                     <p className="text-sm text-muted-foreground">
-<<<<<<< HEAD
-                      Auto-sync: {autoSync ? 'Enabled' : 'Disabled'}
-=======
                       {connectedPlatform ? `${connectedPlatform} · ` : ''}
                       {connectionMethod === 'metaapi' ? 'Direct (MetaApi)' : 'Connector (EA)'} · Auto-sync:{' '}
                       {autoSync ? 'Enabled' : 'Disabled'}
->>>>>>> f8d36ea (Initial commit)
                     </p>
                   </div>
                 </>
@@ -396,11 +333,7 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
               )}
             </div>
             {isConnected && (
-<<<<<<< HEAD
-              <Button variant="outline" onClick={handleDisconnect}>
-=======
               <Button variant="outline" onClick={() => void handleDisconnect()}>
->>>>>>> f8d36ea (Initial commit)
                 Disconnect
               </Button>
             )}
@@ -408,158 +341,6 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
         </Card>
 
         {!isConnected && (
-<<<<<<< HEAD
-          <>
-            <Tabs defaultValue="mt4" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="mt4">MetaTrader 4</TabsTrigger>
-                <TabsTrigger value="mt5">MetaTrader 5</TabsTrigger>
-              </TabsList>
-
-              {/* MT4 Tab */}
-              <TabsContent value="mt4" className="space-y-4">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="mt4-server">Server</Label>
-                    <Input
-                      id="mt4-server"
-                      placeholder="e.g., BrokerName-Live"
-                      value={mt4Server}
-                      onChange={(e) => setMt4Server(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="mt4-account">Account Number</Label>
-                    <Input
-                      id="mt4-account"
-                      placeholder="Your MT4 account number"
-                      value={mt4Account}
-                      onChange={(e) => setMt4Account(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="mt4-password">Password</Label>
-                    <Input
-                      id="mt4-password"
-                      type="password"
-                      placeholder="Your MT4 password"
-                      value={mt4Password}
-                      onChange={(e) => setMt4Password(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="auto-sync-mt4">Auto-Sync</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Automatically sync trades every 5 minutes
-                      </p>
-                    </div>
-                    <Switch
-                      id="auto-sync-mt4"
-                      checked={autoSync}
-                      onCheckedChange={setAutoSync}
-                    />
-                  </div>
-
-                  <Button
-                    onClick={() => handleConnect('MT4')}
-                    disabled={!mt4Server || !mt4Account || !mt4Password || isConnecting}
-                    className="w-full"
-                  >
-                    {isConnecting ? (
-                      <>
-                        <Activity className="w-4 h-4 mr-2 animate-spin" />
-                        Connecting...
-                      </>
-                    ) : (
-                      'Connect MT4'
-                    )}
-                  </Button>
-                </div>
-              </TabsContent>
-
-              {/* MT5 Tab */}
-              <TabsContent value="mt5" className="space-y-4">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="mt5-server">Server</Label>
-                    <Input
-                      id="mt5-server"
-                      placeholder="e.g., BrokerName-Live"
-                      value={mt5Server}
-                      onChange={(e) => setMt5Server(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="mt5-account">Account Number</Label>
-                    <Input
-                      id="mt5-account"
-                      placeholder="Your MT5 account number"
-                      value={mt5Account}
-                      onChange={(e) => setMt5Account(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="mt5-password">Password</Label>
-                    <Input
-                      id="mt5-password"
-                      type="password"
-                      placeholder="Your MT5 password"
-                      value={mt5Password}
-                      onChange={(e) => setMt5Password(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="auto-sync-mt5">Auto-Sync</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Automatically sync trades every 5 minutes
-                      </p>
-                    </div>
-                    <Switch
-                      id="auto-sync-mt5"
-                      checked={autoSync}
-                      onCheckedChange={setAutoSync}
-                    />
-                  </div>
-
-                  <Button
-                    onClick={() => handleConnect('MT5')}
-                    disabled={!mt5Server || !mt5Account || !mt5Password || isConnecting}
-                    className="w-full"
-                  >
-                    {isConnecting ? (
-                      <>
-                        <Activity className="w-4 h-4 mr-2 animate-spin" />
-                        Connecting...
-                      </>
-                    ) : (
-                      'Connect MT5'
-                    )}
-                  </Button>
-                </div>
-              </TabsContent>
-            </Tabs>
-
-            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg p-4 text-sm">
-              <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">
-                Note: For live syncing to work
-              </p>
-              <ul className="list-disc list-inside space-y-1 text-blue-800 dark:text-blue-200">
-                <li>Your MetaTrader terminal must be running</li>
-                <li>You need an active internet connection</li>
-                <li>Make sure your broker supports API access</li>
-                <li>Requires Pro or Premium subscription</li>
-              </ul>
-            </div>
-          </>
-=======
           <Tabs
             value={connectionMethod}
             onValueChange={(value) => setConnectionMethod(value as 'metaapi' | 'connector')}
@@ -1037,7 +818,6 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
               </ol>
             </div>
           </div>
->>>>>>> f8d36ea (Initial commit)
         )}
       </DialogContent>
     </Dialog>

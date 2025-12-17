@@ -2,10 +2,6 @@ import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
-<<<<<<< HEAD
-const app = new Hono();
-
-=======
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 const app = new Hono();
 
@@ -177,23 +173,15 @@ function pnlPercentage(entry: number, exit: number, type: "long" | "short"): num
   return type === "short" ? -raw : raw;
 }
 
->>>>>>> f8d36ea (Initial commit)
 // Enable logger
 app.use('*', logger(console.log));
 
 // Enable CORS for all routes and methods
 app.use(
-<<<<<<< HEAD
-  "/*",
-  cors({
-    origin: "*",
-    allowHeaders: ["Content-Type", "Authorization"],
-=======
   "*",
   cors({
     origin: "*",
     allowHeaders: ["Content-Type", "Authorization", "X-TJ-Sync-Key"],
->>>>>>> f8d36ea (Initial commit)
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
@@ -205,9 +193,6 @@ app.get("/make-server-a46fa5d6/health", (c) => {
   return c.json({ status: "ok" });
 });
 
-<<<<<<< HEAD
-Deno.serve(app.fetch);
-=======
 // UI actions (called via supabase.functions.invoke('server', ...))
 const handleAction = async (c: any) => {
   try {
@@ -438,4 +423,3 @@ app.post("/mt/sync", handleMtSync);
 app.post(`${MAKE_SERVER_PREFIX}/mt/sync`, handleMtSync);
 
 Deno.serve(app.fetch);
->>>>>>> f8d36ea (Initial commit)
