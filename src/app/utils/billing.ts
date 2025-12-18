@@ -3,6 +3,7 @@ import { getSupabaseClient } from './supabase';
 export type BillingAction = 'create_checkout_session' | 'create_portal_session';
 
 type BillingUrlResponse = { url: string };
+type BillingHealthResponse = { ok: true; ts: string };
 
 function bestErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -27,28 +28,48 @@ async function invokeBillingRaw(action: string, payload: Record<string, unknown>
 
   console.log('[billing] invoking', action, payload);
 
-  const { data, error } = await supabase.functions.invoke('billing', {
-    body: { action, ...payload },
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  try {
+    const { data, error } = await supabase.functions.invoke('billing', {
+      body: { action, ...payload },
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-  if (error) {
-    console.log('[billing] invoke error', error);
-    const anyErr = error as any;
-    try {
-      if (anyErr?.context && typeof anyErr.context.json === 'function') {
-        const detail = await anyErr.context.json();
-        if (detail?.error) throw new Error(String(detail.error));
-        if (detail?.message) throw new Error(String(detail.message));
+    if (error || data == null) {
+      console.log('[billing] invoke result error?', { hasError: !!error, dataType: typeof data, data });
+      if (error) {
+        console.log('[billing] invoke error object', error);
+        const anyErr = error as any;
+        const ctx = anyErr?.context;
+        if (ctx) {
+          console.log('[billing] error.context', ctx);
+          const resp: any = ctx?.response ?? ctx;
+          if (resp) {
+            console.log('[billing] error.context.response', {
+              status: resp.status,
+              statusText: resp.statusText,
+              headers: typeof resp.headers?.forEach === 'function' ? Array.from(resp.headers.entries()) : resp.headers,
+            });
+            if (typeof resp.text === 'function') {
+              try {
+                const raw = await resp.text();
+                console.log('[billing] error.context.response.text()', raw);
+              } catch (readErr) {
+                console.log('[billing] failed to read error response text', readErr);
+              }
+            }
+          }
+        }
       }
-    } catch (e) {
-      if (e instanceof Error) throw e;
-    }
-    throw new Error(bestErrorMessage(error));
-  }
 
-  console.log('[billing] response', data);
-  return data;
+      throw new Error(bestErrorMessage(error ?? 'Billing returned no data.'));
+    }
+
+    console.log('[billing] response', data);
+    return data;
+  } catch (thrown) {
+    console.log('[billing] invoke threw', thrown);
+    throw thrown instanceof Error ? thrown : new Error(bestErrorMessage(thrown));
+  }
 }
 
 export async function invokeBilling(action: BillingAction, payload: Record<string, unknown> = {}): Promise<BillingUrlResponse> {
@@ -58,6 +79,14 @@ export async function invokeBilling(action: BillingAction, payload: Record<strin
     throw new Error('Billing response missing checkout URL.');
   }
   return { url };
+}
+
+export async function invokeBillingHealth(): Promise<BillingHealthResponse> {
+  const data = await invokeBillingRaw('health');
+  const ok = (data as any)?.ok;
+  const ts = (data as any)?.ts;
+  if (ok !== true || typeof ts !== 'string') throw new Error('Billing health check returned invalid response.');
+  return { ok: true, ts };
 }
 
 export async function invokeBillingUrl(action: string, payload: Record<string, unknown> = {}): Promise<BillingUrlResponse> {

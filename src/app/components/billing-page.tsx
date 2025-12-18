@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import type { SubscriptionPlan } from '../utils/data-limit';
 import { useProfile } from '../utils/use-profile';
 import { useAuth } from '../utils/auth';
-import { invokeBilling, invokeBillingUrl } from '../utils/billing';
+import { invokeBilling, invokeBillingHealth, invokeBillingUrl } from '../utils/billing';
 
 type PaymentMethod = 'stripe' | 'paypal' | 'applepay' | 'googlepay' | 'crypto';
 
@@ -128,6 +128,19 @@ export function BillingPage() {
       toast.info('Checkout canceled.');
     }
   }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    void (async () => {
+      try {
+        const res = await invokeBillingHealth();
+        console.log('[billing] health ok', res);
+      } catch (e) {
+        console.log('[billing] health failed', e);
+      }
+    })();
+  }, [authLoading, user?.id]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-background">

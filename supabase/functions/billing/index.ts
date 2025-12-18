@@ -157,11 +157,15 @@ app.options("*", (c) => c.text("", 204));
 // Action-based router (used by supabase.functions.invoke("billing", { body })).
 app.post("/", async (c) => {
   try {
-    const userId = await requireUserIdFromRequest(c);
     const body = await c.req.json().catch(() => null);
     const action = body?.action as string | undefined;
     if (!action) return c.json({ error: "Missing action." }, 400);
 
+    if (action === "health") {
+      return c.json({ ok: true, ts: new Date().toISOString() });
+    }
+
+    const userId = await requireUserIdFromRequest(c);
     const supabase = getSupabaseAdmin();
 
     if (action === "create_checkout_session") {
