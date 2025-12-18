@@ -1,34 +1,11 @@
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
-import { logger } from "npm:hono/logger";
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 
 type SubscriptionPlan = "free" | "pro" | "premium";
 type SubscriptionStatus = "trialing" | "active" | "past_due" | "canceled" | "incomplete";
 
 const app = new Hono();
-
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, stripe-signature",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-function withCors(res: Response): Response {
-  const headers = new Headers(res.headers);
-  for (const [key, value] of Object.entries(CORS_HEADERS)) {
-    if (!headers.has(key)) headers.set(key, value);
-  }
-  return new Response(res.body, {
-    status: res.status,
-    statusText: res.statusText,
-    headers,
-  });
-}
-
-function corsJson(c: any, body: unknown, status = 200): Response {
-  return withCors(c.json(body, status));
-}
 
 function getBearerToken(authHeader: string | undefined | null): string | null {
   if (!authHeader) return null;
@@ -164,7 +141,6 @@ function mapPlanToPayPalPlanId(plan: SubscriptionPlan): string {
   throw new Error("Invalid plan for PayPal.");
 }
 
-app.use("*", logger(console.log));
 app.use(
   "*",
   cors({
@@ -176,7 +152,7 @@ app.use(
   }),
 );
 
-app.options("*", (c) => withCors(c.body(null, 204)));
+app.options("*", (c) => c.text("", 204));
 
 // Action-based router (used by supabase.functions.invoke("billing", { body })).
 app.post("/", async (c) => {
@@ -184,13 +160,13 @@ app.post("/", async (c) => {
     const userId = await requireUserIdFromRequest(c);
     const body = await c.req.json().catch(() => null);
     const action = body?.action as string | undefined;
-    if (!action) return corsJson(c, { error: "Missing action." }, 400);
+    if (!action) return c.json({ error: "Missing action." }, 400);
 
     const supabase = getSupabaseAdmin();
 
     if (action === "create_checkout_session") {
       const plan = body?.plan as SubscriptionPlan | undefined;
-      if (plan !== "pro" && plan !== "premium") return corsJson(c, { error: "Invalid plan." }, 400);
+      if (plan !== "pro" && plan !== "premium") return c.json({ error: "Invalid plan." }, 400);
 
       const siteUrl = requireEnv("SITE_URL");
       const price = mapPlanToStripePrice(plan);
@@ -213,7 +189,7 @@ app.post("/", async (c) => {
         }),
       );
 
-      return corsJson(c, { url: session.url });
+      return c.json({ url: session.url });
     }
 
     if (action === "create_portal_session") {
@@ -223,9 +199,9 @@ app.post("/", async (c) => {
         .select("stripe_customer_id")
         .eq("id", userId)
         .maybeSingle();
-      if (profErr) return corsJson(c, { error: profErr.message }, 500);
+      if (profErr) return c.json({ error: profErr.message }, 500);
       const customerId = (prof as any)?.stripe_customer_id as string | null;
-      if (!customerId) return corsJson(c, { error: "No Stripe customer found for this user." }, 400);
+      if (!customerId) return c.json({ error: "No Stripe customer found for this user." }, 400);
 
       const portal = await stripeRequest(
         "/billing_portal/sessions",
@@ -235,12 +211,12 @@ app.post("/", async (c) => {
         }),
       );
 
-      return corsJson(c, { url: portal.url });
+      return c.json({ url: portal.url });
     }
 
     if (action === "paypal_create_subscription") {
       const plan = body?.plan as SubscriptionPlan | undefined;
-      if (plan !== "pro" && plan !== "premium") return corsJson(c, { error: "Invalid plan." }, 400);
+      if (plan !== "pro" && plan !== "premium") return c.json({ error: "Invalid plan." }, 400);
       const planId = mapPlanToPayPalPlanId(plan);
       const siteUrl = requireEnv("SITE_URL");
 
@@ -257,14 +233,14 @@ app.post("/", async (c) => {
       const approve = Array.isArray(sub?.links)
         ? sub.links.find((l: any) => l?.rel === "approve")?.href
         : null;
-      if (!approve) return corsJson(c, { error: "Missing PayPal approval URL." }, 500);
-      return corsJson(c, { url: approve });
+      if (!approve) return c.json({ error: "Missing PayPal approval URL." }, 500);
+      return c.json({ url: approve });
     }
 
     if (action === "paypal_verify_subscription") {
       const subscriptionId = String(body?.subscriptionId ?? "");
       const plan = (body?.plan as SubscriptionPlan | undefined) ?? "pro";
-      if (!subscriptionId) return corsJson(c, { error: "Missing subscriptionId." }, 400);
+      if (!subscriptionId) return c.json({ error: "Missing subscriptionId." }, 400);
 
       const sub = await paypalGet(`/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
       const status = String(sub?.status ?? "ACTIVE").toLowerCase() as SubscriptionStatus;
@@ -280,19 +256,19 @@ app.post("/", async (c) => {
         })
         .eq("id", userId);
 
-      return corsJson(c, { plan });
+      return c.json({ plan });
     }
 
-    return corsJson(c, { error: "Unknown action." }, 400);
+    return c.json({ error: "Unknown action." }, 400);
   } catch (error) {
     console.error("[billing] error", error);
     if (error instanceof Error && error.message === "AUTH_MISSING") {
-      return corsJson(c, { error: "Please login to continue." }, 401);
+      return c.json({ error: "Please login to continue." }, 401);
     }
     if (error instanceof Error && error.message === "AUTH_INVALID") {
-      return corsJson(c, { error: "Invalid session. Please login again." }, 401);
+      return c.json({ error: "Invalid session. Please login again." }, 401);
     }
-    return corsJson(c, { error: error instanceof Error ? error.message : "Server error." }, 500);
+    return c.json({ error: error instanceof Error ? error.message : "Server error." }, 500);
   }
 });
 
