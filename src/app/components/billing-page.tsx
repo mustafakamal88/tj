@@ -63,37 +63,22 @@ export function BillingPage() {
     const supabase = getSupabaseClient();
     if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
     const { data, error } = await supabase.functions.invoke('billing', { body: { action, ...body } });
-    if (error) throw new Error(error.message);
+    if (error) {
+      // Try to extract JSON error from the edge response.
+      const anyErr = error as any;
+      try {
+        if (anyErr?.context && typeof anyErr.context.json === 'function') {
+          const detail = await anyErr.context.json();
+          if (detail?.error) throw new Error(String(detail.error));
+          if (detail?.message) throw new Error(String(detail.message));
+        }
+      } catch (e) {
+        if (e instanceof Error) throw e;
+      }
+      throw new Error(error.message);
+    }
     if (!data?.ok) throw new Error(data?.error ?? 'Billing request failed.');
     return data.data as T;
-  };
-
-  const createStripeCheckoutSession = async (selectedPlan: Exclude<SubscriptionPlan, 'free'>): Promise<string> => {
-    const supabase = getSupabaseClient();
-    if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
-
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError) throw new Error(sessionError.message);
-    const accessToken = sessionData.session?.access_token;
-    if (!accessToken) throw new Error('Please login to continue.');
-
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-    if (!supabaseUrl) throw new Error('Missing VITE_SUPABASE_URL.');
-
-    const res = await fetch(`${supabaseUrl}/functions/v1/billing/create-checkout-session`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ plan: selectedPlan }),
-    });
-    const json = (await res.json().catch(() => ({}))) as any;
-    if (!res.ok) {
-      throw new Error(json?.error ?? `Stripe checkout failed (HTTP ${res.status})`);
-    }
-    if (!json?.url) throw new Error('Stripe checkout URL missing.');
-    return String(json.url);
   };
 
   const startCheckout = async (plan: Exclude<SubscriptionPlan, 'free'>, method: PaymentMethod) => {
@@ -101,8 +86,8 @@ export function BillingPage() {
     setIsLoading(true);
     try {
       if (method === 'stripe') {
-        const url = await createStripeCheckoutSession(plan);
-        window.location.href = url;
+        const res = await invokeBilling<{ url: string }>('create-checkout-session', { plan });
+        window.location.href = res.url;
         return;
       }
       if (method === 'paypal') {
@@ -123,6 +108,7 @@ export function BillingPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const success = params.get('success');
+    const sessionId = params.get('session_id');
     const canceled = params.get('canceled');
     if (success === '1') {
       toast.success('Payment successful. Activating your plan…');
@@ -131,6 +117,11 @@ export function BillingPage() {
         // Webhook may take a moment — retry once.
         window.setTimeout(() => void refresh(), 1500);
       })();
+      if (sessionId) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('session_id');
+        window.history.replaceState({}, '', url.toString());
+      }
     } else if (canceled === '1') {
       toast.info('Checkout canceled.');
     }

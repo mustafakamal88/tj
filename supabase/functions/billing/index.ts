@@ -175,61 +175,6 @@ app.use(
   }),
 );
 
-// Stripe Checkout (test mode) — creates a Checkout session for the logged-in user.
-app.post("/create-checkout-session", async (c) => {
-  try {
-    const userId = await requireUserIdFromRequest(c);
-    const body = await c.req.json().catch(() => null);
-    const plan = body?.plan as SubscriptionPlan | undefined;
-    if (plan !== "pro" && plan !== "premium") return c.json({ error: "Invalid plan." }, 400);
-
-    const siteUrl = requireEnv("SITE_URL");
-    const price = mapPlanToStripePrice(plan);
-    const supabase = getSupabaseAdmin();
-
-    // Create customer if missing
-    const { data: prof, error: profErr } = await supabase
-      .from("profiles")
-      .select("email,stripe_customer_id")
-      .eq("id", userId)
-      .maybeSingle();
-    if (profErr) return c.json({ error: profErr.message }, 500);
-
-    let customerId = prof?.stripe_customer_id as string | null;
-    if (!customerId) {
-      const created = await stripeRequest(
-        "/customers",
-        new URLSearchParams({
-          email: String(prof?.email ?? ""),
-          metadata: JSON.stringify({ user_id: userId }),
-        }),
-      );
-      customerId = created.id;
-      await supabase.from("profiles").update({ stripe_customer_id: customerId }).eq("id", userId);
-    }
-
-    const session = await stripeRequest(
-      "/checkout/sessions",
-      new URLSearchParams({
-        mode: "subscription",
-        customer: customerId,
-        "line_items[0][price]": price,
-        "line_items[0][quantity]": "1",
-        success_url: `${siteUrl}/billing?success=1`,
-        cancel_url: `${siteUrl}/billing?canceled=1`,
-        "metadata[user_id]": userId,
-        "metadata[plan]": plan,
-        client_reference_id: userId,
-      }),
-    );
-
-    return c.json({ url: session.url });
-  } catch (error) {
-    console.error("[billing] create-checkout-session error", error);
-    return c.json({ error: error instanceof Error ? error.message : "Server error." }, 500);
-  }
-});
-
 // Stripe webhook — verify signature and apply upgrades.
 app.post("/stripe-webhook", async (c) => {
   try {
@@ -284,7 +229,7 @@ app.post("/stripe-webhook", async (c) => {
   }
 });
 
-// Backwards compatible handler (legacy actions). Kept for PayPal/older clients.
+// Action-based router (used by supabase.functions.invoke("billing", { body })).
 app.post("/", async (c) => {
   try {
     const userId = await requireUserIdFromRequest(c);
@@ -293,6 +238,52 @@ app.post("/", async (c) => {
     if (!action) return fail(c, 400, "Missing action.");
 
     const supabase = getSupabaseAdmin();
+
+    if (action === "create-checkout-session") {
+      const plan = body?.plan as SubscriptionPlan | undefined;
+      if (plan !== "pro" && plan !== "premium") return fail(c, 400, "Invalid plan.");
+
+      const siteUrl = requireEnv("SITE_URL");
+      const price = mapPlanToStripePrice(plan);
+
+      // Create customer if missing
+      const { data: prof, error: profErr } = await supabase
+        .from("profiles")
+        .select("email,stripe_customer_id")
+        .eq("id", userId)
+        .maybeSingle();
+      if (profErr) return fail(c, 500, profErr.message);
+
+      let customerId = prof?.stripe_customer_id as string | null;
+      if (!customerId) {
+        const created = await stripeRequest(
+          "/customers",
+          new URLSearchParams({
+            email: String(prof?.email ?? ""),
+            metadata: JSON.stringify({ user_id: userId }),
+          }),
+        );
+        customerId = created.id;
+        await supabase.from("profiles").update({ stripe_customer_id: customerId }).eq("id", userId);
+      }
+
+      const session = await stripeRequest(
+        "/checkout/sessions",
+        new URLSearchParams({
+          mode: "subscription",
+          customer: customerId,
+          "line_items[0][price]": price,
+          "line_items[0][quantity]": "1",
+          success_url: `${siteUrl}/billing?success=1&session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${siteUrl}/billing?canceled=1`,
+          "metadata[user_id]": userId,
+          "metadata[plan]": plan,
+          client_reference_id: userId,
+        }),
+      );
+
+      return ok(c, { url: session.url });
+    }
 
     if (action === "stripe_create_checkout") {
       const plan = body?.plan as SubscriptionPlan | undefined;
