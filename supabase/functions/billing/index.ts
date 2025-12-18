@@ -164,8 +164,7 @@ app.use(
 
 app.options("*", (c) => c.text("", 204));
 
-// Action-based router (used by supabase.functions.invoke("billing", { body })).
-app.post("/", async (c) => {
+const billingHandler = async (c: any) => {
   try {
     const body = await c.req.json().catch(() => null);
     const action = body?.action as string | undefined;
@@ -308,6 +307,10 @@ app.post("/", async (c) => {
     }
     return c.json({ error: error instanceof Error ? error.message : "Server error." }, 500);
   }
-});
+};
+
+// Action-based router (used by supabase.functions.invoke("billing", { body })).
+app.post("/", billingHandler);
+app.post("/billing", billingHandler);
 
 Deno.serve(app.fetch);
