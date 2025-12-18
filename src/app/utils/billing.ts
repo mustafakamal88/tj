@@ -15,6 +15,49 @@ function bestErrorMessage(error: unknown): string {
   }
 }
 
+async function extractEdgeFunctionErrorDetail(error: unknown): Promise<string | null> {
+  const anyErr = error as any;
+  const ctx = anyErr?.context;
+  if (!ctx) return null;
+
+  const resp: any = ctx?.response ?? ctx;
+
+  const status = resp?.status ?? ctx?.status;
+  const statusText = resp?.statusText ?? ctx?.statusText;
+
+  try {
+    if (typeof resp?.json === 'function') {
+      const detail = await resp.json();
+      if (detail?.error) return String(detail.error);
+      if (detail?.message) return String(detail.message);
+      return `Edge Function error (HTTP ${status ?? 'unknown'}${statusText ? ` ${statusText}` : ''})`;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    if (typeof resp?.text === 'function') {
+      const raw = await resp.text();
+      if (typeof raw === 'string' && raw.trim().length) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed?.error) return String(parsed.error);
+          if (parsed?.message) return String(parsed.message);
+        } catch {
+          // not JSON; return raw snippet
+        }
+        return raw.trim().slice(0, 400);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  if (typeof ctx?.body === 'string' && ctx.body.trim().length) return ctx.body.trim().slice(0, 400);
+  return status ? `Edge Function error (HTTP ${status})` : null;
+}
+
 async function invokeBillingRaw(action: string, payload: Record<string, unknown> = {}): Promise<unknown> {
   const supabase = getSupabaseClient();
   if (!supabase) {
@@ -37,11 +80,19 @@ async function invokeBillingRaw(action: string, payload: Record<string, unknown>
     if (error || data == null) {
       console.log('[billing] invoke result error?', { hasError: !!error, dataType: typeof data, data });
       if (error) {
-        console.log('[billing] invoke error object', error);
+        console.log('[billing] invoke error object', {
+          name: (error as any)?.name,
+          message: (error as any)?.message,
+          error,
+        });
         const anyErr = error as any;
         const ctx = anyErr?.context;
         if (ctx) {
-          console.log('[billing] error.context', ctx);
+          console.log('[billing] error.context', {
+            status: ctx?.status,
+            body: ctx?.body,
+            hasResponse: !!ctx?.response,
+          });
           const resp: any = ctx?.response ?? ctx;
           if (resp) {
             console.log('[billing] error.context.response', {
@@ -61,7 +112,8 @@ async function invokeBillingRaw(action: string, payload: Record<string, unknown>
         }
       }
 
-      throw new Error(bestErrorMessage(error ?? 'Billing returned no data.'));
+      const detail = await extractEdgeFunctionErrorDetail(error);
+      throw new Error(detail ?? bestErrorMessage(error ?? 'Billing returned no data.'));
     }
 
     console.log('[billing] response', data);

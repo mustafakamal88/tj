@@ -35,6 +35,16 @@ function requireEnv(name: string): string {
   return v;
 }
 
+function requireStripeSecretKey(): string {
+  const value = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+  if (!value) throw new Error("STRIPE_SECRET_KEY missing or invalid.");
+  if (!value.startsWith("sk_")) {
+    console.error("[billing] invalid STRIPE_SECRET_KEY prefix", { prefix: value.slice(0, 3) });
+    throw new Error("STRIPE_SECRET_KEY missing or invalid.");
+  }
+  return value;
+}
+
 function requireStripePriceId(name: string): string {
   const value = requireEnv(name);
   if (!value.startsWith("price_")) {
@@ -45,7 +55,7 @@ function requireStripePriceId(name: string): string {
 }
 
 async function stripeRequest(path: string, params: URLSearchParams): Promise<any> {
-  const secret = requireEnv("STRIPE_SECRET_KEY");
+  const secret = requireStripeSecretKey();
   const res = await fetch(`https://api.stripe.com/v1${path}`, {
     method: "POST",
     headers: {
@@ -172,8 +182,22 @@ app.post("/", async (c) => {
       const plan = body?.plan as SubscriptionPlan | undefined;
       if (plan !== "pro" && plan !== "premium") return c.json({ error: "Invalid plan." }, 400);
 
+      console.log("[billing] action=create_checkout_session", {
+        hasSiteUrl: !!Deno.env.get("SITE_URL"),
+        hasStripeSecret: !!Deno.env.get("STRIPE_SECRET_KEY"),
+        hasProPrice: !!Deno.env.get("STRIPE_PRICE_PRO"),
+        hasPremiumPrice: !!Deno.env.get("STRIPE_PRICE_PREMIUM"),
+      });
+
       const siteUrl = requireEnv("SITE_URL");
-      const price = mapPlanToStripePrice(plan);
+      let price: string;
+      try {
+        requireStripeSecretKey();
+        price = mapPlanToStripePrice(plan);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Stripe is not configured.";
+        return c.json({ error: message }, 500);
+      }
       const { customerId } = await ensureStripeCustomer(supabase, userId);
 
       const session = await stripeRequest(
@@ -198,6 +222,16 @@ app.post("/", async (c) => {
 
     if (action === "create_portal_session") {
       const siteUrl = requireEnv("SITE_URL");
+      console.log("[billing] action=create_portal_session", {
+        hasSiteUrl: !!Deno.env.get("SITE_URL"),
+        hasStripeSecret: !!Deno.env.get("STRIPE_SECRET_KEY"),
+      });
+      try {
+        requireStripeSecretKey();
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Stripe is not configured.";
+        return c.json({ error: message }, 500);
+      }
       const { data: prof, error: profErr } = await supabase
         .from("profiles")
         .select("stripe_customer_id")
