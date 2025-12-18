@@ -16,7 +16,6 @@ export function BillingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { plan, isActive, loading: profileLoading, refresh } = useProfile();
 
-  const enableStripe = isEnabled('VITE_ENABLE_STRIPE');
   const enablePayPal = isEnabled('VITE_ENABLE_PAYPAL');
   const enableApplePay = isEnabled('VITE_ENABLE_APPLEPAY');
   const enableGooglePay = isEnabled('VITE_ENABLE_GOOGLEPAY');
@@ -69,14 +68,41 @@ export function BillingPage() {
     return data.data as T;
   };
 
+  const createStripeCheckoutSession = async (selectedPlan: Exclude<SubscriptionPlan, 'free'>): Promise<string> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw new Error(sessionError.message);
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) throw new Error('Please login to continue.');
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    if (!supabaseUrl) throw new Error('Missing VITE_SUPABASE_URL.');
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/billing/create-checkout-session`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ plan: selectedPlan }),
+    });
+    const json = (await res.json().catch(() => ({}))) as any;
+    if (!res.ok) {
+      throw new Error(json?.error ?? `Stripe checkout failed (HTTP ${res.status})`);
+    }
+    if (!json?.url) throw new Error('Stripe checkout URL missing.');
+    return String(json.url);
+  };
+
   const startCheckout = async (plan: Exclude<SubscriptionPlan, 'free'>, method: PaymentMethod) => {
     if (isLoading) return;
     setIsLoading(true);
     try {
       if (method === 'stripe') {
-        if (!enableStripe) throw new Error('Stripe is disabled. Set VITE_ENABLE_STRIPE=true.');
-        const res = await invokeBilling<{ url: string }>('stripe_create_checkout', { plan });
-        window.location.href = res.url;
+        const url = await createStripeCheckoutSession(plan);
+        window.location.href = url;
         return;
       }
       if (method === 'paypal') {
@@ -94,40 +120,20 @@ export function BillingPage() {
     }
   };
 
-  const verifyFromUrl = async () => {
-    const params = new URLSearchParams(window.location.search);
-    const stripeSession = params.get('stripe_session_id');
-    const paypalSub = params.get('paypal_subscription_id');
-    if (!stripeSession && !paypalSub) return;
-
-    setIsLoading(true);
-    try {
-      if (stripeSession) {
-        await invokeBilling<{ plan: SubscriptionPlan }>('stripe_verify_session', { sessionId: stripeSession });
-        await refresh();
-        toast.success('Subscription activated.');
-      } else if (paypalSub) {
-        await invokeBilling<{ plan: SubscriptionPlan }>('paypal_verify_subscription', {
-          subscriptionId: paypalSub,
-        });
-        await refresh();
-        toast.success('Subscription activated.');
-      }
-      // clean URL
-      const url = new URL(window.location.href);
-      url.searchParams.delete('stripe_session_id');
-      url.searchParams.delete('paypal_subscription_id');
-      window.history.replaceState({}, '', url.toString());
-    } catch (error) {
-      console.error('[billing] verify failed', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to verify subscription.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    void verifyFromUrl();
+    const params = new URLSearchParams(window.location.search);
+    const success = params.get('success');
+    const canceled = params.get('canceled');
+    if (success === '1') {
+      toast.success('Payment successful. Activating your plan…');
+      void (async () => {
+        await refresh();
+        // Webhook may take a moment — retry once.
+        window.setTimeout(() => void refresh(), 1500);
+      })();
+    } else if (canceled === '1') {
+      toast.info('Checkout canceled.');
+    }
   }, []);
 
   return (
@@ -184,10 +190,10 @@ export function BillingPage() {
                   <div className="space-y-3">
                     <Button
                       className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
-                      disabled={profileLoading || isLoading || isCurrent || disableAllPaid || !enableStripe}
+                      disabled={profileLoading || isLoading || isCurrent || disableAllPaid}
                       onClick={() => void startCheckout(plan.key, 'stripe')}
                     >
-                      {enableStripe ? 'Pay with Stripe (test)' : 'Stripe (disabled)'}
+                      Pay with Stripe (test)
                     </Button>
                     <Button
                       className="w-full"

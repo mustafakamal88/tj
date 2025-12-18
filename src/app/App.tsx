@@ -25,11 +25,53 @@ function AppContent() {
   const { user, loading: authLoading, signOut } = useAuth();
   const userEmail = user?.email ?? null;
 
+  const setRoute = (page: Page, opts?: { replace?: boolean }) => {
+    setCurrentPage(page);
+    const path =
+      page === 'home' ? '/' :
+      page === 'dashboard' ? '/dashboard' :
+      page === 'journal' ? '/journal' :
+      page === 'analytics' ? '/analytics' :
+      page === 'learn' ? '/learn' :
+      '/billing';
+    const url = new URL(window.location.href);
+    url.pathname = path;
+    if (opts?.replace) window.history.replaceState({}, '', url.toString());
+    else window.history.pushState({}, '', url.toString());
+  };
+
+  useEffect(() => {
+    // Initial route based on path (important for Stripe redirect to /billing).
+    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    const pageFromPath: Page =
+      path === '/dashboard' ? 'dashboard' :
+      path === '/journal' ? 'journal' :
+      path === '/analytics' ? 'analytics' :
+      path === '/learn' ? 'learn' :
+      path === '/billing' ? 'billing' :
+      'home';
+    setCurrentPage(pageFromPath);
+
+    const onPop = () => {
+      const p = window.location.pathname.replace(/\/+$/, '') || '/';
+      const next: Page =
+        p === '/dashboard' ? 'dashboard' :
+        p === '/journal' ? 'journal' :
+        p === '/analytics' ? 'analytics' :
+        p === '/learn' ? 'learn' :
+        p === '/billing' ? 'billing' :
+        'home';
+      setCurrentPage(next);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   useEffect(() => {
     if (authLoading) return;
     if (!userEmail) return;
     if (isAuthDialogOpen) setIsAuthDialogOpen(false);
-    if (currentPage === 'home') setCurrentPage('dashboard');
+    if (currentPage === 'home') setRoute('dashboard', { replace: true });
   }, [authLoading, userEmail, isAuthDialogOpen, currentPage]);
 
   useEffect(() => {
@@ -67,7 +109,7 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    const openBilling = () => setCurrentPage('billing');
+    const openBilling = () => setRoute('billing');
     window.addEventListener('open-billing', openBilling as EventListener);
     return () => window.removeEventListener('open-billing', openBilling as EventListener);
   }, []);
@@ -80,7 +122,7 @@ function AppContent() {
       setIsAuthDialogOpen(true);
       return;
     }
-    setCurrentPage(page);
+    setRoute(page);
   };
 
   const renderPage = () => {
@@ -111,7 +153,7 @@ function AppContent() {
     try {
       await signOut();
       toast.success('Logged out successfully');
-      setCurrentPage('home');
+      setRoute('home', { replace: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Logout failed');
     }
@@ -126,7 +168,7 @@ function AppContent() {
         onAuthClick={() => setIsAuthDialogOpen(true)}
         onLogout={handleLogout}
         onSubscriptionClick={() => setIsSubscriptionDialogOpen(true)}
-        onBillingClick={() => setCurrentPage('billing')}
+        onBillingClick={() => handleNavigate('billing')}
       />
       {renderPage()}
       <AuthDialog
