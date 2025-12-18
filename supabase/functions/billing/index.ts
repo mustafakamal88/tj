@@ -60,62 +60,10 @@ async function stripeRequest(path: string, params: URLSearchParams): Promise<any
   return json;
 }
 
-async function stripeGet(path: string): Promise<any> {
-  const secret = requireEnv("STRIPE_SECRET_KEY");
-  const res = await fetch(`https://api.stripe.com/v1${path}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${secret}` },
-  });
-  const json = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(json?.error?.message ?? `Stripe error (HTTP ${res.status}).`);
-  return json;
-}
-
 function mapPlanToStripePrice(plan: SubscriptionPlan): string {
   if (plan === "pro") return requireStripePriceId("STRIPE_PRICE_PRO");
   if (plan === "premium") return requireStripePriceId("STRIPE_PRICE_PREMIUM");
   throw new Error("Invalid plan for Stripe.");
-}
-
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let out = 0;
-  for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return out === 0;
-}
-
-async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  return toHex(new Uint8Array(sig));
-}
-
-function parseStripeSignature(header: string | null): { timestamp: number; signatures: string[] } | null {
-  if (!header) return null;
-  const parts = header.split(",").map((p) => p.trim());
-  let timestamp = 0;
-  const signatures: string[] = [];
-  for (const part of parts) {
-    const [k, v] = part.split("=", 2);
-    if (!k || !v) continue;
-    if (k === "t") timestamp = Number(v);
-    if (k === "v1") signatures.push(v);
-  }
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
-  if (!signatures.length) return null;
-  return { timestamp, signatures };
 }
 
 async function ensureStripeCustomer(
@@ -199,7 +147,8 @@ app.use(
   "*",
   cors({
     origin: "*",
-    allowHeaders: ["Content-Type", "Authorization", "Stripe-Signature"],
+    // supabase-js sends `apikey`, `authorization`, and `x-client-info` headers from the browser.
+    allowHeaders: ["Content-Type", "Authorization", "apikey", "x-client-info", "Stripe-Signature"],
     allowMethods: ["POST", "OPTIONS"],
     maxAge: 600,
   }),

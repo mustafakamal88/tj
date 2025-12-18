@@ -5,9 +5,9 @@ import { Card } from './ui/card';
 import { Separator } from './ui/separator';
 import { toast } from 'sonner';
 import type { SubscriptionPlan } from '../utils/data-limit';
-import { getSupabaseClient } from '../utils/supabase';
 import { useProfile } from '../utils/use-profile';
 import { useAuth } from '../utils/auth';
+import { invokeBilling, invokeBillingUrl } from '../utils/billing';
 
 type PaymentMethod = 'stripe' | 'paypal' | 'applepay' | 'googlepay' | 'crypto';
 
@@ -61,30 +61,6 @@ export function BillingPage() {
     [],
   );
 
-  const invokeBilling = async <T,>(action: string, body: Record<string, unknown>): Promise<T> => {
-    const supabase = getSupabaseClient();
-    if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
-    const { data, error } = await supabase.functions.invoke('billing', { body: { action, ...body } });
-    if (error) {
-      console.log('[billing] invoke error', error);
-      // Try to extract JSON error from the edge response.
-      const anyErr = error as any;
-      try {
-        if (anyErr?.context && typeof anyErr.context.json === 'function') {
-          const detail = await anyErr.context.json();
-          if (detail?.error) throw new Error(String(detail.error));
-          if (detail?.message) throw new Error(String(detail.message));
-        }
-      } catch (e) {
-        if (e instanceof Error) throw e;
-      }
-      throw new Error(error.message);
-    }
-    if (data?.ok === false) throw new Error(data?.error ?? 'Billing request failed.');
-    if (data?.ok === true && data?.data) return data.data as T;
-    return data as T;
-  };
-
   const startCheckout = async (plan: Exclude<SubscriptionPlan, 'free'>, method: PaymentMethod) => {
     if (isLoading) return;
     if (!user && !authLoading) {
@@ -94,14 +70,14 @@ export function BillingPage() {
     setIsLoading(true);
     try {
       if (method === 'stripe') {
-        const res = await invokeBilling<{ url: string }>('create_checkout_session', { plan });
-        window.location.href = res.url;
+        const { url } = await invokeBilling('create_checkout_session', { plan });
+        window.location.assign(url);
         return;
       }
       if (method === 'paypal') {
         if (!enablePayPal) throw new Error('PayPal is disabled. Set VITE_ENABLE_PAYPAL=true.');
-        const res = await invokeBilling<{ url: string }>('paypal_create_subscription', { plan });
-        window.location.href = res.url;
+        const { url } = await invokeBillingUrl('paypal_create_subscription', { plan });
+        window.location.assign(url);
         return;
       }
       toast.info('Coming soon.');
@@ -121,8 +97,8 @@ export function BillingPage() {
     }
     setIsLoading(true);
     try {
-      const res = await invokeBilling<{ url: string }>('create_portal_session', {});
-      window.location.href = res.url;
+      const { url } = await invokeBilling('create_portal_session');
+      window.location.assign(url);
     } catch (error) {
       console.error('[billing] portal failed', error);
       toast.error(error instanceof Error ? error.message : 'Failed to open Stripe portal.');
