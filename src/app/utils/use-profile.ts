@@ -143,10 +143,10 @@ function useProfileState(): ProfileContextValue {
   }, [refresh]);
 
   const plan = useMemo<SubscriptionPlan>(() => profile?.subscriptionPlan ?? 'free', [profile]);
-  const isActive = useMemo<boolean>(
-    () => (profile?.subscriptionStatus ?? '').toLowerCase() === 'active',
-    [profile],
-  );
+  const isActive = useMemo<boolean>(() => {
+    const status = (profile?.subscriptionStatus ?? '').toLowerCase();
+    return status === 'active' || status === 'trialing';
+  }, [profile]);
 
   return { profile, plan, isActive, loading, refresh };
 }

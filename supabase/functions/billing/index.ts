@@ -44,6 +44,14 @@ function requireEnv(name: string): string {
   return v;
 }
 
+function requireStripePriceId(name: string): string {
+  const value = requireEnv(name);
+  if (!value.startsWith("price_")) {
+    throw new Error(`${name} must be a Stripe price id starting with "price_".`);
+  }
+  return value;
+}
+
 async function stripeRequest(path: string, params: URLSearchParams): Promise<any> {
   const secret = requireEnv("STRIPE_SECRET_KEY");
   const res = await fetch(`https://api.stripe.com/v1${path}`, {
@@ -71,8 +79,8 @@ async function stripeGet(path: string): Promise<any> {
 }
 
 function mapPlanToStripePrice(plan: SubscriptionPlan): string {
-  if (plan === "pro") return requireEnv("STRIPE_PRICE_PRO");
-  if (plan === "premium") return requireEnv("STRIPE_PRICE_PREMIUM");
+  if (plan === "pro") return requireStripePriceId("STRIPE_PRICE_PRO");
+  if (plan === "premium") return requireStripePriceId("STRIPE_PRICE_PREMIUM");
   throw new Error("Invalid plan for Stripe.");
 }
 
@@ -115,6 +123,35 @@ function parseStripeSignature(header: string | null): { timestamp: number; signa
   if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
   if (!signatures.length) return null;
   return { timestamp, signatures };
+}
+
+async function ensureStripeCustomer(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  userId: string,
+): Promise<{ customerId: string; email: string }> {
+  const { data: prof, error } = await supabase
+    .from("profiles")
+    .select("email,stripe_customer_id")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+
+  const email = String((prof as any)?.email ?? "");
+  let customerId = (prof as any)?.stripe_customer_id as string | null;
+
+  if (!customerId) {
+    const created = await stripeRequest(
+      "/customers",
+      new URLSearchParams({
+        email,
+        "metadata[user_id]": userId,
+      }),
+    );
+    customerId = created.id;
+    await supabase.from("profiles").update({ stripe_customer_id: customerId }).eq("id", userId);
+  }
+
+  return { customerId, email };
 }
 
 async function paypalGetAccessToken(): Promise<string> {
@@ -175,60 +212,6 @@ app.use(
   }),
 );
 
-// Stripe webhook — verify signature and apply upgrades.
-app.post("/stripe-webhook", async (c) => {
-  try {
-    const webhookSecret = requireEnv("STRIPE_WEBHOOK_SECRET");
-    const sigHeader = c.req.header("stripe-signature") ?? c.req.header("Stripe-Signature");
-    const parsed = parseStripeSignature(sigHeader);
-    if (!parsed) return c.json({ error: "Invalid Stripe-Signature header." }, 400);
-
-    const rawBytes = new Uint8Array(await c.req.raw.arrayBuffer());
-    const rawText = new TextDecoder().decode(rawBytes);
-
-    const now = Math.floor(Date.now() / 1000);
-    if (Math.abs(now - parsed.timestamp) > 5 * 60) {
-      return c.json({ error: "Signature timestamp out of tolerance." }, 400);
-    }
-
-    const signedPayload = `${parsed.timestamp}.${rawText}`;
-    const expected = await hmacSha256Hex(webhookSecret, signedPayload);
-    const valid = parsed.signatures.some((sig) => timingSafeEqual(sig, expected));
-    if (!valid) return c.json({ error: "Invalid signature." }, 400);
-
-    let event: any;
-    try {
-      event = JSON.parse(rawText);
-    } catch {
-      return c.json({ error: "Invalid JSON." }, 400);
-    }
-
-    if (event?.type === "checkout.session.completed") {
-      const session = event?.data?.object;
-      const userId = session?.metadata?.user_id as string | undefined;
-      const plan = session?.metadata?.plan as SubscriptionPlan | undefined;
-
-      if (userId && (plan === "pro" || plan === "premium")) {
-        const supabase = getSupabaseAdmin();
-        const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        await supabase
-          .from("profiles")
-          .update({
-            subscription_plan: plan,
-            subscription_status: "active",
-            current_period_end: periodEnd,
-          })
-          .eq("id", userId);
-      }
-    }
-
-    return c.json({ received: true });
-  } catch (error) {
-    console.error("[billing] stripe-webhook error", error);
-    return c.json({ error: "Webhook error." }, 500);
-  }
-});
-
 // Action-based router (used by supabase.functions.invoke("billing", { body })).
 app.post("/", async (c) => {
   try {
@@ -239,33 +222,13 @@ app.post("/", async (c) => {
 
     const supabase = getSupabaseAdmin();
 
-    if (action === "create-checkout-session") {
+    if (action === "create_checkout_session") {
       const plan = body?.plan as SubscriptionPlan | undefined;
-      if (plan !== "pro" && plan !== "premium") return fail(c, 400, "Invalid plan.");
+      if (plan !== "pro" && plan !== "premium") return c.json({ error: "Invalid plan." }, 400);
 
       const siteUrl = requireEnv("SITE_URL");
       const price = mapPlanToStripePrice(plan);
-
-      // Create customer if missing
-      const { data: prof, error: profErr } = await supabase
-        .from("profiles")
-        .select("email,stripe_customer_id")
-        .eq("id", userId)
-        .maybeSingle();
-      if (profErr) return fail(c, 500, profErr.message);
-
-      let customerId = prof?.stripe_customer_id as string | null;
-      if (!customerId) {
-        const created = await stripeRequest(
-          "/customers",
-          new URLSearchParams({
-            email: String(prof?.email ?? ""),
-            metadata: JSON.stringify({ user_id: userId }),
-          }),
-        );
-        customerId = created.id;
-        await supabase.from("profiles").update({ stripe_customer_id: customerId }).eq("id", userId);
-      }
+      const { customerId } = await ensureStripeCustomer(supabase, userId);
 
       const session = await stripeRequest(
         "/checkout/sessions",
@@ -274,15 +237,39 @@ app.post("/", async (c) => {
           customer: customerId,
           "line_items[0][price]": price,
           "line_items[0][quantity]": "1",
-          success_url: `${siteUrl}/billing?success=1&session_id={CHECKOUT_SESSION_ID}`,
+          success_url: `${siteUrl}/billing?success=1`,
           cancel_url: `${siteUrl}/billing?canceled=1`,
           "metadata[user_id]": userId,
           "metadata[plan]": plan,
+          "subscription_data[metadata][user_id]": userId,
+          "subscription_data[metadata][plan]": plan,
           client_reference_id: userId,
         }),
       );
 
-      return ok(c, { url: session.url });
+      return c.json({ url: session.url });
+    }
+
+    if (action === "create_portal_session") {
+      const siteUrl = requireEnv("SITE_URL");
+      const { data: prof, error: profErr } = await supabase
+        .from("profiles")
+        .select("stripe_customer_id")
+        .eq("id", userId)
+        .maybeSingle();
+      if (profErr) return c.json({ error: profErr.message }, 500);
+      const customerId = (prof as any)?.stripe_customer_id as string | null;
+      if (!customerId) return c.json({ error: "No Stripe customer found for this user." }, 400);
+
+      const portal = await stripeRequest(
+        "/billing_portal/sessions",
+        new URLSearchParams({
+          customer: customerId,
+          return_url: `${siteUrl}/billing`,
+        }),
+      );
+
+      return c.json({ url: portal.url });
     }
 
     if (action === "stripe_create_checkout") {
@@ -293,24 +280,7 @@ app.post("/", async (c) => {
       const price = mapPlanToStripePrice(plan);
 
       // Create customer if missing
-      const { data: prof } = await supabase
-        .from("profiles")
-        .select("email,stripe_customer_id")
-        .eq("id", userId)
-        .maybeSingle();
-
-      let customerId = prof?.stripe_customer_id as string | null;
-      if (!customerId) {
-        const created = await stripeRequest(
-          "/customers",
-          new URLSearchParams({
-            email: String(prof?.email ?? ""),
-            metadata: JSON.stringify({ user_id: userId }),
-          }),
-        );
-        customerId = created.id;
-        await supabase.from("profiles").update({ stripe_customer_id: customerId }).eq("id", userId);
-      }
+      const { customerId } = await ensureStripeCustomer(supabase, userId);
 
       const session = await stripeRequest(
         "/checkout/sessions",
@@ -402,7 +372,7 @@ app.post("/", async (c) => {
     return fail(c, 400, "Unknown action.");
   } catch (error) {
     console.error("[billing] error", error);
-    return fail(c, 500, error instanceof Error ? error.message : "Server error.");
+    return c.json({ error: error instanceof Error ? error.message : "Server error." }, 500);
   }
 });
 

@@ -49,7 +49,7 @@ fi
 echo "- auth: OK"
 
 # Function sanity checks
-for name in server mt-bridge billing; do
+for name in server mt-bridge billing stripe-webhook; do
   dir="supabase/functions/$name"
   entry="$dir/index.ts"
 
@@ -66,7 +66,7 @@ for name in server mt-bridge billing; do
 
 done
 
-echo "- functions: OK (server, mt-bridge, billing)"
+echo "- functions: OK (server, mt-bridge, billing, stripe-webhook)"
 
 DEBUG_FLAGS=()
 if [[ "${DEBUG:-}" == "1" || "${SUPABASE_DEBUG:-}" == "1" ]]; then
@@ -87,7 +87,7 @@ deploy_one() {
 }
 
 failed=0
-for fn in server mt-bridge billing; do
+for fn in server mt-bridge billing stripe-webhook; do
   deploy_one "$fn" || failed=1
   # small pause to make logs easier to read
   sleep 1

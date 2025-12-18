@@ -5,6 +5,7 @@ This repo deploys three Supabase Edge Functions:
 - `server`
 - `mt-bridge`
 - `billing`
+- `stripe-webhook`
 
 The recommended deployment method is:
 
@@ -74,6 +75,7 @@ DEBUG=1 ./scripts/deploy-functions.sh
 supabase functions deploy server --use-api --debug
 supabase functions deploy mt-bridge --use-api --debug
 supabase functions deploy billing --use-api --debug
+supabase functions deploy stripe-webhook --use-api --debug
 ```
 
 If you are linked, you usually don’t need `--project-ref`, but it is supported:
@@ -94,6 +96,7 @@ Billing function (optional):
 
 - Stripe
   - `STRIPE_SECRET_KEY`
+  - `STRIPE_WEBHOOK_SECRET`
   - `STRIPE_PRICE_PRO`
   - `STRIPE_PRICE_PREMIUM`
 

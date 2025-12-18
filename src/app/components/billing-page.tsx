@@ -14,7 +14,7 @@ const isEnabled = (key: string) => (import.meta.env[key] as string | undefined) 
 
 export function BillingPage() {
   const [isLoading, setIsLoading] = useState(false);
-  const { plan, isActive, loading: profileLoading, refresh } = useProfile();
+  const { profile, plan, isActive, loading: profileLoading, refresh } = useProfile();
 
   const enablePayPal = isEnabled('VITE_ENABLE_PAYPAL');
   const enableApplePay = isEnabled('VITE_ENABLE_APPLEPAY');
@@ -77,8 +77,9 @@ export function BillingPage() {
       }
       throw new Error(error.message);
     }
-    if (!data?.ok) throw new Error(data?.error ?? 'Billing request failed.');
-    return data.data as T;
+    if (data?.ok === false) throw new Error(data?.error ?? 'Billing request failed.');
+    if (data?.ok === true && data?.data) return data.data as T;
+    return data as T;
   };
 
   const startCheckout = async (plan: Exclude<SubscriptionPlan, 'free'>, method: PaymentMethod) => {
@@ -86,7 +87,7 @@ export function BillingPage() {
     setIsLoading(true);
     try {
       if (method === 'stripe') {
-        const res = await invokeBilling<{ url: string }>('create-checkout-session', { plan });
+        const res = await invokeBilling<{ url: string }>('create_checkout_session', { plan });
         window.location.href = res.url;
         return;
       }
@@ -100,6 +101,20 @@ export function BillingPage() {
     } catch (error) {
       console.error('[billing] startCheckout failed', error);
       toast.error(error instanceof Error ? error.message : 'Billing failed.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openPortal = async () => {
+    if (isLoading) return;
+    setIsLoading(true);
+    try {
+      const res = await invokeBilling<{ url: string }>('create_portal_session', {});
+      window.location.href = res.url;
+    } catch (error) {
+      console.error('[billing] portal failed', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to open Stripe portal.');
     } finally {
       setIsLoading(false);
     }
@@ -135,16 +150,23 @@ export function BillingPage() {
             <h1 className="text-3xl mb-2">Billing</h1>
             <p className="text-muted-foreground">Upgrade to Pro/Premium to unlock imports, MT sync, and advanced analytics.</p>
           </div>
-          {profileLoading ? (
-            <Badge variant="secondary">Loading…</Badge>
-          ) : (
-            <Badge
-              variant="secondary"
-              className={isPaidActive ? 'bg-[#34a85a] text-white border-transparent' : undefined}
-            >
-              {isPaidActive ? `Current: ${plan.toUpperCase()}` : 'Current: FREE'}
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            {profileLoading ? (
+              <Badge variant="secondary">Loading…</Badge>
+            ) : (
+              <Badge
+                variant="secondary"
+                className={isPaidActive ? 'bg-[#34a85a] text-white border-transparent' : undefined}
+              >
+                {isPaidActive ? `Current: ${plan.toUpperCase()}` : 'Current: FREE'}
+              </Badge>
+            )}
+            {!profileLoading && profile?.subscriptionStatus && isActive ? (
+              <Button variant="outline" disabled={isLoading} onClick={() => void openPortal()}>
+                Manage subscription
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
