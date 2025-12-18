@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import type { SubscriptionPlan } from '../utils/data-limit';
 import { getSupabaseClient } from '../utils/supabase';
 import { useProfile } from '../utils/use-profile';
+import { useAuth } from '../utils/auth';
 
 type PaymentMethod = 'stripe' | 'paypal' | 'applepay' | 'googlepay' | 'crypto';
 
@@ -15,6 +16,7 @@ const isEnabled = (key: string) => (import.meta.env[key] as string | undefined) 
 export function BillingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { profile, plan, isActive, loading: profileLoading, refresh } = useProfile();
+  const { user, loading: authLoading } = useAuth();
 
   const enablePayPal = isEnabled('VITE_ENABLE_PAYPAL');
   const enableApplePay = isEnabled('VITE_ENABLE_APPLEPAY');
@@ -64,6 +66,7 @@ export function BillingPage() {
     if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
     const { data, error } = await supabase.functions.invoke('billing', { body: { action, ...body } });
     if (error) {
+      console.log('[billing] invoke error', error);
       // Try to extract JSON error from the edge response.
       const anyErr = error as any;
       try {
@@ -84,6 +87,10 @@ export function BillingPage() {
 
   const startCheckout = async (plan: Exclude<SubscriptionPlan, 'free'>, method: PaymentMethod) => {
     if (isLoading) return;
+    if (!user && !authLoading) {
+      toast.error('Please login to subscribe.');
+      return;
+    }
     setIsLoading(true);
     try {
       if (method === 'stripe') {
@@ -108,6 +115,10 @@ export function BillingPage() {
 
   const openPortal = async () => {
     if (isLoading) return;
+    if (!user && !authLoading) {
+      toast.error('Please login to manage your subscription.');
+      return;
+    }
     setIsLoading(true);
     try {
       const res = await invokeBilling<{ url: string }>('create_portal_session', {});
@@ -161,7 +172,7 @@ export function BillingPage() {
                 {isPaidActive ? `Current: ${plan.toUpperCase()}` : 'Current: FREE'}
               </Badge>
             )}
-            {!profileLoading && profile?.subscriptionStatus && isActive ? (
+            {!profileLoading && (isActive || !!profile?.stripeCustomerId) ? (
               <Button variant="outline" disabled={isLoading} onClick={() => void openPortal()}>
                 Manage subscription
               </Button>

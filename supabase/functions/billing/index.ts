@@ -8,14 +8,6 @@ type SubscriptionStatus = "trialing" | "active" | "past_due" | "canceled" | "inc
 
 const app = new Hono();
 
-function ok(c: any, data: unknown) {
-  return c.json({ ok: true, data });
-}
-
-function fail(c: any, status: number, error: string) {
-  return c.json({ ok: false, error }, status);
-}
-
 function getBearerToken(authHeader: string | undefined | null): string | null {
   if (!authHeader) return null;
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
@@ -31,10 +23,10 @@ function getSupabaseAdmin() {
 
 async function requireUserIdFromRequest(c: any): Promise<string> {
   const token = getBearerToken(c.req.header("Authorization"));
-  if (!token) throw new Error("Missing Authorization bearer token.");
+  if (!token) throw new Error("AUTH_MISSING");
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data?.user?.id) throw new Error("Invalid Authorization token.");
+  if (error || !data?.user?.id) throw new Error("AUTH_INVALID");
   return data.user.id;
 }
 
@@ -47,6 +39,7 @@ function requireEnv(name: string): string {
 function requireStripePriceId(name: string): string {
   const value = requireEnv(name);
   if (!value.startsWith("price_")) {
+    console.error(`[billing] invalid Stripe price id for ${name}`, { value });
     throw new Error(`${name} must be a Stripe price id starting with "price_".`);
   }
   return value;
@@ -218,7 +211,7 @@ app.post("/", async (c) => {
     const userId = await requireUserIdFromRequest(c);
     const body = await c.req.json().catch(() => null);
     const action = body?.action as string | undefined;
-    if (!action) return fail(c, 400, "Missing action.");
+    if (!action) return c.json({ error: "Missing action." }, 400);
 
     const supabase = getSupabaseAdmin();
 
@@ -272,61 +265,9 @@ app.post("/", async (c) => {
       return c.json({ url: portal.url });
     }
 
-    if (action === "stripe_create_checkout") {
-      const plan = body?.plan as SubscriptionPlan | undefined;
-      if (plan !== "pro" && plan !== "premium") return fail(c, 400, "Invalid plan.");
-
-      const siteUrl = requireEnv("SITE_URL"); // e.g. https://your-vercel-domain
-      const price = mapPlanToStripePrice(plan);
-
-      // Create customer if missing
-      const { customerId } = await ensureStripeCustomer(supabase, userId);
-
-      const session = await stripeRequest(
-        "/checkout/sessions",
-        new URLSearchParams({
-          mode: "subscription",
-          customer: customerId,
-          "line_items[0][price]": price,
-          "line_items[0][quantity]": "1",
-          success_url: `${siteUrl}/billing?success=1`,
-          cancel_url: `${siteUrl}/billing?canceled=1`,
-          "metadata[user_id]": userId,
-          "metadata[plan]": plan,
-        }),
-      );
-
-      return ok(c, { url: session.url });
-    }
-
-    if (action === "stripe_verify_session") {
-      const sessionId = String(body?.sessionId ?? "");
-      if (!sessionId) return fail(c, 400, "Missing sessionId.");
-      const session = await stripeGet(`/checkout/sessions/${encodeURIComponent(sessionId)}?expand[]=subscription`);
-      const plan = (session?.metadata?.plan as SubscriptionPlan | undefined) ?? "pro";
-      const subscription = session?.subscription;
-      if (!subscription?.id) return fail(c, 400, "Missing Stripe subscription.");
-
-      const periodEndUnix = subscription.current_period_end as number | undefined;
-      const currentPeriodEnd = periodEndUnix ? new Date(periodEndUnix * 1000).toISOString() : null;
-      const status = (subscription.status as SubscriptionStatus | undefined) ?? "active";
-
-      await supabase
-        .from("profiles")
-        .update({
-          subscription_plan: plan,
-          subscription_status: status,
-          stripe_subscription_id: subscription.id,
-          current_period_end: currentPeriodEnd,
-        })
-        .eq("id", userId);
-
-      return ok(c, { plan });
-    }
-
     if (action === "paypal_create_subscription") {
       const plan = body?.plan as SubscriptionPlan | undefined;
-      if (plan !== "pro" && plan !== "premium") return fail(c, 400, "Invalid plan.");
+      if (plan !== "pro" && plan !== "premium") return c.json({ error: "Invalid plan." }, 400);
       const planId = mapPlanToPayPalPlanId(plan);
       const siteUrl = requireEnv("SITE_URL");
 
@@ -343,14 +284,14 @@ app.post("/", async (c) => {
       const approve = Array.isArray(sub?.links)
         ? sub.links.find((l: any) => l?.rel === "approve")?.href
         : null;
-      if (!approve) return fail(c, 500, "Missing PayPal approval URL.");
-      return ok(c, { url: approve });
+      if (!approve) return c.json({ error: "Missing PayPal approval URL." }, 500);
+      return c.json({ url: approve });
     }
 
     if (action === "paypal_verify_subscription") {
       const subscriptionId = String(body?.subscriptionId ?? "");
       const plan = (body?.plan as SubscriptionPlan | undefined) ?? "pro";
-      if (!subscriptionId) return fail(c, 400, "Missing subscriptionId.");
+      if (!subscriptionId) return c.json({ error: "Missing subscriptionId." }, 400);
 
       const sub = await paypalGet(`/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
       const status = String(sub?.status ?? "ACTIVE").toLowerCase() as SubscriptionStatus;
@@ -366,12 +307,18 @@ app.post("/", async (c) => {
         })
         .eq("id", userId);
 
-      return ok(c, { plan });
+      return c.json({ plan });
     }
 
-    return fail(c, 400, "Unknown action.");
+    return c.json({ error: "Unknown action." }, 400);
   } catch (error) {
     console.error("[billing] error", error);
+    if (error instanceof Error && error.message === "AUTH_MISSING") {
+      return c.json({ error: "Please login to continue." }, 401);
+    }
+    if (error instanceof Error && error.message === "AUTH_INVALID") {
+      return c.json({ error: "Invalid session. Please login again." }, 401);
+    }
     return c.json({ error: error instanceof Error ? error.message : "Server error." }, 500);
   }
 });

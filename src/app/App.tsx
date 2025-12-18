@@ -127,7 +127,7 @@ function AppContent() {
 
   const renderPage = () => {
     // Redirect to home if not logged in and trying to access protected routes
-    if ((currentPage === 'dashboard' || currentPage === 'journal' || currentPage === 'analytics') && !userEmail) {
+    if ((currentPage === 'dashboard' || currentPage === 'journal' || currentPage === 'analytics' || currentPage === 'billing') && !userEmail) {
       return <HomePage onGetStarted={() => setIsAuthDialogOpen(true)} onLearnMore={() => setCurrentPage('learn')} />;
     }
 

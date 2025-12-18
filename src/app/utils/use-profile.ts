@@ -12,6 +12,8 @@ export type Profile = {
   subscriptionPlan: SubscriptionPlan;
   subscriptionStatus: string | null;
   currentPeriodEnd: string | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
 };
 
 type ProfileRow = {
@@ -21,6 +23,8 @@ type ProfileRow = {
   subscription_plan: string | null;
   subscription_status: string | null;
   current_period_end: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
 };
 
 function normalizePlan(value: unknown): SubscriptionPlan {
@@ -85,7 +89,7 @@ function useProfileState(): ProfileContextValue {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('id,email,is_admin,subscription_plan,subscription_status,current_period_end')
+        .select('id,email,is_admin,subscription_plan,subscription_status,current_period_end,stripe_customer_id,stripe_subscription_id')
         .eq('id', user.id)
         .maybeSingle<ProfileRow>();
 
@@ -111,6 +115,8 @@ function useProfileState(): ProfileContextValue {
         subscriptionPlan: normalizePlan(data.subscription_plan),
         subscriptionStatus: data.subscription_status ? String(data.subscription_status) : null,
         currentPeriodEnd: data.current_period_end ? String(data.current_period_end) : null,
+        stripeCustomerId: data.stripe_customer_id ? String(data.stripe_customer_id) : null,
+        stripeSubscriptionId: data.stripe_subscription_id ? String(data.stripe_subscription_id) : null,
       };
     } catch (err) {
       console.error('[useProfile] refresh failed', err);
