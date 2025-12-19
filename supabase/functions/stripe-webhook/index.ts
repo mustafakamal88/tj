@@ -115,6 +115,7 @@ async function updateProfileByUserId(
 }
 
 Deno.serve(async (req) => {
+  console.log("[stripe-webhook] incoming request", { method: req.method });
   if (req.method !== "POST") return json(405, { error: "Method not allowed" });
 
   const webhookSecret = requireEnv("STRIPE_WEBHOOK_SECRET");

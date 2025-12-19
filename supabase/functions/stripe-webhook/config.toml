@@ -1,0 +1,2 @@
+# Stripe calls webhooks server-to-server and does not send a Supabase JWT.
+verify_jwt = false
