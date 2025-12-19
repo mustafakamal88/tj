@@ -21,7 +21,6 @@ function json(status: number, body: Record<string, unknown>) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
     },
   });
 }
@@ -77,17 +76,6 @@ function getSupabaseAdmin() {
   return createClient(url, serviceRoleKey);
 }
 
-async function stripeGet(path: string): Promise<any> {
-  const secret = requireEnv("STRIPE_SECRET_KEY");
-  const res = await fetch(`https://api.stripe.com/v1${path}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${secret}` },
-  });
-  const json = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(json?.error?.message ?? `Stripe error (HTTP ${res.status}).`);
-  return json;
-}
-
 function planFromPriceId(priceId: string | null | undefined): SubscriptionPlan | null {
   if (!priceId) return null;
   const pro = requireStripePriceId("STRIPE_PRICE_PRO");
@@ -103,17 +91,21 @@ function toIsoFromUnixSeconds(value: unknown): string | null {
   return new Date(n * 1000).toISOString();
 }
 
-async function resolveUserIdByCustomerId(supabase: ReturnType<typeof getSupabaseAdmin>, customerId: string) {
+async function updateProfileByCustomerId(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  customerId: string,
+  updates: Record<string, unknown>,
+) {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id")
+    .update(updates)
     .eq("stripe_customer_id", customerId)
-    .maybeSingle();
+    .select("id");
   if (error) throw new Error(error.message);
-  return (data as any)?.id as string | null;
+  return Array.isArray(data) && data.length > 0;
 }
 
-async function updateProfile(
+async function updateProfileByUserId(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   userId: string,
   updates: Record<string, unknown>,
@@ -123,16 +115,6 @@ async function updateProfile(
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "content-type, stripe-signature",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-      },
-    });
-  }
-
   if (req.method !== "POST") return json(405, { error: "Method not allowed" });
 
   const webhookSecret = requireEnv("STRIPE_WEBHOOK_SECRET");
@@ -140,8 +122,7 @@ Deno.serve(async (req) => {
   const parsed = parseStripeSignature(sigHeader);
   if (!parsed) return json(400, { error: "Invalid Stripe-Signature header." });
 
-  const rawBytes = new Uint8Array(await req.arrayBuffer());
-  const rawText = new TextDecoder().decode(rawBytes);
+  const rawText = await req.text();
 
   const now = Math.floor(Date.now() / 1000);
   if (Math.abs(now - parsed.timestamp) > 5 * 60) {
@@ -164,45 +145,34 @@ Deno.serve(async (req) => {
   const supabase = getSupabaseAdmin();
 
   try {
+    // Stripe can send many event types; we ack unknown types.
     if (type === "checkout.session.completed") {
       const session = event?.data?.object ?? {};
       const customerId = typeof session.customer === "string" ? session.customer : null;
+      if (!customerId) return ok({ received: true });
+
       const subscriptionId = typeof session.subscription === "string" ? session.subscription : null;
-      const userId =
-        (typeof session.client_reference_id === "string" && session.client_reference_id) ||
+      const plan =
+        (typeof session.metadata?.plan === "string" && (session.metadata.plan as SubscriptionPlan)) || null;
+      const fallbackUserId =
         (typeof session.metadata?.user_id === "string" && session.metadata.user_id) ||
-        (customerId ? await resolveUserIdByCustomerId(supabase, customerId) : null);
+        (typeof session.client_reference_id === "string" && session.client_reference_id) ||
+        null;
 
-      if (!userId) {
-        console.warn("[stripe-webhook] checkout.session.completed: user not resolved");
-        return ok({ received: true });
-      }
-
-      if (subscriptionId) {
-        const sub = await stripeGet(`/subscriptions/${encodeURIComponent(subscriptionId)}?expand[]=items.data.price`);
-        const status = String(sub?.status ?? "active");
-        const periodEnd = toIsoFromUnixSeconds(sub?.current_period_end);
-        const priceId = sub?.items?.data?.[0]?.price?.id as string | undefined;
-        const plan = planFromPriceId(priceId) ?? (sub?.metadata?.plan as SubscriptionPlan | undefined) ?? "pro";
-
-        await updateProfile(supabase, userId, {
+      const updated = await updateProfileByCustomerId(supabase, customerId, {
+        stripe_subscription_id: subscriptionId,
+        subscription_plan: plan ?? undefined,
+        subscription_status: "active",
+      });
+      if (!updated && fallbackUserId) {
+        await updateProfileByUserId(supabase, fallbackUserId, {
           stripe_customer_id: customerId,
           stripe_subscription_id: subscriptionId,
-          subscription_plan: plan,
-          subscription_status: status,
-          current_period_end: periodEnd,
-        });
-      } else {
-        const plan =
-          (typeof session.metadata?.plan === "string" && (session.metadata.plan as SubscriptionPlan)) || "pro";
-        const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        await updateProfile(supabase, userId, {
-          stripe_customer_id: customerId,
-          subscription_plan: plan,
+          subscription_plan: plan ?? undefined,
           subscription_status: "active",
-          current_period_end: periodEnd,
         });
       }
+
       return ok({ received: true });
     }
 
@@ -213,30 +183,61 @@ Deno.serve(async (req) => {
     ) {
       const sub = event?.data?.object ?? {};
       const customerId = typeof sub.customer === "string" ? sub.customer : null;
+      if (!customerId) return ok({ received: true });
+
       const subscriptionId = typeof sub.id === "string" ? sub.id : null;
       const status = String(sub?.status ?? "active");
       const periodEnd = toIsoFromUnixSeconds(sub?.current_period_end);
       const priceId = sub?.items?.data?.[0]?.price?.id as string | undefined;
       const plan = planFromPriceId(priceId) ?? (sub?.metadata?.plan as SubscriptionPlan | undefined) ?? null;
-      const userId =
-        (typeof sub?.metadata?.user_id === "string" && sub.metadata.user_id) ||
-        (customerId ? await resolveUserIdByCustomerId(supabase, customerId) : null);
 
-      if (!userId) {
-        console.warn("[stripe-webhook] subscription event: user not resolved");
-        return ok({ received: true });
+      const updated = await updateProfileByCustomerId(supabase, customerId, {
+        stripe_subscription_id: subscriptionId,
+        subscription_plan: plan ?? undefined,
+        subscription_status: status,
+        current_period_end: periodEnd ?? undefined,
+      });
+      if (!updated && typeof sub?.metadata?.user_id === "string") {
+        await updateProfileByUserId(supabase, String(sub.metadata.user_id), {
+          stripe_customer_id: customerId,
+          stripe_subscription_id: subscriptionId,
+          subscription_plan: plan ?? undefined,
+          subscription_status: status,
+          current_period_end: periodEnd ?? undefined,
+        });
       }
 
-      const planToSet: SubscriptionPlan =
-        status === "canceled" || type === "customer.subscription.deleted" ? "free" : plan ?? "free";
+      return ok({ received: true });
+    }
 
-      await updateProfile(supabase, userId, {
-        stripe_customer_id: customerId,
+    if (type === "invoice.payment_succeeded" || type === "invoice.payment_failed") {
+      const invoice = event?.data?.object ?? {};
+      const customerId = typeof invoice.customer === "string" ? invoice.customer : null;
+      if (!customerId) return ok({ received: true });
+
+      const status = type === "invoice.payment_failed" ? "past_due" : "active";
+      const subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : null;
+
+      const line = Array.isArray(invoice?.lines?.data) ? invoice.lines.data[0] : null;
+      const priceId = line?.price?.id as string | undefined;
+      const plan = planFromPriceId(priceId) ?? null;
+      const periodEnd = toIsoFromUnixSeconds(line?.period?.end ?? invoice?.period_end);
+
+      const updated = await updateProfileByCustomerId(supabase, customerId, {
         stripe_subscription_id: subscriptionId,
-        subscription_plan: planToSet,
+        subscription_plan: plan ?? undefined,
         subscription_status: status,
-        current_period_end: periodEnd,
+        current_period_end: periodEnd ?? undefined,
       });
+      if (!updated && typeof invoice?.metadata?.user_id === "string") {
+        await updateProfileByUserId(supabase, String(invoice.metadata.user_id), {
+          stripe_customer_id: customerId,
+          stripe_subscription_id: subscriptionId,
+          subscription_plan: plan ?? undefined,
+          subscription_status: status,
+          current_period_end: periodEnd ?? undefined,
+        });
+      }
 
       return ok({ received: true });
     }
@@ -247,4 +248,3 @@ Deno.serve(async (req) => {
     return json(500, { error: "Webhook handler failed" });
   }
 });
-

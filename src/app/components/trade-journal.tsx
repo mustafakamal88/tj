@@ -7,9 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Plus, Search, Filter, Trash2, Eye, Upload } from 'lucide-react';
 import { deleteTrade, fetchTrades } from '../utils/trades-api';
 import { formatCurrency, formatPercentage } from '../utils/trade-calculations';
-import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
+import { filterTradesForFreeUser } from '../utils/data-limit';
 import { mtBridgeSync } from '../utils/mt-bridge';
 import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
+import { useProfile } from '../utils/use-profile';
 import type { Trade } from '../types/trade';
 import { format } from 'date-fns';
 import { AddTradeDialog } from './add-trade-dialog';
@@ -25,16 +26,16 @@ export function TradeJournal() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'long' | 'short'>('all');
   const [filterOutcome, setFilterOutcome] = useState<'all' | 'win' | 'loss' | 'breakeven'>('all');
+  const { plan, isActive } = useProfile();
+  const effectivePlan = isActive ? plan : 'free';
 
   const refreshTrades = async () => {
     const allTrades = await fetchTrades();
-    const subscription = getUserSubscription();
-    const filteredTrades = subscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
+    const filteredTrades = effectivePlan === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
     setTrades(filteredTrades);
   };
 
-  const subscription = getUserSubscription();
-  const access = getFeatureAccess(subscription);
+  const access = getFeatureAccess(effectivePlan);
 
   useEffect(() => {
     void refreshTrades();
@@ -103,7 +104,7 @@ export function TradeJournal() {
       window.removeEventListener('mt-connection-changed', handleMtConnectionChanged);
       if (autoSyncInterval) window.clearInterval(autoSyncInterval);
     };
-  }, []);
+  }, [effectivePlan]);
 
   const handleDeleteTrade = async (tradeId: string, symbol: string) => {
     if (window.confirm(`Are you sure you want to delete the trade for ${symbol}?`)) {

@@ -4,9 +4,10 @@ import { Button } from './ui/button';
 import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Settings } from 'lucide-react';
 import { fetchTrades } from '../utils/trades-api';
 import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
-import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
+import { filterTradesForFreeUser } from '../utils/data-limit';
 import { mtBridgeSync } from '../utils/mt-bridge';
 import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
+import { useProfile } from '../utils/use-profile';
 import type { Trade } from '../types/trade';
 import { 
   format, 
@@ -28,16 +29,16 @@ export function Dashboard() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
+  const { plan, isActive } = useProfile();
+  const effectivePlan = isActive ? plan : 'free';
 
   const refreshTrades = async () => {
     const allTrades = await fetchTrades();
-    const subscription = getUserSubscription();
-    const filteredTrades = subscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
+    const filteredTrades = effectivePlan === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
     setTrades(filteredTrades);
   };
 
-  const subscription = getUserSubscription();
-  const access = getFeatureAccess(subscription);
+  const access = getFeatureAccess(effectivePlan);
 
   useEffect(() => {
     void refreshTrades();
@@ -107,7 +108,7 @@ export function Dashboard() {
       window.removeEventListener('mt-connection-changed', handleMtConnectionChanged);
       if (autoSyncInterval) window.clearInterval(autoSyncInterval);
     };
-  }, []);
+  }, [effectivePlan]);
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
   const monthEnd = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
 

@@ -7,6 +7,7 @@ export type Profile = {
   email: string;
   fullName: string | null;
   subscriptionPlan: SubscriptionPlan;
+  subscriptionStatus: string | null;
   trialStartAt: string;
   isAdmin: boolean;
 };
@@ -16,6 +17,7 @@ type ProfileRow = {
   email: string;
   full_name: string | null;
   subscription_plan: SubscriptionPlan;
+  subscription_status: string | null;
   trial_start_at: string;
   is_admin: boolean;
 };
@@ -28,7 +30,7 @@ export async function getMyProfile(): Promise<Profile | null> {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id,email,full_name,subscription_plan,trial_start_at,is_admin')
+    .select('id,email,full_name,subscription_plan,subscription_status,trial_start_at,is_admin')
     .eq('id', user.id)
     .maybeSingle<ProfileRow>();
 
@@ -43,6 +45,7 @@ export async function getMyProfile(): Promise<Profile | null> {
     email: data.email,
     fullName: data.full_name,
     subscriptionPlan: data.subscription_plan,
+    subscriptionStatus: data.subscription_status ? String(data.subscription_status) : null,
     trialStartAt: data.trial_start_at,
     isAdmin: data.is_admin,
   };

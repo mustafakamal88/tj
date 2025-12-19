@@ -3,7 +3,7 @@ import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { fetchTrades } from '../utils/trades-api';
-import { filterTradesForFreeUser, getUserSubscription } from '../utils/data-limit';
+import { filterTradesForFreeUser } from '../utils/data-limit';
 import { isMtBridgeConfigured, mtBridgeMetrics, mtBridgeSync } from '../utils/mt-bridge';
 import {
   calculateWinRate,
@@ -18,18 +18,19 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import { TrendingUp, TrendingDown, Target, DollarSign, Percent, Activity } from 'lucide-react';
 import { format } from 'date-fns';
 import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
+import { useProfile } from '../utils/use-profile';
 
 export function Analytics() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [brokerMetrics, setBrokerMetrics] = useState<unknown>(null);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
-  const subscription = getUserSubscription();
-  const access = getFeatureAccess(subscription);
+  const { plan, isActive } = useProfile();
+  const effectivePlan = isActive ? plan : 'free';
+  const access = getFeatureAccess(effectivePlan);
 
   const refreshTrades = async () => {
     const allTrades = await fetchTrades();
-    const subscription = getUserSubscription();
-    const filteredTrades = subscription === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
+    const filteredTrades = effectivePlan === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
     setTrades(filteredTrades);
   };
 
@@ -120,7 +121,7 @@ export function Analytics() {
       window.removeEventListener('mt-connection-changed', handleMtConnectionChanged);
       if (autoSyncInterval) window.clearInterval(autoSyncInterval);
     };
-  }, []);
+  }, [effectivePlan]);
 
   // Calculate statistics
   const totalPnL = calculateTotalPnL(trades);

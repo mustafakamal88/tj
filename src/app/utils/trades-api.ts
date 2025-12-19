@@ -136,7 +136,9 @@ async function canAddTrades(tradeCountToAdd: number): Promise<AddTradeResult> {
     return { ok: false, reason: 'not_authenticated', message: 'Please login to add trades.' };
   }
 
-  if (profile.subscriptionPlan !== 'free') return { ok: true };
+  const status = (profile.subscriptionStatus ?? '').toLowerCase();
+  const paidActive = profile.subscriptionPlan !== 'free' && (status === 'active' || status === 'trialing');
+  if (paidActive) return { ok: true };
 
   // MVP rule: imports (bulk adds) require Pro/Premium even during the trial.
   if (tradeCountToAdd > 1) {

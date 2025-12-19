@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { calculatePnL, determineOutcome } from '../utils/trade-calculations';
 import { Card } from './ui/card';
 import { Progress } from './ui/progress';
-import { getUserSubscription } from '../utils/data-limit';
+import { useProfile } from '../utils/use-profile';
 
 interface MTImportDialogProps {
   open: boolean;
@@ -26,6 +26,8 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
   const [parseError, setParseError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<{ inserted: number; total: number } | null>(null);
+  const { plan, isActive } = useProfile();
+  const effectivePlan = isActive ? plan : 'free';
 
   const decodeText = (buffer: ArrayBuffer): { text: string; encoding: string } => {
     const bytes = new Uint8Array(buffer);
@@ -756,8 +758,7 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
 
       toast.success(`Imported ${parsedTrades.length} trades.`);
 
-      const subscription = getUserSubscription();
-      if (subscription === 'free') {
+      if (effectivePlan === 'free') {
         const now = new Date();
         const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
         const hasOlderThanFreeWindow = parsedTrades.some((t) => new Date(t.date) < twoWeeksAgo);

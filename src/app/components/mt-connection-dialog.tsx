@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -10,8 +10,8 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
 import { Activity, CheckCircle2, Copy, XCircle } from 'lucide-react';
-import { getUserSubscription } from '../utils/data-limit';
 import { getSupabaseClient } from '../utils/supabase';
+import { useProfile } from '../utils/use-profile';
 import { isMtBridgeConfigured, mtBridgeConnect, mtBridgeDisconnect, mtBridgeSync } from '../utils/mt-bridge';
 
 interface MTConnectionDialogProps {
@@ -60,8 +60,9 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
   const [mt5InvestorPassword, setMt5InvestorPassword] = useState('');
   const [mt5AccountType, setMt5AccountType] = useState<'live' | 'demo'>('live');
   
-  const subscription = useMemo(() => getUserSubscription(), []);
-  const isAutoSyncLocked = subscription === 'free';
+  const { plan, isActive } = useProfile();
+  const effectivePlan = isActive ? plan : 'free';
+  const isAutoSyncLocked = effectivePlan === 'free';
 
   useEffect(() => {
     if (!open) return;
