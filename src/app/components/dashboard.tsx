@@ -29,7 +29,7 @@ export function Dashboard() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
-  const { plan, isActive } = useProfile();
+  const { plan, isActive, refresh: refreshProfile } = useProfile();
   const effectivePlan = isActive ? plan : 'free';
 
   const refreshTrades = async () => {
@@ -215,13 +215,18 @@ export function Dashboard() {
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              onClick={() => {
-                if (!access.mt_sync) {
+              onClick={() => void (async () => {
+                const latest = await refreshProfile();
+                const status = (latest?.subscriptionStatus ?? '').toLowerCase();
+                const hasPaidAccess =
+                  (latest?.subscriptionPlan === 'pro' || latest?.subscriptionPlan === 'premium') &&
+                  (status === 'active' || status === 'trialing');
+                if (!hasPaidAccess) {
                   requestUpgrade('mt_sync');
                   return;
                 }
                 setIsConnectionDialogOpen(true);
-              }}
+              })()}
               className="gap-2"
             >
               <Settings className="w-4 h-4" />
@@ -229,13 +234,18 @@ export function Dashboard() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                if (!access.import) {
+              onClick={() => void (async () => {
+                const latest = await refreshProfile();
+                const status = (latest?.subscriptionStatus ?? '').toLowerCase();
+                const hasPaidAccess =
+                  (latest?.subscriptionPlan === 'pro' || latest?.subscriptionPlan === 'premium') &&
+                  (status === 'active' || status === 'trialing');
+                if (!hasPaidAccess) {
                   requestUpgrade('import');
                   return;
                 }
                 setIsImportDialogOpen(true);
-              }}
+              })()}
               className="gap-2"
             >
               <Upload className="w-4 h-4" />

@@ -50,6 +50,7 @@ Recommended events:
 ## Secrets required (Supabase)
 
 Set these as **Supabase Edge Function secrets** (not Vercel):
+- `STRIPE_SECRET_KEY` (`sk_test_...`) – used to fetch/cancel subscriptions for idempotency + mapping
 - `STRIPE_WEBHOOK_SECRET` (`whsec_...`)
 - `STRIPE_PRICE_PRO` (`price_...`)
 - `STRIPE_PRICE_PREMIUM` (`price_...`)
@@ -62,4 +63,3 @@ After a valid delivery, `public.profiles` will be updated:
 - `subscription_status`
 - `stripe_subscription_id`
 - `current_period_end`
-

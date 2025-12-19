@@ -38,7 +38,7 @@ type ProfileContextValue = {
   plan: SubscriptionPlan;
   isActive: boolean;
   loading: boolean;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<Profile | null>;
 };
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
@@ -49,7 +49,7 @@ function useProfileState(): ProfileContextValue {
   const mountedRef = useRef(true);
   const refreshSeqRef = useRef(0);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<Profile | null> => {
     const seq = ++refreshSeqRef.current;
     const supabase = getSupabaseClient();
     let nextProfile: Profile | null = null;
@@ -58,7 +58,7 @@ function useProfileState(): ProfileContextValue {
       if (!mountedRef.current) return;
       setProfile(null);
       setLoading(false);
-      return;
+      return null;
     }
 
     if (mountedRef.current) setLoading(true);
@@ -84,7 +84,7 @@ function useProfileState(): ProfileContextValue {
       const user = sessionData.session?.user ?? null;
       if (!user) {
         nextProfile = null;
-        return;
+        return null;
       }
 
       const { data, error } = await supabase
@@ -100,12 +100,12 @@ function useProfileState(): ProfileContextValue {
       if (error) {
         console.error('[useProfile] profiles select failed', error);
         nextProfile = null;
-        return;
+        return null;
       }
 
       if (!data) {
         nextProfile = null;
-        return;
+        return null;
       }
 
       nextProfile = {
@@ -129,6 +129,8 @@ function useProfileState(): ProfileContextValue {
       setProfile(nextProfile);
       setLoading(false);
     }
+
+    return nextProfile;
   }, []);
 
   useEffect(() => {
@@ -170,7 +172,7 @@ export function useProfile(): ProfileContextValue {
       plan: 'free',
       isActive: false,
       loading: false,
-      refresh: async () => {},
+      refresh: async () => null,
     };
   }
   return ctx;

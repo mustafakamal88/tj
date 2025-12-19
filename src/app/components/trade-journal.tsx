@@ -26,7 +26,7 @@ export function TradeJournal() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'long' | 'short'>('all');
   const [filterOutcome, setFilterOutcome] = useState<'all' | 'win' | 'loss' | 'breakeven'>('all');
-  const { plan, isActive } = useProfile();
+  const { plan, isActive, refresh: refreshProfile } = useProfile();
   const effectivePlan = isActive ? plan : 'free';
 
   const refreshTrades = async () => {
@@ -140,13 +140,18 @@ export function TradeJournal() {
           <div className="flex gap-2">
             <Button
               variant="outline"
-              onClick={() => {
-                if (!access.import) {
+              onClick={() => void (async () => {
+                const latest = await refreshProfile();
+                const status = (latest?.subscriptionStatus ?? '').toLowerCase();
+                const hasPaidAccess =
+                  (latest?.subscriptionPlan === 'pro' || latest?.subscriptionPlan === 'premium') &&
+                  (status === 'active' || status === 'trialing');
+                if (!hasPaidAccess) {
                   requestUpgrade('import');
                   return;
                 }
                 setIsImportDialogOpen(true);
-              }}
+              })()}
               className="gap-2"
             >
               <Upload className="w-4 h-4" />
