@@ -89,6 +89,41 @@ function getSupabaseAdmin() {
   return createClient(url, serviceRoleKey);
 }
 
+async function getAuthUserEmail(userId: string): Promise<string | null> {
+  const supabaseUrl = requireEnv("SUPABASE_URL");
+  const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const res = await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey}`,
+      apikey: serviceRoleKey,
+    },
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    console.error("[stripe-webhook] auth admin getUser failed", { userId, status: res.status });
+    return null;
+  }
+  return typeof json?.email === "string" && json.email.trim() ? json.email.trim() : null;
+}
+
+async function ensureProfileExists(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  userId: string,
+  emailHint?: string | null,
+) {
+  const { data, error } = await supabase.from("profiles").select("id").eq("id", userId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data?.id) return;
+
+  const emailFromAuth = await getAuthUserEmail(userId);
+  const email = emailFromAuth ?? (typeof emailHint === "string" && emailHint.trim() ? emailHint.trim() : null);
+  if (!email) throw new Error("Profile missing and email could not be resolved.");
+
+  const { error: insertErr } = await supabase.from("profiles").insert({ id: userId, email });
+  if (insertErr) throw new Error(insertErr.message);
+  console.log("[stripe-webhook] created missing profile", { userId, email });
+}
+
 function getStripeSecretKey(): string {
   const value = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
   if (!value || !value.startsWith("sk_")) throw new Error("STRIPE_SECRET_KEY missing or invalid.");
@@ -154,14 +189,32 @@ async function updateProfileByUserId(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   userId: string,
   updates: Record<string, unknown>,
+  options?: { emailHint?: string | null },
 ) {
-  const { data, error } = await supabase.from("profiles").update(updates).eq("id", userId).select("id");
-  if (error) throw new Error(error.message);
-  if (!Array.isArray(data) || data.length !== 1) {
-    console.error("[stripe-webhook] profile update did not affect exactly 1 row", { userId, updatedRows: data?.length });
-    throw new Error("Profile update did not affect exactly 1 row.");
+  const attempt = async () => {
+    const { data, error } = await supabase.from("profiles").update(updates).eq("id", userId).select("id");
+    if (error) throw new Error(error.message);
+    return data;
+  };
+
+  let data = await attempt();
+  if (Array.isArray(data) && data.length === 1) {
+    console.log("[stripe-webhook] profile updated", { userId, profileId: (data as any[])[0]?.id, updatedRows: data.length });
+    return;
   }
-  console.log("[stripe-webhook] profile updated", { userId, profileId: (data as any[])[0]?.id, updatedRows: data.length });
+
+  // If the profile row is missing (updatedRows = 0), create it and retry once.
+  if (Array.isArray(data) && data.length === 0) {
+    await ensureProfileExists(supabase, userId, options?.emailHint ?? null);
+    data = await attempt();
+    if (Array.isArray(data) && data.length === 1) {
+      console.log("[stripe-webhook] profile updated", { userId, profileId: (data as any[])[0]?.id, updatedRows: data.length });
+      return;
+    }
+  }
+
+  console.error("[stripe-webhook] profile update did not affect exactly 1 row", { userId, updatedRows: (data as any)?.length });
+  throw new Error("Profile update did not affect exactly 1 row.");
 }
 
 async function resolveUserId(
@@ -664,6 +717,7 @@ Deno.serve(async (req) => {
     ) {
       const invoice = event?.data?.object ?? {};
       const customerId = typeof invoice.customer === "string" ? invoice.customer : null;
+      const invoiceCustomerEmail = typeof invoice?.customer_email === "string" ? invoice.customer_email : null;
       const invoiceCandidate = findInvoiceSubscriptionCandidate(invoice);
       let subscriptionId = invoiceCandidate?.id ?? null;
       let subscriptionIdSource = invoiceCandidate?.source ?? null;
@@ -680,6 +734,7 @@ Deno.serve(async (req) => {
         invoiceMetaUserId,
         invoiceStatus,
         invoiceBillingReason,
+        invoiceCustomerEmail,
         shouldSkip,
       });
       if (shouldSkip) return ok({ received: true });
@@ -831,6 +886,7 @@ Deno.serve(async (req) => {
               current_period_end: null,
             },
           ),
+          { emailHint: invoiceCustomerEmail },
         );
         console.log("[stripe-webhook] applied", { type, userId, plan: "free", status: "canceled", subscriptionId });
         return ok({ received: true });
@@ -859,6 +915,7 @@ Deno.serve(async (req) => {
             current_period_end: periodEnd ?? null,
           },
         ),
+        { emailHint: invoiceCustomerEmail },
       );
 
       console.log("[stripe-webhook] applied", { type, userId, plan, status, subscriptionId });
