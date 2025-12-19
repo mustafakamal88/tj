@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -17,6 +17,9 @@ export function BillingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { profile, plan, isActive, loading: profileLoading, refresh } = useProfile();
   const { user, loading: authLoading } = useAuth();
+  const paidActiveRef = useRef(false);
+  const pollTimerRef = useRef<number | null>(null);
+  const handledReturnRef = useRef(false);
 
   const enablePayPal = isEnabled('VITE_ENABLE_PAYPAL');
   const enableApplePay = isEnabled('VITE_ENABLE_APPLEPAY');
@@ -109,28 +112,72 @@ export function BillingPage() {
   };
 
   useEffect(() => {
-    // Always re-fetch on billing page load to avoid stale plan state.
-    if (!authLoading && user) void refresh();
+    paidActiveRef.current = isPaidActive;
+  }, [isPaidActive]);
+
+  useEffect(() => {
+    // Always fetch the latest profile on Billing mount/login (local state can be stale after Stripe redirect).
+    if (authLoading) return;
+    if (!user) return;
+    void refresh();
+  }, [authLoading, user?.id, refresh]);
+
+  useEffect(() => {
+    // Stripe redirects back with query params; webhooks update Supabase asynchronously.
+    // Poll profile refresh briefly until the paid plan becomes visible in the DB.
+    if (authLoading) return;
+    if (!user) return;
+    if (handledReturnRef.current) return;
 
     const params = new URLSearchParams(window.location.search);
-    const success = params.get('success');
-    const sessionId = params.get('session_id');
-    const canceled = params.get('canceled');
-    if (success === '1') {
-      toast.success('Payment successful. Activating your plan…');
-      void (async () => {
+    const success = params.get("success");
+    const canceled = params.get("canceled");
+
+    const clearQueryParams = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("success");
+      url.searchParams.delete("canceled");
+      url.searchParams.delete("session_id");
+      window.history.replaceState({}, "", url.toString());
+    };
+
+    if (success === "1") {
+      handledReturnRef.current = true;
+      toast.success("Payment successful. Activating your plan…");
+
+      if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+      let attempt = 0;
+
+      const tick = async () => {
         await refresh();
-        // Webhook may take a moment — retry once.
-        window.setTimeout(() => void refresh(), 1500);
-      })();
-      if (sessionId) {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('session_id');
-        window.history.replaceState({}, '', url.toString());
-      }
-    } else if (canceled === '1') {
-      toast.info('Checkout canceled.');
+        if (paidActiveRef.current) {
+          clearQueryParams();
+          return;
+        }
+        attempt += 1;
+        if (attempt >= 8) {
+          clearQueryParams();
+          return;
+        }
+        const delay = Math.min(8000, 1000 * Math.pow(2, attempt)); // 2s,4s,8s...
+        pollTimerRef.current = window.setTimeout(() => void tick(), delay);
+      };
+
+      void tick();
+      return;
     }
+
+    if (canceled === "1") {
+      handledReturnRef.current = true;
+      toast.info("Checkout canceled.");
+      clearQueryParams();
+    }
+  }, [authLoading, user?.id, refresh]);
+
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {

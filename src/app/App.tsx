@@ -12,7 +12,7 @@ import { ThemeProvider } from './components/theme-provider';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { getSupabaseClient } from './utils/supabase';
-import { ensureProfile, getMyProfile } from './utils/profile';
+import { ensureProfile } from './utils/profile';
 import { ProfileProvider } from './utils/use-profile';
 import { AuthProvider, useAuth } from './utils/auth';
 
@@ -75,29 +75,19 @@ function AppContent() {
   }, [authLoading, userEmail, isAuthDialogOpen, currentPage]);
 
   useEffect(() => {
-    const syncProfileToLocalCache = async () => {
-      const profile = await getMyProfile();
-      if (!profile) return;
-      localStorage.setItem('user-subscription', profile.subscriptionPlan);
-      localStorage.setItem('user-trial-start', profile.trialStartAt);
-    };
-
-    // When auth resolves, ensure profile row exists and sync cached values (used by some MVP gating).
+    // When auth resolves, ensure profile row exists.
     if (!user) return;
     void (async () => {
       const ok = await ensureProfile(user);
       if (!ok) {
         toast.error('Profile setup failed. Apply the Supabase schema/policies, then reload.');
       }
-      await syncProfileToLocalCache();
     })();
   }, [user]);
 
   useEffect(() => {
     if (authLoading) return;
     if (user) return;
-    localStorage.removeItem('user-subscription');
-    localStorage.removeItem('user-trial-start');
     setCurrentPage('home');
   }, [authLoading, user]);
 

@@ -1,9 +1,4 @@
 import type { Trade } from '../types/trade';
-import {
-  getFreePlanAddTradeBlockMessage,
-  getFreePlanAddTradeBlockReason,
-  getUserSubscription,
-} from './data-limit';
 
 const STORAGE_KEY = 'trade_journal_data';
 
@@ -32,14 +27,6 @@ export type AddTradeResult =
 
 export function addTrade(trade: Trade): AddTradeResult {
   const trades = loadTrades();
-
-  const subscription = getUserSubscription();
-  if (subscription === 'free') {
-    const reason = getFreePlanAddTradeBlockReason(trades.length);
-    if (reason) {
-      return { ok: false, reason, message: getFreePlanAddTradeBlockMessage(reason) };
-    }
-  }
 
   trades.push(trade);
   saveTrades(trades);
