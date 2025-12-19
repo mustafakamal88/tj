@@ -57,6 +57,10 @@ Recommended events:
 - `invoice.payment_failed`
 - `invoice.paid`
 
+Notes:
+- Stripe “Events” (in the left nav) are not the same as **webhook deliveries**. Your webhook endpoint only receives the event types you explicitly enable.
+- For subscriptions, some setups commonly deliver `invoice.paid` reliably, while `invoice.payment_succeeded` may not be enabled or may be less consistent depending on your endpoint selection. This project handles both (and treats `invoice.paid` as a success signal).
+
 ## 5) Debug flow: “Stripe paid but app still Free”
 
 ### Step A — Confirm Stripe has a real active subscription
@@ -98,6 +102,7 @@ Expected logs (examples):
 - `subscription.metadata.user_id` and resolved `userId`
 - price id and mapped plan
 - “profile updated” showing the updated profile id
+- `unhandled event type` logs for non-entitlement events (e.g. `payment_intent.*`) — these are ACKed with 200 but do not update DB
 
 Important: The webhook returns **HTTP 500** when it cannot map/update exactly 1 profile row, so Stripe will retry until it succeeds.
 
