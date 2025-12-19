@@ -253,10 +253,12 @@ async function cancelOtherActiveSubscriptions(customerId: string, keepSubscripti
 
 async function resolveUserIdStrict(
   supabase: ReturnType<typeof getSupabaseAdmin>,
-  input: { subscription?: any; clientReferenceId?: unknown; customerId?: string | null },
+  input: { subscription?: any; metadataUserId?: unknown; clientReferenceId?: unknown; customerId?: string | null },
 ): Promise<string> {
   const fromSubscription = subscriptionUserId(input.subscription);
   if (fromSubscription) return fromSubscription;
+
+  if (typeof input.metadataUserId === "string" && input.metadataUserId.trim()) return input.metadataUserId.trim();
 
   if (typeof input.clientReferenceId === "string" && input.clientReferenceId.trim()) return input.clientReferenceId.trim();
 
@@ -531,16 +533,18 @@ Deno.serve(async (req) => {
       return ok({ received: true });
     }
 
-    if (type === "invoice.payment_succeeded" || type === "invoice.payment_failed") {
+    if (type === "invoice.payment_succeeded" || type === "invoice.payment_failed" || type === "invoice.paid") {
       const invoice = event?.data?.object ?? {};
       const customerId = typeof invoice.customer === "string" ? invoice.customer : null;
       const subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : null;
+      const invoiceMetaUserId = invoice?.metadata?.user_id ?? null;
       console.log("[stripe-webhook] invoice.payment_*", {
         eventId,
         type,
         invoiceId: invoice?.id ?? null,
         customerId,
         subscriptionId,
+        invoiceMetaUserId,
       });
       if (!customerId) {
         console.error("[stripe-webhook] mapping failure: invoice missing customer id", { type, invoiceId: invoice?.id });
@@ -571,7 +575,11 @@ Deno.serve(async (req) => {
       const subCustomerId = typeof sub?.customer === "string" ? sub.customer : customerId;
       const priceId = sub?.items?.data?.[0]?.price?.id as string | undefined;
       const subMetaUserId = subscriptionUserId(sub);
-      const userId = await resolveUserIdStrict(supabase, { subscription: sub, customerId: subCustomerId });
+      const userId = await resolveUserIdStrict(supabase, {
+        subscription: sub,
+        metadataUserId: invoiceMetaUserId,
+        customerId: subCustomerId,
+      });
 
       let status = normalizeStripeStatus(String(sub?.status ?? "active") as StripeSubStatus);
       if (type === "invoice.payment_failed" && (status === "active" || status === "trialing")) status = "past_due";
@@ -585,6 +593,7 @@ Deno.serve(async (req) => {
         subscriptionId,
         status,
         metadataUserId: subMetaUserId,
+        invoiceMetaUserId,
         resolvedUserId: userId,
         priceId: priceId ?? null,
         mappedPlan: plan ?? null,
@@ -638,6 +647,15 @@ Deno.serve(async (req) => {
       return ok({ received: true });
     }
 
+    // Unknown/unhandled events: log minimal context so mismatches are obvious, but always ACK 200.
+    const obj = event?.data?.object ?? {};
+    const customer = typeof obj?.customer === "string" ? obj.customer : null;
+    const subscription = typeof obj?.subscription === "string"
+      ? obj.subscription
+      : typeof obj?.id === "string" && String(obj.id).startsWith("sub_")
+        ? String(obj.id)
+        : null;
+    console.log("[stripe-webhook] unhandled event type", { eventId, type, customer, subscription });
     return ok({ received: true });
   } catch (e) {
     console.error("[stripe-webhook] handler error", e, { eventId, type });

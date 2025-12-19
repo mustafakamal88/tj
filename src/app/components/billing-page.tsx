@@ -28,9 +28,9 @@ export function BillingPage() {
   const enableCrypto = isEnabled('VITE_ENABLE_CRYPTO');
   const usdtAddress = (import.meta.env.VITE_USDT_ADDRESS as string | undefined) ?? '';
   const isPaidActive = !profileLoading && isActive && (plan === 'pro' || plan === 'premium');
-  const isSubscribed = isPaidActive;
   const currentPlan: SubscriptionPlan | null = profileLoading ? null : isPaidActive ? plan : 'free';
-  const disableAllPaid = isSubscribed;
+  const isProActive = isPaidActive && plan === 'pro';
+  const isPremiumActive = isPaidActive && plan === 'premium';
 
   const plans = useMemo(
     () =>
@@ -260,14 +260,26 @@ export function BillingPage() {
                   </Button>
                 ) : (
                   <div className="space-y-3">
-                    {isSubscribed ? (
+                    {plan.key === 'pro' && isProActive ? (
                       <Button className="w-full" variant="outline" disabled>
-                        Subscribed
+                        Current plan
+                      </Button>
+                    ) : plan.key === 'premium' && isPremiumActive ? (
+                      <Button className="w-full" variant="outline" disabled>
+                        Current plan
+                      </Button>
+                    ) : plan.key === 'premium' && isProActive ? (
+                      <Button
+                        className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
+                        disabled={profileLoading || isLoading}
+                        onClick={() => void openPortal()}
+                      >
+                        Upgrade to Premium
                       </Button>
                     ) : (
                       <Button
                         className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
-                        disabled={profileLoading || isLoading || isCurrent || disableAllPaid}
+                        disabled={profileLoading || isLoading || isCurrent}
                         onClick={() => void startCheckout(plan.key, 'stripe')}
                       >
                         Pay with Stripe (test)
@@ -276,7 +288,7 @@ export function BillingPage() {
                     <Button
                       className="w-full"
                       variant="outline"
-                      disabled={profileLoading || isLoading || isCurrent || disableAllPaid || !enablePayPal || isSubscribed}
+                      disabled={profileLoading || isLoading || isCurrent || !enablePayPal || isPaidActive}
                       onClick={() => void startCheckout(plan.key, 'paypal')}
                     >
                       {enablePayPal ? 'Pay with PayPal (test)' : 'PayPal (disabled)'}

@@ -55,6 +55,7 @@ Recommended events:
 - `customer.subscription.deleted`
 - `invoice.payment_succeeded`
 - `invoice.payment_failed`
+- `invoice.paid`
 
 ## 5) Debug flow: “Stripe paid but app still Free”
 
@@ -117,4 +118,3 @@ If you applied migration `supabase/migrations/0007_profiles_billing_guardrails.s
 ```sql
 select * from public.profile_billing_health order by email;
 ```
-
