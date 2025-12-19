@@ -152,8 +152,12 @@ async function updateProfileByUserId(
   userId: string,
   updates: Record<string, unknown>,
 ) {
-  const { error } = await supabase.from("profiles").update(updates).eq("id", userId);
+  const { data, error } = await supabase.from("profiles").update(updates).eq("id", userId).select("id");
   if (error) throw new Error(error.message);
+  if (!Array.isArray(data) || data.length !== 1) {
+    console.error("[stripe-webhook] profile update did not affect exactly 1 row", { userId, updatedRows: data?.length });
+    throw new Error("Profile update did not affect exactly 1 row.");
+  }
 }
 
 async function resolveUserId(
@@ -295,7 +299,11 @@ Deno.serve(async (req) => {
           current_period_end: periodEnd ?? null,
         },
       );
-      if (mappedPlan) updates.subscription_plan = mappedPlan;
+      if (!mappedPlan) {
+        console.error("[stripe-webhook] mapping failure: could not map plan from price id", { subscriptionId, subCustomerId });
+        return json(500, { error: "Could not map plan for subscription." });
+      }
+      updates.subscription_plan = mappedPlan;
 
       await updateProfileByUserId(supabase, userId, updates);
 
@@ -377,7 +385,11 @@ Deno.serve(async (req) => {
           current_period_end: periodEnd ?? null,
         },
       );
-      if (mappedPlan) updates.subscription_plan = mappedPlan;
+      if (!mappedPlan) {
+        console.error("[stripe-webhook] mapping failure: could not map plan from subscription price id", { subscriptionId, customerId });
+        return json(500, { error: "Could not map plan for subscription." });
+      }
+      updates.subscription_plan = mappedPlan;
 
       await updateProfileByUserId(supabase, userId, updates);
 
@@ -442,7 +454,14 @@ Deno.serve(async (req) => {
           current_period_end: periodEnd ?? null,
         },
       );
-      if (mappedPlan) updates.subscription_plan = mappedPlan;
+      if (!mappedPlan) {
+        console.error("[stripe-webhook] mapping failure: could not map plan from subscription price id (invoice event)", {
+          subscriptionId,
+          subCustomerId,
+        });
+        return json(500, { error: "Could not map plan for subscription." });
+      }
+      updates.subscription_plan = mappedPlan;
 
       await updateProfileByUserId(supabase, userId, updates);
 

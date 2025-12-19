@@ -8,6 +8,7 @@ import type { SubscriptionPlan } from '../utils/data-limit';
 import { useProfile } from '../utils/use-profile';
 import { useAuth } from '../utils/auth';
 import { invokeBilling, invokeBillingHealth, invokeBillingUrl } from '../utils/billing';
+import { getSupabaseClient } from '../utils/supabase';
 
 type PaymentMethod = 'stripe' | 'paypal' | 'applepay' | 'googlepay' | 'crypto';
 
@@ -149,6 +150,13 @@ export function BillingPage() {
       let attempt = 0;
 
       const tick = async () => {
+        // Refresh auth session first (defensive; avoids stale tokens after redirects).
+        try {
+          const supabase = getSupabaseClient();
+          await supabase?.auth.refreshSession();
+        } catch {
+          // ignore
+        }
         await refresh();
         if (paidActiveRef.current) {
           clearQueryParams();
@@ -252,17 +260,23 @@ export function BillingPage() {
                   </Button>
                 ) : (
                   <div className="space-y-3">
-                    <Button
-                      className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
-                      disabled={profileLoading || isLoading || isCurrent || disableAllPaid}
-                      onClick={() => void startCheckout(plan.key, 'stripe')}
-                    >
-                      Pay with Stripe (test)
-                    </Button>
+                    {isSubscribed ? (
+                      <Button className="w-full" variant="outline" disabled>
+                        Subscribed
+                      </Button>
+                    ) : (
+                      <Button
+                        className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
+                        disabled={profileLoading || isLoading || isCurrent || disableAllPaid}
+                        onClick={() => void startCheckout(plan.key, 'stripe')}
+                      >
+                        Pay with Stripe (test)
+                      </Button>
+                    )}
                     <Button
                       className="w-full"
                       variant="outline"
-                      disabled={profileLoading || isLoading || isCurrent || disableAllPaid || !enablePayPal}
+                      disabled={profileLoading || isLoading || isCurrent || disableAllPaid || !enablePayPal || isSubscribed}
                       onClick={() => void startCheckout(plan.key, 'paypal')}
                     >
                       {enablePayPal ? 'Pay with PayPal (test)' : 'PayPal (disabled)'}
