@@ -12,6 +12,9 @@ type StripeSubStatus =
   | "paused"
   | string;
 
+// Stamped at deploy time via Supabase secret `BUILD_ID` (see `scripts/deploy-functions.sh`).
+const BUILD_ID = Deno.env.get("BUILD_ID") ?? "dev";
+
 function requireEnv(name: string): string {
   const v = Deno.env.get(name);
   if (!v) throw new Error(`Missing ${name} env var.`);
@@ -273,6 +276,7 @@ async function resolveUserIdStrict(
 }
 
 Deno.serve(async (req) => {
+  console.log("[stripe-webhook] build", { BUILD_ID });
   console.log("[stripe-webhook] incoming request", { method: req.method });
   if (req.method !== "POST") return json(405, { error: "Method not allowed" });
 
@@ -306,12 +310,28 @@ Deno.serve(async (req) => {
     return json(400, { error: "Invalid JSON." });
   }
 
-  const type = String(event?.type ?? "");
+  const rawType = event?.type;
+  const type = typeof rawType === "string" ? rawType : String(rawType ?? "");
   const eventId = typeof event?.id === "string" ? event.id : null;
-  const supabase = getSupabaseAdmin();
+  const objGuess = event?.data?.object ?? {};
+  const customerIdGuess = typeof objGuess?.customer === "string" ? objGuess.customer : null;
+  const subscriptionIdGuess = typeof objGuess?.subscription === "string"
+    ? objGuess.subscription
+    : typeof objGuess?.id === "string" && String(objGuess.id).startsWith("sub_")
+      ? String(objGuess.id)
+      : null;
 
   try {
-    console.log("[stripe-webhook] event", { eventId, type });
+    console.log("[stripe-webhook] event", {
+      BUILD_ID,
+      eventId,
+      type,
+      typeOf: typeof rawType,
+      typeJson: JSON.stringify(type),
+      customerIdGuess,
+      subscriptionIdGuess,
+    });
+    const supabase = getSupabaseAdmin();
     // Stripe can send many event types; we ack unknown types.
     if (type === "checkout.session.completed") {
       const session = event?.data?.object ?? {};
@@ -648,14 +668,13 @@ Deno.serve(async (req) => {
     }
 
     // Unknown/unhandled events: log minimal context so mismatches are obvious, but always ACK 200.
-    const obj = event?.data?.object ?? {};
-    const customer = typeof obj?.customer === "string" ? obj.customer : null;
-    const subscription = typeof obj?.subscription === "string"
-      ? obj.subscription
-      : typeof obj?.id === "string" && String(obj.id).startsWith("sub_")
-        ? String(obj.id)
-        : null;
-    console.log("[stripe-webhook] unhandled event type", { eventId, type, customer, subscription });
+    console.log("[stripe-webhook] unhandled", {
+      BUILD_ID,
+      eventId,
+      type,
+      customerIdGuess,
+      subscriptionIdGuess,
+    });
     return ok({ received: true });
   } catch (e) {
     console.error("[stripe-webhook] handler error", e, { eventId, type });

@@ -6,6 +6,11 @@ cd "$ROOT_DIR"
 
 echo "== Deploy Supabase Edge Functions =="
 
+if [[ ! -f "supabase/config.toml" ]]; then
+  echo "ERROR: supabase/config.toml not found. Run this from the repo root." >&2
+  exit 1
+fi
+
 if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if git diff --quiet && git diff --cached --quiet; then
     echo "- git pull (rebase)"
@@ -47,6 +52,20 @@ if ! supabase projects list >/dev/null 2>&1; then
 fi
 
 echo "- auth: OK"
+
+# Stamp a build id so webhook logs prove which code is deployed.
+BUILD_ID=${BUILD_ID:-}
+if [[ -z "$BUILD_ID" ]]; then
+  if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    BUILD_ID=$(git rev-parse --short HEAD 2>/dev/null || true)
+  fi
+fi
+BUILD_ID=${BUILD_ID:-manual}
+export BUILD_ID
+echo "- BUILD_ID: $BUILD_ID"
+
+echo "- setting BUILD_ID secret"
+supabase secrets set BUILD_ID="$BUILD_ID" --project-ref "$PROJECT_REF" >/dev/null
 
 # Function sanity checks
 for name in server mt-bridge billing stripe-webhook; do
