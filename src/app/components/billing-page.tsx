@@ -24,8 +24,9 @@ export function BillingPage() {
   const enableCrypto = isEnabled('VITE_ENABLE_CRYPTO');
   const usdtAddress = (import.meta.env.VITE_USDT_ADDRESS as string | undefined) ?? '';
   const isPaidActive = !profileLoading && isActive && (plan === 'pro' || plan === 'premium');
+  const isSubscribed = isPaidActive;
   const currentPlan: SubscriptionPlan | null = profileLoading ? null : isPaidActive ? plan : 'free';
-  const disableAllPaid = isPaidActive && plan === 'premium';
+  const disableAllPaid = isSubscribed;
 
   const plans = useMemo(
     () =>
@@ -108,6 +109,9 @@ export function BillingPage() {
   };
 
   useEffect(() => {
+    // Always re-fetch on billing page load to avoid stale plan state.
+    if (!authLoading && user) void refresh();
+
     const params = new URLSearchParams(window.location.search);
     const success = params.get('success');
     const sessionId = params.get('session_id');

@@ -54,13 +54,18 @@ function requireStripePriceId(name: string): string {
   return value;
 }
 
-async function stripeRequest(path: string, params: URLSearchParams): Promise<any> {
+async function stripeRequest(
+  path: string,
+  params: URLSearchParams,
+  options?: { idempotencyKey?: string },
+): Promise<any> {
   const secret = requireStripeSecretKey();
   const res = await fetch(`https://api.stripe.com/v1${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${secret}`,
       "Content-Type": "application/x-www-form-urlencoded",
+      ...(options?.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : {}),
     },
     body: params.toString(),
   });
@@ -78,30 +83,22 @@ function mapPlanToStripePrice(plan: SubscriptionPlan): string {
 async function ensureStripeCustomer(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   userId: string,
-): Promise<{ customerId: string; email: string }> {
-  const { data: prof, error } = await supabase
-    .from("profiles")
-    .select("email,stripe_customer_id")
-    .eq("id", userId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
+  profile: { email: string | null; stripe_customer_id: string | null },
+): Promise<string> {
+  let customerId = profile.stripe_customer_id;
+  if (customerId) return customerId;
 
-  const email = String((prof as any)?.email ?? "");
-  let customerId = (prof as any)?.stripe_customer_id as string | null;
-
-  if (!customerId) {
-    const created = await stripeRequest(
-      "/customers",
-      new URLSearchParams({
-        email,
-        "metadata[user_id]": userId,
-      }),
-    );
-    customerId = created.id;
-    await supabase.from("profiles").update({ stripe_customer_id: customerId }).eq("id", userId);
-  }
-
-  return { customerId, email };
+  const created = await stripeRequest(
+    "/customers",
+    new URLSearchParams({
+      email: profile.email ?? "",
+      "metadata[user_id]": userId,
+    }),
+    { idempotencyKey: `tj_customer_${userId}` },
+  );
+  customerId = created.id;
+  await supabase.from("profiles").update({ stripe_customer_id: customerId }).eq("id", userId);
+  return customerId;
 }
 
 async function paypalGetAccessToken(): Promise<string> {
@@ -197,7 +194,29 @@ const billingHandler = async (c: any) => {
         const message = e instanceof Error ? e.message : "Stripe is not configured.";
         return c.json({ error: message }, 500);
       }
-      const { customerId } = await ensureStripeCustomer(supabase, userId);
+      // Prevent duplicate active subscriptions (single active subscription per user).
+      const { data: prof, error: profErr } = await supabase
+        .from("profiles")
+        .select("email,stripe_customer_id,stripe_subscription_id,subscription_plan,subscription_status")
+        .eq("id", userId)
+        .maybeSingle();
+      if (profErr) return c.json({ error: profErr.message }, 500);
+
+      const existingPlan = String((prof as any)?.subscription_plan ?? "free").toLowerCase();
+      const existingStatus = String((prof as any)?.subscription_status ?? "").toLowerCase();
+      const isSubscribed = (existingPlan === "pro" || existingPlan === "premium") &&
+        (existingStatus === "active" || existingStatus === "trialing");
+      if (isSubscribed) {
+        return c.json(
+          { error: "You already have an active subscription. Use Manage subscription to make changes." },
+          409,
+        );
+      }
+
+      const customerId = await ensureStripeCustomer(supabase, userId, {
+        email: (prof as any)?.email ?? null,
+        stripe_customer_id: (prof as any)?.stripe_customer_id ?? null,
+      });
 
       const session = await stripeRequest(
         "/checkout/sessions",
@@ -214,6 +233,8 @@ const billingHandler = async (c: any) => {
           "subscription_data[metadata][plan]": plan,
           client_reference_id: userId,
         }),
+        // Avoid creating duplicate sessions on double-click.
+        { idempotencyKey: `tj_checkout_${userId}_${plan}` },
       );
 
       return c.json({ url: session.url });
