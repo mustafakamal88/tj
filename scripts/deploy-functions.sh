@@ -79,7 +79,12 @@ deploy_one() {
   local name="$1"
   echo
   echo "== Deploy: $name =="
-  if ! supabase functions deploy "$name" "${DEPLOY_FLAGS[@]}" "${DEBUG_FLAGS[@]}"; then
+  local extra_flags=()
+  if [[ "$name" == "stripe-webhook" ]]; then
+    # Stripe does not send a Supabase JWT. Disable JWT verification explicitly to avoid 401s.
+    extra_flags+=(--no-verify-jwt)
+  fi
+  if ! supabase functions deploy "$name" "${DEPLOY_FLAGS[@]}" "${DEBUG_FLAGS[@]}" "${extra_flags[@]}"; then
     echo "ERROR: Deploy failed for '$name'." >&2
     echo "Try: supabase functions deploy $name --use-api --project-ref $PROJECT_REF --debug" >&2
     return 1

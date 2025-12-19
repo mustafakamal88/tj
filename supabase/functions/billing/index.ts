@@ -204,8 +204,11 @@ const billingHandler = async (c: any) => {
 
       const existingPlan = String((prof as any)?.subscription_plan ?? "free").toLowerCase();
       const existingStatus = String((prof as any)?.subscription_status ?? "").toLowerCase();
+      const existingSubId = (prof as any)?.stripe_subscription_id as string | null | undefined;
       const isSubscribed = (existingPlan === "pro" || existingPlan === "premium") &&
-        (existingStatus === "active" || existingStatus === "trialing");
+        (existingStatus === "active" || existingStatus === "trialing") &&
+        typeof existingSubId === "string" &&
+        existingSubId.length > 0;
       if (isSubscribed) {
         return c.json(
           { error: "You already have an active subscription. Use Manage subscription to make changes." },

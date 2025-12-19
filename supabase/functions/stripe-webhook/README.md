@@ -21,6 +21,12 @@ If you see `HTTP 401` with `Missing authorization header` in Stripe, the config 
 supabase functions deploy stripe-webhook --use-api --debug
 ```
 
+If you still see `401 Missing authorization header` in Stripe, redeploy with:
+
+```bash
+supabase functions deploy stripe-webhook --use-api --no-verify-jwt --debug
+```
+
 ## Quick validation (no Authorization header)
 
 This must NOT return `401`. It should return `400` (invalid/missing signature) unless you provide a valid Stripe signature.
@@ -63,3 +69,36 @@ After a valid delivery, `public.profiles` will be updated:
 - `subscription_status`
 - `stripe_subscription_id`
 - `current_period_end`
+
+## Verification SQL (Supabase SQL editor)
+
+Check a specific user:
+
+```sql
+select
+  id,
+  email,
+  subscription_plan,
+  subscription_status,
+  current_period_end,
+  stripe_customer_id,
+  stripe_subscription_id
+from public.profiles
+where email = 'you@example.com';
+```
+
+Find obvious billing inconsistencies (requires migration `supabase/migrations/0007_profiles_billing_guardrails.sql` applied):
+
+```sql
+select * from public.profile_billing_health order by email;
+```
+
+Find users who have a Stripe customer id but no subscription id:
+
+```sql
+select id, email, stripe_customer_id, stripe_subscription_id, subscription_plan, subscription_status
+from public.profiles
+where stripe_customer_id is not null
+  and stripe_subscription_id is null
+order by email;
+```
