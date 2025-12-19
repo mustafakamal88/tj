@@ -4,6 +4,10 @@
 # working directory name when running `supabase init`.
 project_id = "Trade_Journaling_Website"
 
+[functions.stripe-webhook]
+# Stripe sends webhooks server-to-server and does not include a Supabase JWT.
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

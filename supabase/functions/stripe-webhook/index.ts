@@ -121,7 +121,10 @@ Deno.serve(async (req) => {
   const webhookSecret = requireEnv("STRIPE_WEBHOOK_SECRET");
   const sigHeader = req.headers.get("stripe-signature") ?? req.headers.get("Stripe-Signature");
   const parsed = parseStripeSignature(sigHeader);
-  if (!parsed) return json(400, { error: "Invalid Stripe-Signature header." });
+  if (!parsed) {
+    console.warn("[stripe-webhook] missing/invalid Stripe-Signature header");
+    return json(400, { error: "Invalid Stripe-Signature header." });
+  }
 
   const rawText = await req.text();
 
@@ -133,7 +136,10 @@ Deno.serve(async (req) => {
   const signedPayload = `${parsed.timestamp}.${rawText}`;
   const expected = await hmacSha256Hex(webhookSecret, signedPayload);
   const valid = parsed.signatures.some((sig) => timingSafeEqual(sig, expected));
-  if (!valid) return json(400, { error: "Invalid signature." });
+  if (!valid) {
+    console.warn("[stripe-webhook] signature verification failed");
+    return json(400, { error: "Invalid signature." });
+  }
 
   let event: any;
   try {
@@ -146,6 +152,7 @@ Deno.serve(async (req) => {
   const supabase = getSupabaseAdmin();
 
   try {
+    console.log("[stripe-webhook] event", { type });
     // Stripe can send many event types; we ack unknown types.
     if (type === "checkout.session.completed") {
       const session = event?.data?.object ?? {};
