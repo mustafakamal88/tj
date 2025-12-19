@@ -234,20 +234,37 @@ function isStripeSubscriptionId(value: string): boolean {
   return value.startsWith("sub_");
 }
 
-function getInvoiceSubscriptionId(invoice: any): string | null {
+type InvoiceSubscriptionCandidate = { id: string; source: string };
+
+function findInvoiceSubscriptionCandidate(invoice: any): InvoiceSubscriptionCandidate | null {
   const direct = invoice?.subscription;
-  if (typeof direct === "string" && isStripeSubscriptionId(direct)) return direct;
+  if (typeof direct === "string" && isStripeSubscriptionId(direct)) {
+    return { id: direct, source: "invoice.subscription" };
+  }
 
   const parentSub = invoice?.parent?.subscription_details?.subscription;
-  if (typeof parentSub === "string" && isStripeSubscriptionId(parentSub)) return parentSub;
+  if (typeof parentSub === "string" && isStripeSubscriptionId(parentSub)) {
+    return { id: parentSub, source: "invoice.parent.subscription_details.subscription" };
+  }
 
   const lines: any[] = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
   for (const line of lines) {
-    const fromLine = line?.parent?.subscription_item_details?.subscription;
-    if (typeof fromLine === "string" && isStripeSubscriptionId(fromLine)) return fromLine;
+    const lineSub = line?.subscription;
+    if (typeof lineSub === "string" && isStripeSubscriptionId(lineSub)) {
+      return { id: lineSub, source: "invoice.lines[].subscription" };
+    }
+
+    const fromLineParent = line?.parent?.subscription_item_details?.subscription;
+    if (typeof fromLineParent === "string" && isStripeSubscriptionId(fromLineParent)) {
+      return { id: fromLineParent, source: "invoice.lines[].parent.subscription_item_details.subscription" };
+    }
   }
 
   return null;
+}
+
+function getInvoiceSubscriptionId(invoice: any): string | null {
+  return findInvoiceSubscriptionCandidate(invoice)?.id ?? null;
 }
 
 function getInvoiceMetadataUserId(invoice: any): unknown {
@@ -277,6 +294,26 @@ function invoiceLooksPaid(invoice: any): boolean {
 
 async function fetchSubscription(subscriptionId: string): Promise<any> {
   return await stripeGet(`/subscriptions/${encodeURIComponent(subscriptionId)}?expand[]=items.data.price`);
+}
+
+async function findMostRelevantSubscriptionIdForCustomer(customerId: string): Promise<string | null> {
+  const list = await stripeGet(
+    `/subscriptions?customer=${encodeURIComponent(customerId)}&status=all&limit=20`,
+  );
+  const subs: any[] = Array.isArray(list?.data) ? list.data : [];
+  let firstPastDue: string | null = null;
+
+  // Stripe lists are sorted by created desc by default.
+  for (const sub of subs) {
+    const id = typeof sub?.id === "string" ? sub.id : null;
+    if (!id || !isStripeSubscriptionId(id)) continue;
+    const status = String(sub?.status ?? "").toLowerCase();
+
+    if (status === "active" || status === "trialing") return id;
+    if (status === "past_due" && !firstPastDue) firstPastDue = id;
+  }
+
+  return firstPastDue;
 }
 
 async function cancelOtherActiveSubscriptions(customerId: string, keepSubscriptionId: string) {
@@ -605,7 +642,8 @@ Deno.serve(async (req) => {
     ) {
       const invoice = event?.data?.object ?? {};
       const customerId = typeof invoice.customer === "string" ? invoice.customer : null;
-      const subscriptionId = getInvoiceSubscriptionId(invoice);
+      const invoiceCandidate = findInvoiceSubscriptionCandidate(invoice);
+      let subscriptionId = invoiceCandidate?.id ?? null;
       const invoiceMetaUserId = getInvoiceMetadataUserId(invoice);
       const invoiceStatus = typeof invoice?.status === "string" ? invoice.status : null;
       const invoiceBillingReason = typeof invoice?.billing_reason === "string" ? invoice.billing_reason : null;
@@ -628,6 +666,31 @@ Deno.serve(async (req) => {
       }
 
       if (!subscriptionId) {
+        const recovered = await findMostRelevantSubscriptionIdForCustomer(customerId);
+        if (recovered) {
+          subscriptionId = recovered;
+          console.log("[stripe-webhook] recovered subscriptionId from customer lookup", {
+            eventId,
+            type,
+            invoiceId: invoice?.id ?? null,
+            customerId,
+            subscriptionId,
+            billingReason: invoiceBillingReason,
+            linesCount: Array.isArray(invoice?.lines?.data) ? invoice.lines.data.length : 0,
+          });
+        }
+      } else if (invoiceCandidate && invoiceCandidate.source !== "invoice.subscription") {
+        console.log("[stripe-webhook] recovered subscriptionId from invoice fields", {
+          eventId,
+          type,
+          invoiceId: invoice?.id ?? null,
+          customerId,
+          subscriptionId,
+          source: invoiceCandidate.source,
+        });
+      }
+
+      if (!subscriptionId) {
         // Some Stripe configurations deliver invoice.* events for non-subscription invoices. Only fail loudly if it
         // looks like a subscription invoice; otherwise ACK 200 to avoid noisy retries.
         const looksLikeSubscriptionInvoice = invoiceBillingReason?.toLowerCase().startsWith("subscription") ||
@@ -636,9 +699,12 @@ Deno.serve(async (req) => {
           return ok({ received: true });
         }
         console.error("[stripe-webhook] mapping failure: invoice missing subscription id", {
+          eventId,
           type,
-          invoiceId: invoice?.id,
+          invoiceId: invoice?.id ?? null,
           customerId,
+          billingReason: invoiceBillingReason,
+          linesCount: Array.isArray(invoice?.lines?.data) ? invoice.lines.data.length : 0,
         });
         return json(500, { error: "Invoice missing subscription id." });
       }
