@@ -53,13 +53,15 @@ Recommended events:
 - `customer.subscription.created`
 - `customer.subscription.updated`
 - `customer.subscription.deleted`
+- `invoice.created`
+- `invoice.finalized`
 - `invoice.payment_succeeded`
 - `invoice.payment_failed`
 - `invoice.paid`
 
 Notes:
 - Stripe “Events” (in the left nav) are not the same as **webhook deliveries**. Your webhook endpoint only receives the event types you explicitly enable.
-- For subscriptions, some setups commonly deliver `invoice.paid` reliably, while `invoice.payment_succeeded` may not be enabled or may be less consistent depending on your endpoint selection. This project handles both (and treats `invoice.paid` as a success signal).
+- For subscriptions, some setups commonly deliver `invoice.paid` reliably, while others primarily deliver `invoice.created`/`invoice.finalized` (sometimes already `status=paid`). This project treats `invoice.paid` as the primary success signal but can also process `invoice.created`/`invoice.finalized` when the invoice is already paid.
 
 ## 5) Debug flow: “Stripe paid but app still Free”
 

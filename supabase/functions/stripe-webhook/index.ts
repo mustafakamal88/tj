@@ -234,6 +234,47 @@ function isStripeSubscriptionId(value: string): boolean {
   return value.startsWith("sub_");
 }
 
+function getInvoiceSubscriptionId(invoice: any): string | null {
+  const direct = invoice?.subscription;
+  if (typeof direct === "string" && isStripeSubscriptionId(direct)) return direct;
+
+  const parentSub = invoice?.parent?.subscription_details?.subscription;
+  if (typeof parentSub === "string" && isStripeSubscriptionId(parentSub)) return parentSub;
+
+  const lines: any[] = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  for (const line of lines) {
+    const fromLine = line?.parent?.subscription_item_details?.subscription;
+    if (typeof fromLine === "string" && isStripeSubscriptionId(fromLine)) return fromLine;
+  }
+
+  return null;
+}
+
+function getInvoiceMetadataUserId(invoice: any): unknown {
+  if (invoice?.metadata?.user_id != null) return invoice.metadata.user_id;
+
+  const parentUserId = invoice?.parent?.subscription_details?.metadata?.user_id;
+  if (parentUserId != null) return parentUserId;
+
+  const lines: any[] = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  for (const line of lines) {
+    const lineUserId = line?.metadata?.user_id;
+    if (lineUserId != null) return lineUserId;
+  }
+
+  return null;
+}
+
+function invoiceLooksPaid(invoice: any): boolean {
+  if (invoice?.paid === true) return true;
+  if (typeof invoice?.status === "string" && invoice.status.toLowerCase() === "paid") return true;
+  if (invoice?.status_transitions?.paid_at != null) return true;
+  if (typeof invoice?.amount_paid === "number" && typeof invoice?.amount_remaining === "number") {
+    return invoice.amount_paid > 0 && invoice.amount_remaining === 0;
+  }
+  return false;
+}
+
 async function fetchSubscription(subscriptionId: string): Promise<any> {
   return await stripeGet(`/subscriptions/${encodeURIComponent(subscriptionId)}?expand[]=items.data.price`);
 }
@@ -315,11 +356,13 @@ Deno.serve(async (req) => {
   const eventId = typeof event?.id === "string" ? event.id : null;
   const objGuess = event?.data?.object ?? {};
   const customerIdGuess = typeof objGuess?.customer === "string" ? objGuess.customer : null;
-  const subscriptionIdGuess = typeof objGuess?.subscription === "string"
-    ? objGuess.subscription
-    : typeof objGuess?.id === "string" && String(objGuess.id).startsWith("sub_")
-      ? String(objGuess.id)
-      : null;
+  const subscriptionIdGuess = type.startsWith("invoice.")
+    ? getInvoiceSubscriptionId(objGuess)
+    : typeof objGuess?.subscription === "string"
+      ? objGuess.subscription
+      : typeof objGuess?.id === "string" && String(objGuess.id).startsWith("sub_")
+        ? String(objGuess.id)
+        : null;
 
   try {
     console.log("[stripe-webhook] event", {
@@ -553,11 +596,20 @@ Deno.serve(async (req) => {
       return ok({ received: true });
     }
 
-    if (type === "invoice.payment_succeeded" || type === "invoice.payment_failed" || type === "invoice.paid") {
+    if (
+      type === "invoice.payment_succeeded" ||
+      type === "invoice.payment_failed" ||
+      type === "invoice.paid" ||
+      type === "invoice.created" ||
+      type === "invoice.finalized"
+    ) {
       const invoice = event?.data?.object ?? {};
       const customerId = typeof invoice.customer === "string" ? invoice.customer : null;
-      const subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : null;
-      const invoiceMetaUserId = invoice?.metadata?.user_id ?? null;
+      const subscriptionId = getInvoiceSubscriptionId(invoice);
+      const invoiceMetaUserId = getInvoiceMetadataUserId(invoice);
+      const invoiceStatus = typeof invoice?.status === "string" ? invoice.status : null;
+      const invoiceBillingReason = typeof invoice?.billing_reason === "string" ? invoice.billing_reason : null;
+      const shouldSkip = (type === "invoice.created" || type === "invoice.finalized") && !invoiceLooksPaid(invoice);
       console.log("[stripe-webhook] invoice.payment_*", {
         eventId,
         type,
@@ -565,13 +617,24 @@ Deno.serve(async (req) => {
         customerId,
         subscriptionId,
         invoiceMetaUserId,
+        invoiceStatus,
+        invoiceBillingReason,
+        shouldSkip,
       });
+      if (shouldSkip) return ok({ received: true });
       if (!customerId) {
         console.error("[stripe-webhook] mapping failure: invoice missing customer id", { type, invoiceId: invoice?.id });
         return json(500, { error: "Invoice missing customer id." });
       }
 
       if (!subscriptionId) {
+        // Some Stripe configurations deliver invoice.* events for non-subscription invoices. Only fail loudly if it
+        // looks like a subscription invoice; otherwise ACK 200 to avoid noisy retries.
+        const looksLikeSubscriptionInvoice = invoiceBillingReason?.toLowerCase().startsWith("subscription") ||
+          invoice?.parent?.subscription_details?.subscription != null;
+        if (!looksLikeSubscriptionInvoice) {
+          return ok({ received: true });
+        }
         console.error("[stripe-webhook] mapping failure: invoice missing subscription id", {
           type,
           invoiceId: invoice?.id,
