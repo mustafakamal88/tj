@@ -158,6 +158,7 @@ async function updateProfileByUserId(
     console.error("[stripe-webhook] profile update did not affect exactly 1 row", { userId, updatedRows: data?.length });
     throw new Error("Profile update did not affect exactly 1 row.");
   }
+  console.log("[stripe-webhook] profile updated", { userId, profileId: (data as any[])[0]?.id, updatedRows: data.length });
 }
 
 async function resolveUserId(
@@ -207,7 +208,8 @@ function normalizeStripeStatus(status: StripeSubStatus): string {
     "paused",
   ]);
   if (allowed.has(s)) return s;
-  return "inactive";
+  // Default to a DB-safe, conservative status (does not grant access).
+  return "incomplete";
 }
 
 function planFromSubscription(subscription: any): SubscriptionPlan | null {
@@ -223,6 +225,10 @@ function subscriptionUserId(subscription: any): string | null {
   const v = subscription?.metadata?.user_id;
   if (typeof v === "string" && v.trim()) return v.trim();
   return null;
+}
+
+function isStripeSubscriptionId(value: string): boolean {
+  return value.startsWith("sub_");
 }
 
 async function fetchSubscription(subscriptionId: string): Promise<any> {
@@ -299,39 +305,71 @@ Deno.serve(async (req) => {
   }
 
   const type = String(event?.type ?? "");
+  const eventId = typeof event?.id === "string" ? event.id : null;
   const supabase = getSupabaseAdmin();
 
   try {
-    console.log("[stripe-webhook] event", { type });
+    console.log("[stripe-webhook] event", { eventId, type });
     // Stripe can send many event types; we ack unknown types.
     if (type === "checkout.session.completed") {
       const session = event?.data?.object ?? {};
       const customerId = typeof session.customer === "string" ? session.customer : null;
+      const subscriptionId = typeof session.subscription === "string" ? session.subscription : null;
+      const clientReferenceId = session?.client_reference_id ?? null;
+      console.log("[stripe-webhook] checkout.session.completed", {
+        eventId,
+        sessionId: session?.id ?? null,
+        customerId,
+        subscriptionId,
+        clientReferenceId,
+      });
       if (!customerId) {
-        console.error("[stripe-webhook] mapping failure: checkout session missing customer id", { sessionId: session?.id });
+        console.error("[stripe-webhook] mapping failure: checkout session missing customer id", { eventId, sessionId: session?.id });
         return json(500, { error: "Checkout session missing customer id." });
       }
 
-      const subscriptionId = typeof session.subscription === "string" ? session.subscription : null;
       if (!subscriptionId) {
         console.error("[stripe-webhook] mapping failure: checkout session missing subscription id", {
+          eventId,
           sessionId: session?.id,
           customerId,
         });
         return json(500, { error: "Missing subscription id on checkout session." });
       }
+      if (!isStripeSubscriptionId(subscriptionId)) {
+        console.error("[stripe-webhook] mapping failure: invalid subscription id on checkout session", {
+          eventId,
+          sessionId: session?.id,
+          customerId,
+          subscriptionId,
+        });
+        return json(500, { error: "Invalid subscription id on checkout session." });
+      }
 
       // Always fetch the subscription and map using subscription.metadata.user_id (authoritative).
       const sub = await fetchSubscription(subscriptionId);
       const subCustomerId = typeof sub?.customer === "string" ? sub.customer : customerId;
+      const priceId = sub?.items?.data?.[0]?.price?.id as string | undefined;
+      const subMetaUserId = subscriptionUserId(sub);
       const userId = await resolveUserIdStrict(supabase, {
         subscription: sub,
-        clientReferenceId: session?.client_reference_id,
+        clientReferenceId,
         customerId: subCustomerId,
       });
 
       const status = normalizeStripeStatus(String(sub?.status ?? "active") as StripeSubStatus);
       const periodEnd = toIsoFromUnixSeconds(sub?.current_period_end);
+      const plan = planFromSubscription(sub);
+      console.log("[stripe-webhook] checkout.subscription", {
+        eventId,
+        customerId: subCustomerId,
+        subscriptionId,
+        status,
+        metadataUserId: subMetaUserId,
+        resolvedUserId: userId,
+        priceId: priceId ?? null,
+        mappedPlan: plan ?? null,
+      });
 
       if (subscriptionId && (status === "active" || status === "trialing")) {
         await cancelOtherActiveSubscriptions(subCustomerId, subscriptionId);
@@ -355,12 +393,14 @@ Deno.serve(async (req) => {
         return ok({ received: true });
       }
 
-      const plan = planFromSubscription(sub);
       if (!plan) {
         console.error("[stripe-webhook] mapping failure: could not map plan from subscription price id", {
+          eventId,
           type,
           subscriptionId,
           customerId: subCustomerId,
+          priceId: priceId ?? null,
+          metadataPlan: sub?.metadata?.plan ?? null,
         });
         return json(500, { error: "Could not map plan for subscription." });
       }
@@ -392,6 +432,13 @@ Deno.serve(async (req) => {
       const payload = event?.data?.object ?? {};
       const customerId = typeof payload.customer === "string" ? payload.customer : null;
       const subscriptionId = typeof payload.id === "string" ? payload.id : null;
+      console.log("[stripe-webhook] customer.subscription.*", {
+        eventId,
+        type,
+        customerId,
+        subscriptionId,
+        payloadStatus: payload?.status ?? null,
+      });
       if (!customerId) {
         console.error("[stripe-webhook] mapping failure: subscription event missing customer id", { type, subscriptionId });
         return json(500, { error: "Subscription event missing customer id." });
@@ -400,14 +447,37 @@ Deno.serve(async (req) => {
         console.error("[stripe-webhook] mapping failure: subscription event missing id", { type, customerId });
         return json(500, { error: "Subscription event missing id." });
       }
+      if (!isStripeSubscriptionId(subscriptionId)) {
+        console.error("[stripe-webhook] mapping failure: invalid subscription id on subscription event", {
+          eventId,
+          type,
+          customerId,
+          subscriptionId,
+        });
+        return json(500, { error: "Invalid subscription id on subscription event." });
+      }
 
       // Always fetch the subscription and map using subscription.metadata.user_id (authoritative).
       const sub = await fetchSubscription(subscriptionId);
       const subCustomerId = typeof sub?.customer === "string" ? sub.customer : customerId;
+      const priceId = sub?.items?.data?.[0]?.price?.id as string | undefined;
+      const subMetaUserId = subscriptionUserId(sub);
       const userId = await resolveUserIdStrict(supabase, { subscription: sub, customerId: subCustomerId });
 
       const status = normalizeStripeStatus(String(sub?.status ?? "active") as StripeSubStatus);
       const periodEnd = toIsoFromUnixSeconds(sub?.current_period_end);
+      const plan = planFromSubscription(sub);
+      console.log("[stripe-webhook] subscription.snapshot", {
+        eventId,
+        type,
+        customerId: subCustomerId,
+        subscriptionId,
+        status,
+        metadataUserId: subMetaUserId,
+        resolvedUserId: userId,
+        priceId: priceId ?? null,
+        mappedPlan: plan ?? null,
+      });
 
       if (subscriptionId && (status === "active" || status === "trialing")) {
         await cancelOtherActiveSubscriptions(subCustomerId, subscriptionId);
@@ -431,11 +501,13 @@ Deno.serve(async (req) => {
         return ok({ received: true });
       }
 
-      const plan = planFromSubscription(sub);
       if (!plan) {
         console.error("[stripe-webhook] mapping failure: could not map plan from subscription price id", {
+          eventId,
           subscriptionId,
           customerId: subCustomerId,
+          priceId: priceId ?? null,
+          metadataPlan: sub?.metadata?.plan ?? null,
         });
         return json(500, { error: "Could not map plan for subscription." });
       }
@@ -462,12 +534,19 @@ Deno.serve(async (req) => {
     if (type === "invoice.payment_succeeded" || type === "invoice.payment_failed") {
       const invoice = event?.data?.object ?? {};
       const customerId = typeof invoice.customer === "string" ? invoice.customer : null;
+      const subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : null;
+      console.log("[stripe-webhook] invoice.payment_*", {
+        eventId,
+        type,
+        invoiceId: invoice?.id ?? null,
+        customerId,
+        subscriptionId,
+      });
       if (!customerId) {
         console.error("[stripe-webhook] mapping failure: invoice missing customer id", { type, invoiceId: invoice?.id });
         return json(500, { error: "Invoice missing customer id." });
       }
 
-      const subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : null;
       if (!subscriptionId) {
         console.error("[stripe-webhook] mapping failure: invoice missing subscription id", {
           type,
@@ -476,16 +555,40 @@ Deno.serve(async (req) => {
         });
         return json(500, { error: "Invoice missing subscription id." });
       }
+      if (!isStripeSubscriptionId(subscriptionId)) {
+        console.error("[stripe-webhook] mapping failure: invalid subscription id on invoice", {
+          eventId,
+          type,
+          invoiceId: invoice?.id ?? null,
+          customerId,
+          subscriptionId,
+        });
+        return json(500, { error: "Invalid subscription id on invoice." });
+      }
 
       // Fetch the subscription so we can map using subscription.metadata.user_id (authoritative).
       const sub = await fetchSubscription(subscriptionId);
       const subCustomerId = typeof sub?.customer === "string" ? sub.customer : customerId;
+      const priceId = sub?.items?.data?.[0]?.price?.id as string | undefined;
+      const subMetaUserId = subscriptionUserId(sub);
       const userId = await resolveUserIdStrict(supabase, { subscription: sub, customerId: subCustomerId });
 
       let status = normalizeStripeStatus(String(sub?.status ?? "active") as StripeSubStatus);
       if (type === "invoice.payment_failed" && (status === "active" || status === "trialing")) status = "past_due";
 
       const periodEnd = toIsoFromUnixSeconds(sub?.current_period_end);
+      const plan = planFromSubscription(sub);
+      console.log("[stripe-webhook] invoice.subscription", {
+        eventId,
+        type,
+        customerId: subCustomerId,
+        subscriptionId,
+        status,
+        metadataUserId: subMetaUserId,
+        resolvedUserId: userId,
+        priceId: priceId ?? null,
+        mappedPlan: plan ?? null,
+      });
 
       if (isDowngradeStatus(status)) {
         await updateProfileByUserId(
@@ -505,11 +608,13 @@ Deno.serve(async (req) => {
         return ok({ received: true });
       }
 
-      const plan = planFromSubscription(sub);
       if (!plan) {
         console.error("[stripe-webhook] mapping failure: could not map plan from subscription price id (invoice event)", {
+          eventId,
           subscriptionId,
           customerId: subCustomerId,
+          priceId: priceId ?? null,
+          metadataPlan: sub?.metadata?.plan ?? null,
         });
         return json(500, { error: "Could not map plan for subscription." });
       }
@@ -535,7 +640,8 @@ Deno.serve(async (req) => {
 
     return ok({ received: true });
   } catch (e) {
-    console.error("[stripe-webhook] handler error", e, { type });
-    return json(500, { error: "Webhook handler failed" });
+    console.error("[stripe-webhook] handler error", e, { eventId, type });
+    const message = e instanceof Error ? e.message : "Webhook handler failed";
+    return json(500, { error: message });
   }
 });
