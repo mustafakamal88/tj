@@ -267,6 +267,24 @@ function getInvoiceSubscriptionId(invoice: any): string | null {
   return findInvoiceSubscriptionCandidate(invoice)?.id ?? null;
 }
 
+type InvoiceSubscriptionItemCandidate = { id: string; source: string };
+
+function findInvoiceSubscriptionItemCandidate(invoice: any): InvoiceSubscriptionItemCandidate | null {
+  const lines: any[] = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  for (const line of lines) {
+    const direct = line?.subscription_item;
+    if (typeof direct === "string" && direct.trim()) {
+      return { id: direct.trim(), source: "invoice.lines[].subscription_item" };
+    }
+
+    const nested = line?.parent?.subscription_item_details?.subscription_item;
+    if (typeof nested === "string" && nested.trim()) {
+      return { id: nested.trim(), source: "invoice.lines[].parent.subscription_item_details.subscription_item" };
+    }
+  }
+  return null;
+}
+
 function getInvoiceMetadataUserId(invoice: any): unknown {
   if (invoice?.metadata?.user_id != null) return invoice.metadata.user_id;
 
@@ -294,6 +312,10 @@ function invoiceLooksPaid(invoice: any): boolean {
 
 async function fetchSubscription(subscriptionId: string): Promise<any> {
   return await stripeGet(`/subscriptions/${encodeURIComponent(subscriptionId)}?expand[]=items.data.price`);
+}
+
+async function fetchSubscriptionItem(subscriptionItemId: string): Promise<any> {
+  return await stripeGet(`/subscription_items/${encodeURIComponent(subscriptionItemId)}`);
 }
 
 async function findMostRelevantSubscriptionIdForCustomer(customerId: string): Promise<string | null> {
@@ -644,6 +666,7 @@ Deno.serve(async (req) => {
       const customerId = typeof invoice.customer === "string" ? invoice.customer : null;
       const invoiceCandidate = findInvoiceSubscriptionCandidate(invoice);
       let subscriptionId = invoiceCandidate?.id ?? null;
+      let subscriptionIdSource = invoiceCandidate?.source ?? null;
       const invoiceMetaUserId = getInvoiceMetadataUserId(invoice);
       const invoiceStatus = typeof invoice?.status === "string" ? invoice.status : null;
       const invoiceBillingReason = typeof invoice?.billing_reason === "string" ? invoice.billing_reason : null;
@@ -666,9 +689,47 @@ Deno.serve(async (req) => {
       }
 
       if (!subscriptionId) {
+        const itemCandidate = findInvoiceSubscriptionItemCandidate(invoice);
+        if (itemCandidate) {
+          try {
+            const subItem = await fetchSubscriptionItem(itemCandidate.id);
+            const subId = typeof subItem?.subscription === "string"
+              ? subItem.subscription
+              : typeof subItem?.subscription?.id === "string"
+                ? subItem.subscription.id
+                : null;
+            if (typeof subId === "string" && isStripeSubscriptionId(subId)) {
+              subscriptionId = subId;
+              subscriptionIdSource = "subscription_item.lookup";
+              console.log("[stripe-webhook] recovered subscriptionId via subscription_item lookup", {
+                eventId,
+                type,
+                invoiceId: invoice?.id ?? null,
+                customerId,
+                subscriptionId,
+                subscriptionItemId: itemCandidate.id,
+                subscriptionItemSource: itemCandidate.source,
+              });
+            }
+          } catch (e) {
+            console.error("[stripe-webhook] subscription_item lookup failed", {
+              eventId,
+              type,
+              invoiceId: invoice?.id ?? null,
+              customerId,
+              subscriptionItemId: itemCandidate.id,
+              subscriptionItemSource: itemCandidate.source,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+      }
+
+      if (!subscriptionId) {
         const recovered = await findMostRelevantSubscriptionIdForCustomer(customerId);
         if (recovered) {
           subscriptionId = recovered;
+          subscriptionIdSource = "customer.lookup";
           console.log("[stripe-webhook] recovered subscriptionId from customer lookup", {
             eventId,
             type,
@@ -718,6 +779,15 @@ Deno.serve(async (req) => {
         });
         return json(500, { error: "Invalid subscription id on invoice." });
       }
+
+      console.log("[stripe-webhook] invoice subscriptionId resolved", {
+        eventId,
+        type,
+        invoiceId: invoice?.id ?? null,
+        customerId,
+        subscriptionId,
+        source: subscriptionIdSource ?? "unknown",
+      });
 
       // Fetch the subscription so we can map using subscription.metadata.user_id (authoritative).
       const sub = await fetchSubscription(subscriptionId);
