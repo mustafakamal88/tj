@@ -34,12 +34,6 @@ const MT_CONNECTION_BY_KEY_PREFIX = "mt_sync:";
 const MT_RATE_LIMIT_PREFIX = "mt_rl:";
 const MAKE_SERVER_PREFIX = "/make-server-a46fa5d6";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-tj-sync-key",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-} as const;
-
 function requireEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing ${name} env var.`);
@@ -55,22 +49,83 @@ function getServerSyncUrl(): string {
   return `${base}/functions/v1/server${MAKE_SERVER_PREFIX}/mt/sync`;
 }
 
-function jsonResponse(status: number, body: Record<string, unknown>) {
+function parseOptionalOrigin(raw: string): string | null {
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+}
+
+const CORS_ALLOWED_ORIGINS = (() => {
+  const origins = new Set<string>([
+    "http://localhost:5173",
+    "http://localhost:3000",
+  ]);
+
+  const siteUrl = Deno.env.get("SITE_URL");
+  if (siteUrl) {
+    const origin = parseOptionalOrigin(siteUrl);
+    if (origin) origins.add(origin);
+  }
+
+  return origins;
+})();
+
+function corsHeadersForRequest(c: any): Record<string, string> {
+  const origin = c.req.header("Origin");
+
+  // Webhook/EAs won't send an Origin header → allow wildcard.
+  // Browsers will send Origin → allow only known origins.
+  const allowOrigin = origin ? (CORS_ALLOWED_ORIGINS.has(origin) ? origin : "null") : "*";
+
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-tj-sync-key",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  };
+
+  if (origin) headers.Vary = "Origin";
+  return headers;
+}
+
+function jsonResponse(c: any, status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
-      ...corsHeaders,
+      ...corsHeadersForRequest(c),
       "Content-Type": "application/json",
     },
   });
 }
 
 function ok(c: any, data: unknown) {
-  return jsonResponse(200, { ok: true, data });
+  return jsonResponse(c, 200, { ok: true, data });
 }
 
-function fail(c: any, status: number, error: string) {
-  return jsonResponse(status, { ok: false, error });
+function errorCodeForStatus(status: number): string {
+  if (status === 400) return "bad_request";
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not_found";
+  if (status === 413) return "payload_too_large";
+  if (status === 429) return "rate_limited";
+  return "server_error";
+}
+
+function fail(
+  c: any,
+  status: number,
+  error: string,
+  code?: string,
+  details?: Record<string, unknown>,
+) {
+  return jsonResponse(c, status, {
+    ok: false,
+    error,
+    code: code ?? errorCodeForStatus(status),
+    ...(details ? { details } : {}),
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -250,15 +305,7 @@ async function metaapiFindAccountId(input: { account: string; server: string }):
   throw new Error("MetaApi account not found. Please add the account in MetaApi dashboard then retry.");
 }
 
-function parseOptionalOrigin(raw: string): string | null {
-  try {
-    return new URL(raw).origin;
-  } catch {
-    return null;
-  }
-}
-
-app.options("*", () => new Response(null, { status: 204, headers: corsHeaders }));
+app.options("*", (c) => new Response(null, { status: 204, headers: corsHeadersForRequest(c) }));
 
 const handleHealth = async (c: any) => {
   try {
@@ -277,10 +324,10 @@ const handleHealth = async (c: any) => {
       throw new Error("KV sanity check failed.");
     }
 
-    return jsonResponse(200, { status: "ok" });
+    return jsonResponse(c, 200, { status: "ok" });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Health check failed.";
-    return jsonResponse(500, { status: "error", message });
+    return jsonResponse(c, 500, { status: "error", message });
   }
 };
 
@@ -299,9 +346,10 @@ const handleAction = async (c: any) => {
 
     if (action === "mt_connect") {
       const userId = await requireUserIdFromRequest(c);
-      const platform = toString(body.platform) as MtPlatform | null;
-      const server = toString(body.server);
-      const account = toString(body.account);
+      const platformRaw = toString(body.platform);
+      const platform = platformRaw ? (platformRaw.toUpperCase() as MtPlatform) : null;
+      const server = pickString(body, ["server", "serverName", "brokerServer"]);
+      const account = pickString(body, ["account", "accountNumber", "login", "account_number"]);
       const accountTypeRaw = toString(body.accountType);
       const accountType = accountTypeRaw === "demo" || accountTypeRaw === "live" ? accountTypeRaw : undefined;
       const autoSync = Boolean(body.autoSync);
