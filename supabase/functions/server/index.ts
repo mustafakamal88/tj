@@ -271,8 +271,7 @@ app.use(
 
 app.options("*", (c) => c.text("", 204));
 
-// Health check endpoint
-app.get(`${MAKE_SERVER_PREFIX}/health`, async (c) => {
+const handleHealth = async (c: any) => {
   try {
     // Required env vars
     requireEnv("SUPABASE_URL");
@@ -294,7 +293,11 @@ app.get(`${MAKE_SERVER_PREFIX}/health`, async (c) => {
     const message = e instanceof Error ? e.message : "Health check failed.";
     return c.json({ status: "error", message }, 500);
   }
-});
+};
+
+// Health check endpoint (support both path styles).
+app.get(`${MAKE_SERVER_PREFIX}/health`, handleHealth);
+app.get(`/server${MAKE_SERVER_PREFIX}/health`, handleHealth);
 
 // UI actions (called via supabase.functions.invoke('server', ...))
 const handleAction = async (c: any) => {
@@ -402,7 +405,9 @@ const handleAction = async (c: any) => {
 };
 
 app.post("/", handleAction);
+app.post("/server", handleAction);
 app.post(`${MAKE_SERVER_PREFIX}/action`, handleAction);
+app.post(`/server${MAKE_SERVER_PREFIX}/action`, handleAction);
 
 // MT connector webhook: push closed trades from MT4/MT5 into Supabase.
 const handleMtSync = async (c: any) => {
@@ -566,6 +571,8 @@ const handleMtSync = async (c: any) => {
 };
 
 app.post("/mt/sync", handleMtSync);
+app.post("/server/mt/sync", handleMtSync);
 app.post(`${MAKE_SERVER_PREFIX}/mt/sync`, handleMtSync);
+app.post(`/server${MAKE_SERVER_PREFIX}/mt/sync`, handleMtSync);
 
 Deno.serve(app.fetch);
