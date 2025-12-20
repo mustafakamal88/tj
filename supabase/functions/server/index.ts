@@ -1,5 +1,4 @@
 import { Hono } from "npm:hono";
-import { cors } from "npm:hono/cors";
 import * as kv from "./kv_store.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 const app = new Hono();
@@ -35,6 +34,12 @@ const MT_CONNECTION_BY_KEY_PREFIX = "mt_sync:";
 const MT_RATE_LIMIT_PREFIX = "mt_rl:";
 const MAKE_SERVER_PREFIX = "/make-server-a46fa5d6";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-tj-sync-key",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+} as const;
+
 function requireEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing ${name} env var.`);
@@ -50,12 +55,22 @@ function getServerSyncUrl(): string {
   return `${base}/functions/v1/server${MAKE_SERVER_PREFIX}/mt/sync`;
 }
 
+function jsonResponse(status: number, body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+    },
+  });
+}
+
 function ok(c: any, data: unknown) {
-  return c.json({ ok: true, data });
+  return jsonResponse(200, { ok: true, data });
 }
 
 function fail(c: any, status: number, error: string) {
-  return c.json({ ok: false, error }, status);
+  return jsonResponse(status, { ok: false, error });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -243,38 +258,7 @@ function parseOptionalOrigin(raw: string): string | null {
   }
 }
 
-const CORS_ALLOWED_ORIGINS = (() => {
-  const origins = new Set<string>([
-    "http://localhost:5173",
-    "http://localhost:3000",
-  ]);
-
-  const siteUrl = Deno.env.get("SITE_URL");
-  if (siteUrl) {
-    const origin = parseOptionalOrigin(siteUrl);
-    if (origin) origins.add(origin);
-  }
-
-  return origins;
-})();
-
-// Enable CORS for all routes and methods
-app.use(
-  "*",
-  cors({
-    origin: (origin) => {
-      if (!origin) return "*";
-      return CORS_ALLOWED_ORIGINS.has(origin) ? origin : "null";
-    },
-    // supabase-js sends `apikey`, `authorization`, and `x-client-info` headers from the browser.
-    allowHeaders: ["Content-Type", "Authorization", "apikey", "x-client-info", "X-TJ-Sync-Key"],
-    allowMethods: ["GET", "POST", "OPTIONS"],
-    exposeHeaders: ["Content-Length"],
-    maxAge: 600,
-  }),
-);
-
-app.options("*", (c) => c.text("", 204));
+app.options("*", () => new Response(null, { status: 204, headers: corsHeaders }));
 
 const handleHealth = async (c: any) => {
   try {
@@ -293,10 +277,10 @@ const handleHealth = async (c: any) => {
       throw new Error("KV sanity check failed.");
     }
 
-    return c.json({ status: "ok" });
+    return jsonResponse(200, { status: "ok" });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Health check failed.";
-    return c.json({ status: "error", message }, 500);
+    return jsonResponse(500, { status: "error", message });
   }
 };
 
