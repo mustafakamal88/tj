@@ -550,8 +550,9 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
                 <ol className="list-decimal list-inside space-y-2 text-muted-foreground">
                   <li>Download the TJ MT connector (EA) using the button above.</li>
                   <li>
-                    Open MetaTrader (MT5) → File → Open Data Folder → <span className="font-mono">MQL5/Experts</span>,
-                    then copy the EA file there (or open the <span className="font-mono">.mq5</span> file and compile).
+                    Open MetaTrader (MT4 or MT5) → File → Open Data Folder →{' '}
+                    <span className="font-mono">MQL4/Experts</span> (MT4) or <span className="font-mono">MQL5/Experts</span>{' '}
+                    (MT5), then copy the EA file there (or open the source file and compile).
                   </li>
                   <li>Restart MetaTrader or refresh the Navigator panel.</li>
                   <li>
