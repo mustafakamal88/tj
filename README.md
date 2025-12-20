@@ -8,7 +8,6 @@
 
   - `VITE_SUPABASE_URL`
   - `VITE_SUPABASE_ANON_KEY`
-  - Optional (MT4/MT5 direct sync): `VITE_MT_BRIDGE_URL`
   - Optional debug: `VITE_DEBUG_PROFILE=true` (logs auth/profile fetches in browser console)
 
   ## Supabase Auth URL configuration (important for Vercel)
@@ -28,6 +27,6 @@
 
   Run `npm run dev` to start the development server.
 
-  ## MT4/MT5 direct sync (MetaApi)
+  ## MT4/MT5 sync (EA push)
 
-  See `mt-bridge/README.md`.
+  See `docs/mt-bridge.md`.

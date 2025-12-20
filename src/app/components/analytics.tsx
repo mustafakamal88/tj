@@ -4,7 +4,6 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { fetchTrades } from '../utils/trades-api';
 import { filterTradesForFreeUser } from '../utils/data-limit';
-import { isMtBridgeConfigured, mtBridgeMetrics, mtBridgeSync } from '../utils/mt-bridge';
 import {
   calculateWinRate,
   calculateTotalPnL,
@@ -22,8 +21,6 @@ import { useProfile } from '../utils/use-profile';
 
 export function Analytics() {
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [brokerMetrics, setBrokerMetrics] = useState<unknown>(null);
-  const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const { plan, isActive } = useProfile();
   const effectivePlan = isActive ? plan : 'free';
   const access = getFeatureAccess(effectivePlan);
@@ -34,27 +31,8 @@ export function Analytics() {
     setTrades(filteredTrades);
   };
 
-  const refreshBrokerMetrics = async () => {
-    try {
-      const raw = localStorage.getItem('mt-connection');
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { method?: unknown };
-      if (parsed.method !== 'metaapi') return;
-      if (!isMtBridgeConfigured()) return;
-
-      setIsLoadingMetrics(true);
-      const result = await mtBridgeMetrics(false);
-      setBrokerMetrics(result.metrics ?? null);
-    } catch {
-      // ignore
-    } finally {
-      setIsLoadingMetrics(false);
-    }
-  };
-
   useEffect(() => {
     void refreshTrades();
-    void refreshBrokerMetrics();
 
     const handleSubscriptionChanged = () => {
       void refreshTrades();
@@ -81,20 +59,16 @@ export function Analytics() {
       return localStorage.getItem('mt-auto-sync') === 'true';
     };
 
-    const updateAutoSync = (runOnce = false) => {
-      if (autoSyncInterval) {
-        window.clearInterval(autoSyncInterval);
-        autoSyncInterval = null;
-      }
+      const updateAutoSync = (runOnce = false) => {
+        if (autoSyncInterval) {
+          window.clearInterval(autoSyncInterval);
+          autoSyncInterval = null;
+        }
 
       const enabled = readAutoSyncEnabled();
       if (!enabled) return;
 
       const tick = async () => {
-        const connection = readMtConnection();
-        if (connection?.method === 'metaapi') {
-          await mtBridgeSync().catch(() => null);
-        }
         await refreshTrades();
       };
 
@@ -111,7 +85,6 @@ export function Analytics() {
       const enabled = readAutoSyncEnabled();
       updateAutoSync(true);
       if (!enabled) void refreshTrades();
-      void refreshBrokerMetrics();
     };
 
     window.addEventListener('mt-connection-changed', handleMtConnectionChanged);
@@ -187,27 +160,6 @@ export function Analytics() {
   const topSymbols = Object.entries(symbolStats)
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 5);
-
-  const pickNumber = (value: unknown): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-    return null;
-  };
-
-  const getPath = (obj: any, path: string): unknown => {
-    return path.split('.').reduce((acc, key) => (acc && typeof acc === 'object' ? acc[key] : undefined), obj);
-  };
-
-  const pickMetric = (paths: string[]): number | null => {
-    for (const p of paths) {
-      const v = pickNumber(getPath(brokerMetrics as any, p));
-      if (v !== null) return v;
-    }
-    return null;
-  };
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-background">
@@ -285,61 +237,16 @@ export function Analytics() {
             </div>
 
             <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-2">
                 <div>
                   <h2 className="text-lg">Broker Metrics</h2>
-                  <p className="text-sm text-muted-foreground">MetaStats (via MetaApi bridge)</p>
+                  <p className="text-sm text-muted-foreground">Coming soon</p>
                 </div>
-                <Button variant="outline" onClick={() => void refreshBrokerMetrics()} disabled={isLoadingMetrics}>
-                  {isLoadingMetrics ? (
-                    <>
-                      <Activity className="w-4 h-4 mr-2 animate-spin" />
-                      Loading...
-                    </>
-                  ) : (
-                    'Refresh'
-                  )}
-                </Button>
               </div>
-
-              {!isMtBridgeConfigured() ? (
-                <p className="text-sm text-muted-foreground">
-                  Set <span className="font-mono">VITE_MT_BRIDGE_URL</span> to enable broker metrics.
-                </p>
-              ) : brokerMetrics ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="rounded-lg border p-4">
-                    <div className="text-sm text-muted-foreground">Balance</div>
-                    <div className="text-xl">{pickMetric(['balance', 'account.balance', 'metrics.balance']) ?? '—'}</div>
-                  </div>
-                  <div className="rounded-lg border p-4">
-                    <div className="text-sm text-muted-foreground">Equity</div>
-                    <div className="text-xl">{pickMetric(['equity', 'account.equity', 'metrics.equity']) ?? '—'}</div>
-                  </div>
-                  <div className="rounded-lg border p-4">
-                    <div className="text-sm text-muted-foreground">Win Rate</div>
-                    <div className="text-xl">
-                      {(() => {
-                        const v = pickMetric(['winRate', 'metrics.winRate', 'performance.winRate']);
-                        return v === null ? '—' : `${v.toFixed(1)}%`;
-                      })()}
-                    </div>
-                  </div>
-                  <div className="rounded-lg border p-4">
-                    <div className="text-sm text-muted-foreground">Profit Factor</div>
-                    <div className="text-xl">
-                      {(() => {
-                        const v = pickMetric(['profitFactor', 'metrics.profitFactor', 'performance.profitFactor']);
-                        return v === null ? '—' : v.toFixed(2);
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Connect your MT4/MT5 account via “Direct (MetaApi)” to load metrics.
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground">
+                Broker metrics integration will be added in a future update. Your analytics above are based on the
+                trades already stored in your journal.
+              </p>
             </Card>
 
             {/* Additional Stats */}

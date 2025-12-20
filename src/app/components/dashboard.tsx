@@ -5,7 +5,6 @@ import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, Trend
 import { fetchTrades } from '../utils/trades-api';
 import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
 import { filterTradesForFreeUser } from '../utils/data-limit';
-import { mtBridgeSync } from '../utils/mt-bridge';
 import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
 import type { Trade } from '../types/trade';
@@ -78,10 +77,6 @@ export function Dashboard() {
       if (!enabled) return;
 
       const tick = async () => {
-        const connection = readMtConnection();
-        if (connection?.method === 'metaapi') {
-          await mtBridgeSync().catch(() => null);
-        }
         await refreshTrades();
       };
 
