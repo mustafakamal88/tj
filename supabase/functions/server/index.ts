@@ -366,12 +366,18 @@ const handleAction = async (c: any) => {
       });
 
       let metaapiAccountId: string | undefined;
+      let metaapiWarning: string | undefined;
       try {
         metaapiAccountId = await metaapiFindAccountId({ account, server });
       } catch (e) {
-        const message = e instanceof Error ? e.message : "MetaApi account not found.";
-        const status = message.startsWith("Missing ") || message.toLowerCase().includes("metaapi error") ? 500 : 400;
-        return fail(c, status, message);
+        metaapiWarning = e instanceof Error ? e.message : "MetaApi validation failed.";
+        console.warn("[mt_connect] metaapi warning", {
+          userId,
+          platform,
+          server,
+          accountTail: account.length > 4 ? account.slice(-4) : account,
+          message: metaapiWarning,
+        });
       }
 
       const existing = (await kv.get(`${MT_CONNECTION_BY_USER_PREFIX}${userId}`).catch(() => null)) as
@@ -415,6 +421,7 @@ const handleAction = async (c: any) => {
           metaapiAccountId,
           connectedAt,
         },
+        ...(metaapiWarning ? { warning: metaapiWarning } : {}),
       });
     }
 
