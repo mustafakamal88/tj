@@ -213,6 +213,13 @@ function toString(value: unknown): string | null {
   return null;
 }
 
+function digitsOnly(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return /^\d+$/.test(trimmed) ? trimmed : null;
+}
+
 function pickString(record: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
     const value = toString(record[key]);
@@ -248,6 +255,30 @@ function parseMtDateToIsoDate(value: string): string | null {
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString().split("T")[0] ?? null;
+}
+
+function parseMtDateTimeToIso(value: string): string | null {
+  const raw = value.trim();
+
+  const mtPattern =
+    /^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/;
+  const match = raw.match(mtPattern);
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+    const hour = match[4] ? Number(match[4]) : 0;
+    const minute = match[5] ? Number(match[5]) : 0;
+    const second = match[6] ? Number(match[6]) : 0;
+    const dt = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt.toISOString();
+  }
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
 }
 
 async function deterministicUuid(seed: string): Promise<string> {
@@ -633,6 +664,11 @@ const handleMtSync = async (c: any) => {
 
     const normalized: Array<{
       id: string;
+      account_login: string | null;
+      ticket: string | null;
+      position_id: string | null;
+      open_time: string | null;
+      close_time: string | null;
       date: string;
       symbol: string;
       type: "long" | "short";
@@ -643,46 +679,64 @@ const handleMtSync = async (c: any) => {
       pnl: number;
       pnl_percentage: number;
       notes: string | null;
+      commission: number | null;
+      swap: number | null;
     }> = [];
 
     await Promise.all(
       trades.map(async (t) => {
         if (!isRecord(t)) return;
         const ticket = pickString(t, ["ticket", "order", "deal", "id"]);
+        const positionId = pickString(t, ["position_id", "position", "positionId"]);
         const symbolRaw = pickString(t, ["symbol", "item", "instrument"]);
         const sideRaw = pickString(t, ["type", "side", "action"]);
         const entry = pickNumber(t, ["open_price", "entry", "openPrice", "price_open", "price"]);
         const exit = pickNumber(t, ["close_price", "exit", "closePrice", "price_close", "close"]);
         const quantity = pickNumber(t, ["volume", "lots", "size", "quantity"]);
-        const pnl = pickNumber(t, ["profit", "pnl", "pl"]);
+        const profit = pickNumber(t, ["profit", "pnl", "pl"]);
+        const commission = pickNumber(t, ["commission", "fee"]);
+        const swap = pickNumber(t, ["swap"]);
         const openTime = pickString(t, ["open_time", "openTime", "time", "open"]);
         const closeTime = pickString(t, ["close_time", "closeTime", "close"]);
 
         if (!ticket || !symbolRaw || !sideRaw) return;
         const type = mapTradeType(sideRaw);
         if (!type) return;
-        if (entry === null || exit === null || quantity === null || pnl === null) return;
+        if (entry === null || exit === null || quantity === null || profit === null) return;
 
+        const openIso = openTime ? parseMtDateTimeToIso(openTime) : null;
+        const closeIso = closeTime ? parseMtDateTimeToIso(closeTime) : null;
         const date = parseMtDateToIsoDate(closeTime ?? openTime ?? "");
         if (!date) return;
 
         const id = await deterministicUuid(`${connection.userId}:${connection.account}:${ticket}`);
         const symbol = normalizeSymbol(symbolRaw);
-        const outcome = outcomeFromPnL(pnl);
+        const netPnl = profit + (commission ?? 0) + (swap ?? 0);
         const pct = pnlPercentage(entry, exit, type);
+
+        const accountLogin = digitsOnly(connection.account);
+        const ticketDigits = digitsOnly(ticket);
+        const positionDigits = digitsOnly(positionId);
 
         normalized.push({
           id,
+          account_login: accountLogin,
+          ticket: ticketDigits,
+          position_id: positionDigits,
+          open_time: openIso,
+          close_time: closeIso,
           date,
           symbol,
           type,
           entry,
           exit,
           quantity,
-          outcome,
-          pnl,
+          outcome: outcomeFromPnL(netPnl),
+          pnl: netPnl,
           pnl_percentage: pct,
           notes: `Imported via MT sync - Ticket: ${ticket}`,
+          commission: commission ?? null,
+          swap: swap ?? null,
         });
       }),
     );

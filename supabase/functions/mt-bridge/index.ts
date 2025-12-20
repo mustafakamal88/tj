@@ -8,6 +8,7 @@ type Broker = "mt4" | "mt5";
 type IncomingTrade = {
   account_login: number | string;
   ticket: number | string;
+  position_id?: number | string;
   symbol: string;
   side: "buy" | "sell";
   volume: number;
@@ -50,11 +51,31 @@ function normalizeSymbol(value: string): string {
   return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 }
 
+function digitsOnly(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return /^\d+$/.test(trimmed) ? trimmed : null;
+}
+
 function parseIsoDate(value: string | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString().slice(0, 10);
+}
+
+function parseIsoTimestamp(value: string | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function tail4(value: string): string {
+  const cleaned = value.trim();
+  if (cleaned.length <= 4) return cleaned;
+  return cleaned.slice(-4);
 }
 
 function getBearerToken(authHeader: string | undefined | null): string | null {
@@ -128,6 +149,8 @@ app.post("/connect", async (c) => {
 
     const accountLogin = toString(body.account_login ?? body.account);
     if (!accountLogin) return fail(c, 400, "Missing account_login.");
+    const accountLoginDigits = digitsOnly(accountLogin);
+    if (!accountLoginDigits) return fail(c, 400, "Invalid account_login.");
 
     const supabase = getSupabaseAdmin();
 
@@ -135,7 +158,7 @@ app.post("/connect", async (c) => {
       .from("broker_connections")
       .select("user_id, broker, account_login")
       .eq("broker", broker)
-      .eq("account_login", accountLogin)
+      .eq("account_login", accountLoginDigits)
       .maybeSingle();
 
     if (existing?.user_id && existing.user_id !== userId) {
@@ -153,7 +176,7 @@ app.post("/connect", async (c) => {
         {
           user_id: userId,
           broker,
-          account_login: accountLogin,
+          account_login: accountLoginDigits,
           api_key_hash: String(hash),
           is_active: true,
         },
@@ -253,6 +276,8 @@ async function ingestTrades(req: Request) {
 
   const accountLogin = toString((trades[0] as any)?.account_login);
   if (!accountLogin) return { status: 400, body: { error: "Missing account_login" } };
+  const accountLoginDigits = digitsOnly(accountLogin);
+  if (!accountLoginDigits) return { status: 400, body: { error: "Invalid account_login" } };
 
   const brokerRaw = toString((trades[0] as any)?.broker) ?? "mt5";
   const broker = brokerRaw.toLowerCase() as Broker;
@@ -262,7 +287,7 @@ async function ingestTrades(req: Request) {
     .from("broker_connections")
     .select("user_id,broker,account_login,api_key_hash,is_active")
     .eq("broker", broker)
-    .eq("account_login", accountLogin)
+    .eq("account_login", accountLoginDigits)
     .maybeSingle();
 
   if (connErr || !conn) return { status: 404, body: { error: "Connection not found" } };
@@ -274,8 +299,15 @@ async function ingestTrades(req: Request) {
   });
   if (okErr || okKey !== true) return { status: 401, body: { error: "Invalid key" } };
 
+  console.info("[mt-bridge] ingest", {
+    broker,
+    userId: conn.user_id,
+    accountTail: tail4(accountLogin),
+    received: trades.length,
+  });
+
   const tickets = trades
-    .map((t) => toString(t.ticket))
+    .map((t) => digitsOnly(toString(t.ticket)))
     .filter((t): t is string => !!t);
   if (tickets.length === 0) return { status: 400, body: { error: "Missing ticket" } };
 
@@ -284,7 +316,7 @@ async function ingestTrades(req: Request) {
     .select("external_ticket,trade_id")
     .eq("user_id", conn.user_id)
     .eq("broker", broker)
-    .eq("account_login", accountLogin)
+    .eq("account_login", accountLoginDigits)
     .in("external_ticket", tickets);
 
   const known = new Set((existingMaps ?? []).map((r: any) => String(r.external_ticket)));
@@ -303,8 +335,12 @@ async function ingestTrades(req: Request) {
     const ticket = toString(t.ticket);
     const symbolRaw = toString(t.symbol);
     const side = toString(t.side)?.toLowerCase();
+    const positionId = toString((t as any).position_id ?? (t as any).positionId);
     const volume = typeof t.volume === "number" && Number.isFinite(t.volume) ? t.volume : null;
     if (!ticket || !symbolRaw || (side !== "buy" && side !== "sell") || volume === null) continue;
+    const ticketDigits = digitsOnly(ticket);
+    if (!ticketDigits) continue;
+    const positionDigits = digitsOnly(positionId);
 
     const entry = typeof t.open_price === "number" && Number.isFinite(t.open_price) ? t.open_price : 0;
     const exit =
@@ -324,7 +360,7 @@ async function ingestTrades(req: Request) {
     const type = side === "buy" ? "long" : "short";
 
     // Deterministic ID so upserts are idempotent even if mapping row is missing.
-    const seed = `${conn.user_id}:${broker}:${accountLogin}:${ticket}`;
+    const seed = `${conn.user_id}:${broker}:${accountLoginDigits}:${ticketDigits}`;
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(seed));
     const bytes = new Uint8Array(digest).slice(0, 16);
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -339,6 +375,11 @@ async function ingestTrades(req: Request) {
     upsertTrades.push({
       id: tradeId,
       user_id: conn.user_id,
+      account_login: accountLoginDigits,
+      ticket: ticketDigits,
+      position_id: positionDigits ?? null,
+      open_time: parseIsoTimestamp(t.open_time),
+      close_time: parseIsoTimestamp(t.close_time),
       date,
       symbol: normalizeSymbol(symbolRaw),
       type,
@@ -349,13 +390,15 @@ async function ingestTrades(req: Request) {
       pnl: pnlBase,
       pnl_percentage: pnlPercentage(entry, exit, type),
       notes: t.comment ?? null,
+      commission: typeof t.commission === "number" && Number.isFinite(t.commission) ? t.commission : null,
+      swap: typeof t.swap === "number" && Number.isFinite(t.swap) ? t.swap : null,
     });
 
     upsertMaps.push({
       user_id: conn.user_id,
       broker,
-      account_login: accountLogin,
-      external_ticket: ticket,
+      account_login: accountLoginDigits,
+      external_ticket: ticketDigits,
       trade_id: tradeId,
     });
   }
@@ -369,6 +412,13 @@ async function ingestTrades(req: Request) {
     .from("trade_external_map")
     .upsert(upsertMaps, { onConflict: "user_id,broker,account_login,external_ticket" });
   if (mapErr) return { status: 500, body: { error: mapErr.message } };
+
+  console.info("[mt-bridge] upserted", {
+    broker,
+    userId: conn.user_id,
+    accountTail: tail4(accountLogin),
+    upserted: upsertTrades.length,
+  });
 
   return { status: 200, body: { ok: true, count: upsertTrades.length } };
 }
@@ -384,4 +434,3 @@ app.post("/sync", async (c) => {
 });
 
 Deno.serve(app.fetch);
-

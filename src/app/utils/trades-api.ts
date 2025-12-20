@@ -32,6 +32,13 @@ export type TradeInput = {
 type TradeRow = {
   id: string;
   date: string;
+  close_time?: string | null;
+  open_time?: string | null;
+  account_login?: string | number | null;
+  ticket?: string | number | null;
+  position_id?: string | number | null;
+  commission?: number | string | null;
+  swap?: number | string | null;
   symbol: string;
   type: TradeType;
   entry: number | string;
@@ -50,6 +57,15 @@ type TradeRow = {
 };
 
 const toNumber = (value: number | string): number => (typeof value === 'number' ? value : Number(value));
+const toOptionalNumber = (value: number | string | null | undefined): number | undefined => {
+  if (value === null || value === undefined) return undefined;
+  return typeof value === 'number' ? value : Number(value);
+};
+const toOptionalString = (value: string | number | null | undefined): string | undefined => {
+  if (value === null || value === undefined) return undefined;
+  const out = typeof value === 'string' ? value : String(value);
+  return out.trim() ? out : undefined;
+};
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -61,6 +77,13 @@ function mapTrade(row: TradeRow): Trade {
   return {
     id: row.id,
     date: row.date,
+    closeTime: row.close_time ?? undefined,
+    openTime: row.open_time ?? undefined,
+    accountLogin: toOptionalString(row.account_login),
+    ticket: toOptionalString(row.ticket),
+    positionId: toOptionalString(row.position_id),
+    commission: toOptionalNumber(row.commission),
+    swap: toOptionalNumber(row.swap),
     symbol: row.symbol,
     type: row.type,
     entry: toNumber(row.entry),
@@ -117,6 +140,79 @@ async function getMyTradeCount(): Promise<number> {
   } catch (error) {
     console.error('[trades-api] getMyTradeCount exception', error);
     return 0;
+  }
+}
+
+export async function fetchTradesCount(): Promise<number> {
+  return getMyTradeCount();
+}
+
+function toLocalIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+async function fetchTradesPage<T extends TradeRow>(
+  builder: (range: { from: number; to: number }) => Promise<{ data: T[] | null; error: any }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  const pageSize = 1000;
+
+  for (let from = 0; from < 20000; from += pageSize) {
+    const { data, error } = await builder({ from, to: from + pageSize - 1 });
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    out.push(...data);
+    if (data.length < pageSize) break;
+  }
+
+  return out;
+}
+
+export async function fetchTradesForCalendarMonth(monthStart: Date, monthEndExclusive: Date): Promise<Trade[]> {
+  try {
+    const supabase = requireSupabaseClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) return [];
+
+    const startIso = monthStart.toISOString();
+    const endIso = monthEndExclusive.toISOString();
+    const startDate = toLocalIsoDate(monthStart);
+    const endDate = toLocalIsoDate(monthEndExclusive);
+
+    const select =
+      'id,date,close_time,open_time,account_login,ticket,position_id,commission,swap,symbol,type,entry,exit,quantity,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+
+    const withCloseTime = await fetchTradesPage<TradeRow>(({ from, to }) =>
+      supabase
+        .from('trades')
+        .select(select)
+        .gte('close_time', startIso)
+        .lt('close_time', endIso)
+        .order('close_time', { ascending: false })
+        .range(from, to)
+        .returns<TradeRow[]>(),
+    );
+
+    const withNullCloseTime = await fetchTradesPage<TradeRow>(({ from, to }) =>
+      supabase
+        .from('trades')
+        .select(select)
+        .is('close_time', null)
+        .gte('date', startDate)
+        .lt('date', endDate)
+        .order('date', { ascending: false })
+        .range(from, to)
+        .returns<TradeRow[]>(),
+    );
+
+    const merged = [...withCloseTime, ...withNullCloseTime];
+    return merged.map(mapTrade);
+  } catch (error) {
+    console.error('[trades-api] fetchTradesForCalendarMonth exception', error);
+    return [];
   }
 }
 

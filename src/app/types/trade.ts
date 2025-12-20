@@ -4,6 +4,13 @@ export type TradeOutcome = 'win' | 'loss' | 'breakeven';
 export interface Trade {
   id: string;
   date: string; // ISO date string
+  closeTime?: string;
+  openTime?: string;
+  accountLogin?: string;
+  ticket?: string;
+  positionId?: string;
+  commission?: number;
+  swap?: number;
   symbol: string;
   type: TradeType;
   entry: number;

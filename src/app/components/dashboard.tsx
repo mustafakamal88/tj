@@ -2,12 +2,13 @@ import { useMemo, useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Settings } from 'lucide-react';
-import { fetchTrades } from '../utils/trades-api';
+import { fetchTradesCount, fetchTradesForCalendarMonth } from '../utils/trades-api';
 import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
 import { filterTradesForFreeUser } from '../utils/data-limit';
 import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
 import type { Trade } from '../types/trade';
+import { mtStatus } from '../../lib/mtBridge';
 import { 
   format, 
   startOfMonth, 
@@ -25,6 +26,8 @@ import { MTConnectionDialog } from './mt-connection-dialog';
 export function Dashboard() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [totalTradeCount, setTotalTradeCount] = useState(0);
+  const [devSyncInfo, setDevSyncInfo] = useState<{ connected: boolean; lastSyncAt: string | null } | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
@@ -32,9 +35,27 @@ export function Dashboard() {
   const effectivePlan = isActive ? plan : 'free';
 
   const refreshTrades = async () => {
-    const allTrades = await fetchTrades();
+    const start = startOfMonth(currentMonth);
+    const end = startOfMonth(addMonths(currentMonth, 1));
+    const allTrades = await fetchTradesForCalendarMonth(start, end);
     const filteredTrades = effectivePlan === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
     setTrades(filteredTrades);
+
+    const count = await fetchTradesCount();
+    setTotalTradeCount(count);
+
+    if (import.meta.env.DEV) {
+      try {
+        const status = await mtStatus();
+        setDevSyncInfo({
+          connected: status.connected,
+          lastSyncAt: status.connection?.lastSyncAt ?? null,
+        });
+      } catch (e) {
+        console.warn('[dashboard] mtStatus failed (dev panel)', e);
+        setDevSyncInfo({ connected: false, lastSyncAt: null });
+      }
+    }
   };
 
   const access = getFeatureAccess(effectivePlan);
@@ -103,25 +124,18 @@ export function Dashboard() {
       window.removeEventListener('mt-connection-changed', handleMtConnectionChanged);
       if (autoSyncInterval) window.clearInterval(autoSyncInterval);
     };
-  }, [effectivePlan]);
+  }, [effectivePlan, currentMonth]);
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
   const monthEnd = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
 
-  const currentMonthTrades = useMemo(() => {
-    return trades.filter((trade) => {
-      const tradeDate = new Date(trade.date);
-      return tradeDate >= monthStart && tradeDate <= monthEnd;
-    });
-  }, [trades, monthStart, monthEnd]);
-
   // Calculate statistics
-  const totalPnL = useMemo(() => calculateTotalPnL(currentMonthTrades), [currentMonthTrades]);
-  const winRate = useMemo(() => calculateWinRate(currentMonthTrades), [currentMonthTrades]);
-  const totalTrades = currentMonthTrades.length;
-  const wins = useMemo(() => currentMonthTrades.filter((t) => t.outcome === 'win').length, [currentMonthTrades]);
+  const totalPnL = useMemo(() => calculateTotalPnL(trades), [trades]);
+  const winRate = useMemo(() => calculateWinRate(trades), [trades]);
+  const totalTrades = trades.length;
+  const wins = useMemo(() => trades.filter((t) => t.outcome === 'win').length, [trades]);
   const losses = useMemo(
-    () => currentMonthTrades.filter((t) => t.outcome === 'loss').length,
-    [currentMonthTrades],
+    () => trades.filter((t) => t.outcome === 'loss').length,
+    [trades],
   );
 
   const monthDays = useMemo(() => eachDayOfInterval({ start: monthStart, end: monthEnd }), [monthStart, monthEnd]);
@@ -147,7 +161,11 @@ export function Dashboard() {
   const dayStats = useMemo(() => {
     const map = new Map<string, { count: number; pnl: number }>();
     for (const trade of trades) {
-      const key = trade.date;
+      let key = trade.date;
+      if (trade.closeTime) {
+        const parsed = new Date(trade.closeTime);
+        if (!Number.isNaN(parsed.getTime())) key = format(parsed, 'yyyy-MM-dd');
+      }
       const existing = map.get(key);
       if (existing) {
         existing.count += 1;
@@ -252,6 +270,22 @@ export function Dashboard() {
             </Button>
           </div>
         </div>
+
+        {import.meta.env.DEV && (
+          <Card className="p-4 mb-6 text-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="text-muted-foreground">
+                <span className="font-medium text-foreground">Dev: Sync status</span>
+                <span className="ml-2">
+                  {devSyncInfo?.lastSyncAt ? `Last sync: ${new Date(devSyncInfo.lastSyncAt).toLocaleString()}` : 'Last sync: —'}
+                </span>
+              </div>
+              <div className="text-muted-foreground">
+                Total trades in DB: <span className="text-foreground font-medium">{totalTradeCount}</span>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -450,7 +484,7 @@ export function Dashboard() {
         </Card>
 
         {/* Empty State */}
-        {trades.length === 0 && (
+        {totalTradeCount === 0 && (
           <Card className="p-12 text-center mt-8">
             <p className="text-muted-foreground mb-4">No trades yet. Start tracking your performance!</p>
             <Button onClick={() => setIsAddDialogOpen(true)}>
