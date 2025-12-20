@@ -167,6 +167,12 @@ function generateSyncKey(): string {
   return base64UrlEncode(bytes);
 }
 
+function accountTail(value: string): string {
+  const cleaned = value.trim();
+  if (cleaned.length <= 4) return cleaned;
+  return cleaned.slice(-4);
+}
+
 function normalizeSymbol(value: string): string {
   return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 }
@@ -361,7 +367,7 @@ const handleAction = async (c: any) => {
         userId,
         platform,
         server,
-        accountTail: account.length > 4 ? account.slice(-4) : account,
+        accountTail: accountTail(account),
         autoSync,
       });
 
@@ -375,7 +381,7 @@ const handleAction = async (c: any) => {
           userId,
           platform,
           server,
-          accountTail: account.length > 4 ? account.slice(-4) : account,
+          accountTail: accountTail(account),
           message: metaapiWarning,
         });
       }
@@ -415,7 +421,7 @@ const handleAction = async (c: any) => {
         connection: {
           platform,
           server,
-          account,
+          accountTail: accountTail(account),
           accountType,
           autoSync,
           metaapiAccountId,
@@ -444,7 +450,24 @@ const handleAction = async (c: any) => {
       const existing = (await kv.get(`${MT_CONNECTION_BY_USER_PREFIX}${userId}`).catch(() => null)) as
         | MtConnectionByKey
         | null;
-      return ok(c, { connected: !!existing?.syncKey, connection: existing ?? null });
+
+      if (!existing?.syncKey) return ok(c, { connected: false, syncKey: null, syncUrl: null, connection: null });
+
+      return ok(c, {
+        connected: true,
+        syncKey: existing.syncKey,
+        syncUrl: existing.syncUrl,
+        connection: {
+          platform: existing.platform,
+          server: existing.server,
+          accountTail: accountTail(existing.account),
+          accountType: existing.accountType,
+          autoSync: existing.autoSync,
+          metaapiAccountId: existing.metaapiAccountId,
+          connectedAt: existing.connectedAt,
+          lastSyncAt: existing.lastSyncAt,
+        },
+      });
     }
 
     return fail(c, 400, "Unknown action.");

@@ -87,33 +87,20 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
         setConnectedAt(conn.connectedAt ?? null);
         setLastSyncAt(conn.lastSyncAt ?? null);
 
-        const maybeSyncKey = (conn as any).syncKey;
-        const maybeSyncUrl = (conn as any).syncUrl;
-        setSyncKey(typeof maybeSyncKey === 'string' ? maybeSyncKey : null);
-        setSyncUrl(typeof maybeSyncUrl === 'string' ? maybeSyncUrl : null);
+        setSyncKey(status.syncKey ?? null);
+        setSyncUrl(status.syncUrl ?? null);
+
+        const parsed = parseSavedConnection(localStorage.getItem(MT_CONNECTION_STORAGE_KEY));
 
         if (conn.platform === 'MT4') {
           setMt4Server(conn.server ?? '');
-          setMt4Account(conn.account ?? '');
+          if (parsed?.platform === 'MT4' && typeof parsed.account === 'string') setMt4Account(parsed.account);
           if (conn.accountType === 'live' || conn.accountType === 'demo') setMt4AccountType(conn.accountType);
         } else if (conn.platform === 'MT5') {
           setMt5Server(conn.server ?? '');
-          setMt5Account(conn.account ?? '');
+          if (parsed?.platform === 'MT5' && typeof parsed.account === 'string') setMt5Account(parsed.account);
           if (conn.accountType === 'live' || conn.accountType === 'demo') setMt5AccountType(conn.accountType);
         }
-
-        const local: SavedMtConnection = {
-          method: 'connector',
-          platform: conn.platform,
-          server: conn.server,
-          account: conn.account,
-          accountType: conn.accountType,
-          autoSync: Boolean(conn.autoSync),
-          connectedAt: conn.connectedAt,
-          lastSyncAt: conn.lastSyncAt,
-        };
-        localStorage.setItem(MT_CONNECTION_STORAGE_KEY, JSON.stringify(local));
-        localStorage.setItem('mt-auto-sync', String(local.autoSync));
       } catch (e) {
         console.error('MT status error', e);
         const parsed = parseSavedConnection(localStorage.getItem(MT_CONNECTION_STORAGE_KEY));
@@ -142,11 +129,11 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
 
     try {
       const server = platform === 'MT4' ? mt4Server : mt5Server;
-      const account = platform === 'MT4' ? mt4Account : mt5Account;
+      const accountNumber = platform === 'MT4' ? mt4Account : mt5Account;
       const accountType = platform === 'MT4' ? mt4AccountType : mt5AccountType;
       const desiredAutoSync = isAutoSyncLocked ? false : autoSync;
 
-      if (!server || !account) {
+      if (!server || !accountNumber) {
         toast.error('Server and account number are required.');
         return;
       }
@@ -154,7 +141,7 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
       const result = await mtConnect({
         platform,
         server,
-        account,
+        accountNumber,
         accountType,
         autoSync: desiredAutoSync,
       });
@@ -163,7 +150,7 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
         method: 'connector',
         platform,
         server,
-        account,
+        account: accountNumber,
         accountType,
         autoSync: desiredAutoSync,
         connectedAt: result.connectedAt,
@@ -187,6 +174,10 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
         toast.info('Auto-refresh is available on Pro/Premium. You can still refresh manually.');
       } else if (desiredAutoSync) {
         toast.info('Auto-refresh enabled (while the app is open).');
+      }
+
+      if (result.warning) {
+        toast.info(result.warning);
       }
     } catch (error) {
       console.error('MT connect error', error);
@@ -479,4 +470,3 @@ export function MTConnectionDialog({ open, onOpenChange }: MTConnectionDialogPro
     </Dialog>
   );
 }
-

@@ -61,7 +61,7 @@ async function invokeServer<T>(body: Record<string, unknown>): Promise<T> {
 export type MtConnectInput = {
   platform: MtPlatform;
   server: string;
-  account: string;
+  accountNumber: string;
   accountType?: MtAccountType;
   autoSync: boolean;
 };
@@ -70,10 +70,11 @@ export type MtConnectResult = {
   syncKey: string;
   syncUrl: string;
   connectedAt: string;
+  warning?: string;
   connection: {
     platform: MtPlatform;
     server: string;
-    account: string;
+    accountTail: string;
     accountType?: MtAccountType;
     autoSync: boolean;
     metaapiAccountId?: string;
@@ -83,7 +84,8 @@ export type MtConnectResult = {
 };
 
 export async function mtConnect(input: MtConnectInput): Promise<MtConnectResult> {
-  return invokeServer<MtConnectResult>({ action: 'mt_connect', ...input });
+  const { accountNumber, ...rest } = input;
+  return invokeServer<MtConnectResult>({ action: 'mt_connect', ...rest, account: accountNumber });
 }
 
 export async function mtDisconnect(): Promise<{ disconnected: boolean }> {
@@ -92,7 +94,9 @@ export async function mtDisconnect(): Promise<{ disconnected: boolean }> {
 
 export type MtStatusResult = {
   connected: boolean;
-  connection: (MtConnectResult['connection'] & { syncKey?: string; syncUrl?: string }) | null;
+  syncKey: string | null;
+  syncUrl: string | null;
+  connection: MtConnectResult['connection'] | null;
 };
 
 export async function mtStatus(): Promise<MtStatusResult> {
