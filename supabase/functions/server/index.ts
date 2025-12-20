@@ -470,6 +470,46 @@ const handleAction = async (c: any) => {
       });
     }
 
+    if (action === "mt_sync_now") {
+      const userId = await requireUserIdFromRequest(c);
+      const existing = (await kv.get(`${MT_CONNECTION_BY_USER_PREFIX}${userId}`).catch(() => null)) as
+        | MtConnectionByKey
+        | null;
+
+      const refreshedAt = new Date().toISOString();
+
+      if (!existing?.syncKey) {
+        return ok(c, {
+          connected: false,
+          syncKey: null,
+          syncUrl: null,
+          refreshedAt,
+          connection: null,
+        });
+      }
+
+      const updated: MtConnectionByKey = { ...existing, lastSyncAt: refreshedAt };
+      await kv.set(`${MT_CONNECTION_BY_USER_PREFIX}${userId}`, updated);
+      await kv.set(`${MT_CONNECTION_BY_KEY_PREFIX}${updated.syncKey}`, updated);
+
+      return ok(c, {
+        connected: true,
+        syncKey: updated.syncKey,
+        syncUrl: updated.syncUrl,
+        refreshedAt,
+        connection: {
+          platform: updated.platform,
+          server: updated.server,
+          accountTail: accountTail(updated.account),
+          accountType: updated.accountType,
+          autoSync: updated.autoSync,
+          metaapiAccountId: updated.metaapiAccountId,
+          connectedAt: updated.connectedAt,
+          lastSyncAt: refreshedAt,
+        },
+      });
+    }
+
     return fail(c, 400, "Unknown action.");
   } catch (error) {
     console.error("Server action error", error);

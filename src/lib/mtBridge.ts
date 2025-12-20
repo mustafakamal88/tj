@@ -102,3 +102,18 @@ export type MtStatusResult = {
 export async function mtStatus(): Promise<MtStatusResult> {
   return invokeServer<MtStatusResult>({ action: 'mt_status' });
 }
+
+export type MtSyncNowResult = MtStatusResult & { refreshedAt: string };
+
+export async function mtSyncNow(): Promise<MtSyncNowResult> {
+  try {
+    return await invokeServer<MtSyncNowResult>({ action: 'mt_sync_now' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (message.toLowerCase().includes('unknown action')) {
+      const status = await mtStatus();
+      return { ...status, refreshedAt: new Date().toISOString() };
+    }
+    throw error;
+  }
+}
