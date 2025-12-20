@@ -1,0 +1,2 @@
+# MetaTrader (EA) calls /mt/sync without a Supabase JWT.
+verify_jwt = false

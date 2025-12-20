@@ -8,6 +8,11 @@ project_id = "Trade_Journaling_Website"
 # Stripe sends webhooks server-to-server and does not include a Supabase JWT.
 verify_jwt = false
 
+[functions.server]
+# MT /mt/sync is called by MetaTrader (EA) without Supabase Authorization header.
+# We validate using X-TJ-Sync-Key instead, so disable JWT verification at the platform layer.
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

@@ -1,6 +1,5 @@
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
-import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 const app = new Hono();
@@ -12,25 +11,44 @@ type MtConnectionRecord = {
   platform: MtPlatform;
   server: string;
   account: string;
+  accountType?: "live" | "demo";
   autoSync: boolean;
+  metaapiAccountId?: string;
   connectedAt: string;
   lastSyncAt?: string;
 };
 
 type MtConnectionByKey = MtConnectionRecord & {
   syncKey: string;
+  syncUrl: string;
 };
 
 type ProfileRow = {
   subscription_plan: "free" | "pro" | "premium";
-  trial_start_at: string;
+  trial_start_at: string | null;
 };
 
 type IncomingTrade = Record<string, unknown>;
 
 const MT_CONNECTION_BY_USER_PREFIX = "mt_user:";
 const MT_CONNECTION_BY_KEY_PREFIX = "mt_sync:";
+const MT_RATE_LIMIT_PREFIX = "mt_rl:";
 const MAKE_SERVER_PREFIX = "/make-server-a46fa5d6";
+
+function requireEnv(name: string): string {
+  const value = Deno.env.get(name);
+  if (!value) throw new Error(`Missing ${name} env var.`);
+  return value;
+}
+
+function safeTrimTrailingSlashes(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+function getServerSyncUrl(): string {
+  const base = safeTrimTrailingSlashes(requireEnv("SUPABASE_URL"));
+  return `${base}/functions/v1/server${MAKE_SERVER_PREFIX}/mt/sync`;
+}
 
 function ok(c: any, data: unknown) {
   return c.json({ ok: true, data });
@@ -51,12 +69,7 @@ function getBearerToken(authHeader: string | undefined | null): string | null {
 }
 
 function getSupabaseAdmin() {
-  const url = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !serviceRoleKey) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-  }
-  return createClient(url, serviceRoleKey);
+  return createClient(requireEnv("SUPABASE_URL"), requireEnv("SUPABASE_SERVICE_ROLE_KEY"));
 }
 
 async function requireUserIdFromRequest(c: any): Promise<string> {
@@ -173,24 +186,114 @@ function pnlPercentage(entry: number, exit: number, type: "long" | "short"): num
   return type === "short" ? -raw : raw;
 }
 
-// Enable logger
-app.use('*', logger(console.log));
+async function metaapiFindAccountId(input: { account: string; server: string }): Promise<string> {
+  const baseUrl = safeTrimTrailingSlashes(requireEnv("METAAPI_BASE_URL"));
+  const token = requireEnv("METAAPI_TOKEN");
+
+  const res = await fetch(`${baseUrl}/users/current/accounts`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message = json?.message ?? `MetaApi error (HTTP ${res.status}).`;
+    throw new Error(message);
+  }
+
+  const accounts: unknown[] = Array.isArray(json)
+    ? json
+    : Array.isArray(json?.accounts)
+      ? json.accounts
+      : Array.isArray(json?.data)
+        ? json.data
+        : [];
+
+  const targetAccount = input.account.trim();
+  const targetServer = input.server.trim().toLowerCase();
+
+  for (const item of accounts) {
+    if (!isRecord(item)) continue;
+    const id = pickString(item, ["id", "_id", "accountId"]);
+    if (!id) continue;
+
+    const login = pickString(item, ["login", "accountNumber", "number"]);
+    const name = pickString(item, ["name", "label"]);
+    const server = pickString(item, ["server", "brokerServer"]);
+
+    if (login && login === targetAccount) return id;
+    if (name && name.includes(targetAccount)) return id;
+    if (server && server.toLowerCase() === targetServer && login && login === targetAccount) return id;
+  }
+
+  throw new Error("MetaApi account not found. Please add the account in MetaApi dashboard then retry.");
+}
+
+function parseOptionalOrigin(raw: string): string | null {
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+}
+
+const CORS_ALLOWED_ORIGINS = (() => {
+  const origins = new Set<string>([
+    "http://localhost:5173",
+    "http://localhost:3000",
+  ]);
+
+  const siteUrl = Deno.env.get("SITE_URL");
+  if (siteUrl) {
+    const origin = parseOptionalOrigin(siteUrl);
+    if (origin) origins.add(origin);
+  }
+
+  return origins;
+})();
 
 // Enable CORS for all routes and methods
 app.use(
   "*",
   cors({
-    origin: "*",
-    allowHeaders: ["Content-Type", "Authorization", "X-TJ-Sync-Key"],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    origin: (origin) => {
+      if (!origin) return "*";
+      return CORS_ALLOWED_ORIGINS.has(origin) ? origin : "null";
+    },
+    // supabase-js sends `apikey`, `authorization`, and `x-client-info` headers from the browser.
+    allowHeaders: ["Content-Type", "Authorization", "apikey", "x-client-info", "X-TJ-Sync-Key"],
+    allowMethods: ["GET", "POST", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
   }),
 );
 
+app.options("*", (c) => c.text("", 204));
+
 // Health check endpoint
-app.get("/make-server-a46fa5d6/health", (c) => {
-  return c.json({ status: "ok" });
+app.get(`${MAKE_SERVER_PREFIX}/health`, async (c) => {
+  try {
+    // Required env vars
+    requireEnv("SUPABASE_URL");
+    requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+
+    // KV sanity (write/read/delete)
+    const key = "__health__";
+    const payload = { t: Date.now() };
+    await kv.set(key, payload);
+    const stored = await kv.get(key);
+    await kv.del(key);
+
+    if (!isRecord(stored) || stored.t !== payload.t) {
+      throw new Error("KV sanity check failed.");
+    }
+
+    return c.json({ status: "ok" });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Health check failed.";
+    return c.json({ status: "error", message }, 500);
+  }
 });
 
 // UI actions (called via supabase.functions.invoke('server', ...))
@@ -207,10 +310,21 @@ const handleAction = async (c: any) => {
       const platform = toString(body.platform) as MtPlatform | null;
       const server = toString(body.server);
       const account = toString(body.account);
+      const accountTypeRaw = toString(body.accountType);
+      const accountType = accountTypeRaw === "demo" || accountTypeRaw === "live" ? accountTypeRaw : undefined;
       const autoSync = Boolean(body.autoSync);
 
       if (platform !== "MT4" && platform !== "MT5") return fail(c, 400, "Invalid platform.");
       if (!server || !account) return fail(c, 400, "Missing server or account.");
+
+      let metaapiAccountId: string | undefined;
+      try {
+        metaapiAccountId = await metaapiFindAccountId({ account, server });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "MetaApi account not found.";
+        const status = message.startsWith("Missing ") || message.toLowerCase().includes("metaapi error") ? 500 : 400;
+        return fail(c, status, message);
+      }
 
       const existing = (await kv.get(`${MT_CONNECTION_BY_USER_PREFIX}${userId}`).catch(() => null)) as
         | MtConnectionByKey
@@ -222,25 +336,38 @@ const handleAction = async (c: any) => {
       const syncKey = generateSyncKey();
       const connectedAt = new Date().toISOString();
 
-      const url = Deno.env.get("SUPABASE_URL");
-      const syncUrl = url
-        ? `${url}/functions/v1/server${MAKE_SERVER_PREFIX}/mt/sync`
-        : "";
+      const syncUrl = getServerSyncUrl();
 
       const record: MtConnectionByKey = {
         userId,
         platform,
         server,
         account,
+        accountType,
         autoSync,
+        metaapiAccountId,
         syncKey,
+        syncUrl,
         connectedAt,
       };
 
       await kv.set(`${MT_CONNECTION_BY_KEY_PREFIX}${syncKey}`, record);
       await kv.set(`${MT_CONNECTION_BY_USER_PREFIX}${userId}`, record);
 
-      return ok(c, { syncKey, syncUrl, connectedAt });
+      return ok(c, {
+        syncKey,
+        syncUrl,
+        connectedAt,
+        connection: {
+          platform,
+          server,
+          account,
+          accountType,
+          autoSync,
+          metaapiAccountId,
+          connectedAt,
+        },
+      });
     }
 
     if (action === "mt_disconnect") {
@@ -268,6 +395,8 @@ const handleAction = async (c: any) => {
     return fail(c, 400, "Unknown action.");
   } catch (error) {
     console.error("Server action error", error);
+    const message = error instanceof Error ? error.message : "Server error.";
+    if (message.includes("Authorization")) return fail(c, 401, "Unauthorized.");
     return fail(c, 500, "Server error.");
   }
 };
@@ -281,6 +410,17 @@ const handleMtSync = async (c: any) => {
     const syncKey = toString(c.req.header("X-TJ-Sync-Key")) ?? toString(c.req.query("key"));
     if (!syncKey) return fail(c, 401, "Missing sync key.");
 
+    const now = Date.now();
+    const rlKey = `${MT_RATE_LIMIT_PREFIX}${syncKey}`;
+    const last = (await kv.get(rlKey).catch(() => null)) as unknown;
+    if (isRecord(last) && typeof last.t === "number") {
+      const delta = now - last.t;
+      if (delta >= 0 && delta < 800) {
+        return fail(c, 429, "Too many requests. Please retry shortly.");
+      }
+    }
+    await kv.set(rlKey, { t: now }).catch(() => null);
+
     const connection = (await kv.get(`${MT_CONNECTION_BY_KEY_PREFIX}${syncKey}`).catch(() => null)) as
       | MtConnectionByKey
       | null;
@@ -290,7 +430,7 @@ const handleMtSync = async (c: any) => {
     if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.");
     const trades = body.trades;
     if (!Array.isArray(trades)) return fail(c, 400, "Missing trades array.");
-    if (trades.length === 0) return ok(c, { inserted: 0, updated: 0 });
+    if (trades.length === 0) return ok(c, { received: 0, normalized: 0, upserted: 0 });
     if (trades.length > 2000) return fail(c, 413, "Too many trades in one request.");
 
     const supabase = getSupabaseAdmin();
@@ -364,10 +504,9 @@ const handleMtSync = async (c: any) => {
 
     // Enforce free plan limits (15 trades / 14 days).
     if (profile.subscription_plan === "free") {
-      const trialStart = new Date(profile.trial_start_at);
-      const expired = Number.isNaN(trialStart.getTime())
-        ? false
-        : Date.now() - trialStart.getTime() > 14 * 24 * 60 * 60 * 1000;
+      const trialStart = profile.trial_start_at ? new Date(profile.trial_start_at) : new Date();
+      const trialStartTs = Number.isNaN(trialStart.getTime()) ? Date.now() : trialStart.getTime();
+      const expired = Date.now() - trialStartTs > 14 * 24 * 60 * 60 * 1000;
       if (expired) return fail(c, 403, "Free trial expired. Upgrade to keep syncing trades.");
 
       const { count: existingCount } = await supabase
@@ -412,7 +551,14 @@ const handleMtSync = async (c: any) => {
       lastSyncAt: new Date().toISOString(),
     });
 
-    return ok(c, { received: trades.length, upserted: normalized.length });
+    console.log("[mt_sync] upserted trades", {
+      userId: connection.userId,
+      received: trades.length,
+      normalized: normalized.length,
+      upserted: normalized.length,
+    });
+
+    return ok(c, { received: trades.length, normalized: normalized.length, upserted: normalized.length });
   } catch (error) {
     console.error("MT sync error", error);
     return fail(c, 500, "Server error.");

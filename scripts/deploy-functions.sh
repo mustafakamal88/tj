@@ -99,8 +99,8 @@ deploy_one() {
   echo
   echo "== Deploy: $name =="
   local extra_flags=()
-  if [[ "$name" == "stripe-webhook" ]]; then
-    # Stripe does not send a Supabase JWT. Disable JWT verification explicitly to avoid 401s.
+  if [[ "$name" == "stripe-webhook" || "$name" == "server" ]]; then
+    # Stripe/MetaTrader do not send a Supabase JWT. Disable JWT verification explicitly to avoid 401s.
     extra_flags+=(--no-verify-jwt)
   fi
   if ! supabase functions deploy "$name" "${DEPLOY_FLAGS[@]}" "${DEBUG_FLAGS[@]}" "${extra_flags[@]}"; then
