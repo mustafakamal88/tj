@@ -156,6 +156,20 @@ async function requireUserIdFromRequest(c: any): Promise<string> {
   return data.user.id;
 }
 
+async function tryUserIdFromRequest(c: any): Promise<string | null> {
+  const token = getBearerToken(c.req.header("Authorization"));
+  if (!token) return null;
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user?.id) return null;
+    return data.user.id;
+  } catch {
+    return null;
+  }
+}
+
 function base64UrlEncode(bytes: Uint8Array): string {
   const base64 = btoa(String.fromCharCode(...bytes));
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -171,6 +185,14 @@ function accountTail(value: string): string {
   const cleaned = value.trim();
   if (cleaned.length <= 4) return cleaned;
   return cleaned.slice(-4);
+}
+
+function maskKey(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const cleaned = value.trim();
+  if (!cleaned) return null;
+  if (cleaned.length <= 8) return `${cleaned.slice(0, 2)}…${cleaned.slice(-2)}`;
+  return `${cleaned.slice(0, 4)}…${cleaned.slice(-4)}`;
 }
 
 function normalizeSymbol(value: string): string {
@@ -528,7 +550,29 @@ app.post(`/server${MAKE_SERVER_PREFIX}/action`, handleAction);
 const handleMtSync = async (c: any) => {
   try {
     const syncKey = toString(c.req.header("X-TJ-Sync-Key")) ?? toString(c.req.query("key"));
-    if (!syncKey) return fail(c, 401, "Missing sync key.");
+    const providedKeyMask = maskKey(syncKey);
+    const kvLookupByProvided = syncKey ? `${MT_CONNECTION_BY_KEY_PREFIX}${syncKey}` : null;
+    const kvLookupByProvidedLog = syncKey ? `${MT_CONNECTION_BY_KEY_PREFIX}${maskKey(syncKey)}` : null;
+
+    if (!syncKey) {
+      const userId = await tryUserIdFromRequest(c);
+      const kvLookupByUser = userId ? `${MT_CONNECTION_BY_USER_PREFIX}${userId}` : null;
+      const expected = userId
+        ? ((await kv.get(kvLookupByUser!).catch(() => null)) as MtConnectionByKey | null)
+        : null;
+      const expectedKeyMask = maskKey(expected?.syncKey);
+
+      console.info("[mt_sync] sync key validation failed", {
+        reason: "missing",
+        userId,
+        kvLookupByProvided: kvLookupByProvidedLog,
+        kvLookupByUser,
+        expectedKeyMask,
+        providedKeyMask,
+      });
+
+      return fail(c, 401, "Missing sync key.");
+    }
 
     const now = Date.now();
     const rlKey = `${MT_RATE_LIMIT_PREFIX}${syncKey}`;
@@ -541,10 +585,33 @@ const handleMtSync = async (c: any) => {
     }
     await kv.set(rlKey, { t: now }).catch(() => null);
 
-    const connection = (await kv.get(`${MT_CONNECTION_BY_KEY_PREFIX}${syncKey}`).catch(() => null)) as
+    const connection = (await kv.get(kvLookupByProvided!).catch(() => null)) as
       | MtConnectionByKey
       | null;
-    if (!connection?.userId) return fail(c, 401, "Invalid sync key.");
+    if (!connection?.userId) {
+      const userId = await tryUserIdFromRequest(c);
+      const kvLookupByUser = userId ? `${MT_CONNECTION_BY_USER_PREFIX}${userId}` : null;
+      const expected = userId
+        ? ((await kv.get(kvLookupByUser!).catch(() => null)) as MtConnectionByKey | null)
+        : null;
+      const expectedKeyMask = maskKey(expected?.syncKey);
+
+      console.info("[mt_sync] sync key validation failed", {
+        reason: "invalid",
+        userId,
+        kvLookupByProvided: kvLookupByProvidedLog,
+        kvLookupByUser,
+        expectedKeyMask,
+        providedKeyMask,
+      });
+
+      return fail(c, 401, "Invalid sync key.");
+    }
+
+    console.info("[mt_sync] sync key validated", {
+      userId: connection.userId,
+      kvLookupByProvided: kvLookupByProvidedLog,
+    });
 
     const body = await c.req.json().catch(() => null);
     if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.");
