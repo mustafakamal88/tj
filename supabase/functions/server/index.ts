@@ -188,6 +188,11 @@ function pnlPercentage(entry: number, exit: number, type: "long" | "short"): num
 
 async function metaapiFindAccountId(input: { account: string; server: string }): Promise<string> {
   const baseUrl = safeTrimTrailingSlashes(requireEnv("METAAPI_BASE_URL"));
+  if (!baseUrl.includes("mt-client-api-v1")) {
+    throw new Error(
+      'METAAPI_BASE_URL must point to "mt-client-api-v1" (e.g. https://mt-client-api-v1.london.agiliumtrade.ai).',
+    );
+  }
   const token = requireEnv("METAAPI_TOKEN");
 
   const res = await fetch(`${baseUrl}/users/current/accounts`, {
@@ -319,6 +324,14 @@ const handleAction = async (c: any) => {
 
       if (platform !== "MT4" && platform !== "MT5") return fail(c, 400, "Invalid platform.");
       if (!server || !account) return fail(c, 400, "Missing server or account.");
+
+      console.log("[mt_connect] request", {
+        userId,
+        platform,
+        server,
+        accountTail: account.length > 4 ? account.slice(-4) : account,
+        autoSync,
+      });
 
       let metaapiAccountId: string | undefined;
       try {
