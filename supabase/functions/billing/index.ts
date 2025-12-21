@@ -128,42 +128,50 @@ async function ensurePortalConfigurationId(): Promise<string | null> {
   }
 
   // Create a configuration enabling subscription updates between Pro/Premium.
-  const proPrice = mapPlanToStripePrice("pro");
-  const premiumPrice = mapPlanToStripePrice("premium");
-  const proObj = await stripeGet(`/prices/${encodeURIComponent(proPrice)}`);
-  const premiumObj = await stripeGet(`/prices/${encodeURIComponent(premiumPrice)}`);
+  // NOTE: Stripe requires payment method update to be enabled when subscription updates are enabled.
+  try {
+    const proPrice = mapPlanToStripePrice("pro");
+    const premiumPrice = mapPlanToStripePrice("premium");
+    const proObj = await stripeGet(`/prices/${encodeURIComponent(proPrice)}`);
+    const premiumObj = await stripeGet(`/prices/${encodeURIComponent(premiumPrice)}`);
 
-  const groups = new Map<string, string[]>();
-  const add = (productId: unknown, priceId: string) => {
-    if (typeof productId !== "string" || !productId.trim()) return;
-    const arr = groups.get(productId) ?? [];
-    if (!arr.includes(priceId)) arr.push(priceId);
-    groups.set(productId, arr);
-  };
-  add(proObj?.product, proPrice);
-  add(premiumObj?.product, premiumPrice);
+    const groups = new Map<string, string[]>();
+    const add = (productId: unknown, priceId: string) => {
+      if (typeof productId !== "string" || !productId.trim()) return;
+      const arr = groups.get(productId) ?? [];
+      if (!arr.includes(priceId)) arr.push(priceId);
+      groups.set(productId, arr);
+    };
+    add(proObj?.product, proPrice);
+    add(premiumObj?.product, premiumPrice);
 
-  const params = new URLSearchParams();
-  params.set("business_profile[headline]", "Manage your TJ Trade Journal subscription");
-  params.set("features[subscription_cancel][enabled]", "true");
-  params.set("features[subscription_update][enabled]", "true");
-  params.set("features[subscription_update][proration_behavior]", "create_prorations");
-  params.set("features[subscription_update][default_allowed_updates][0]", "price");
+    const params = new URLSearchParams();
+    params.set("business_profile[headline]", "Manage your TJ Trade Journal subscription");
+    params.set("features[payment_method_update][enabled]", "true");
+    params.set("features[subscription_cancel][enabled]", "true");
+    params.set("features[subscription_update][enabled]", "true");
+    params.set("features[subscription_update][proration_behavior]", "create_prorations");
+    params.set("features[subscription_update][default_allowed_updates][0]", "price");
 
-  let i = 0;
-  for (const [productId, priceIds] of groups.entries()) {
-    params.set(`features[subscription_update][products][${i}][product]`, productId);
-    for (let j = 0; j < priceIds.length; j++) {
-      params.set(`features[subscription_update][products][${i}][prices][${j}]`, priceIds[j]);
+    let i = 0;
+    for (const [productId, priceIds] of groups.entries()) {
+      params.set(`features[subscription_update][products][${i}][product]`, productId);
+      for (let j = 0; j < priceIds.length; j++) {
+        params.set(`features[subscription_update][products][${i}][prices][${j}]`, priceIds[j]);
+      }
+      i += 1;
     }
-    i += 1;
-  }
 
-  const created = await stripeRequest("/billing_portal/configurations", params, {
-    idempotencyKey: "tj_portal_cfg_v1",
-  });
-  if (created?.id) return String(created.id);
-  return null;
+    const created = await stripeRequest("/billing_portal/configurations", params, {
+      idempotencyKey: "tj_portal_cfg_v2",
+    });
+    if (created?.id) return String(created.id);
+    return null;
+  } catch (e) {
+    // Safety fallback: do not break portal opening if config creation fails.
+    console.warn("[billing] failed to create portal configuration; falling back to default portal", e);
+    return null;
+  }
 }
 
 async function ensureStripeCustomer(
@@ -357,7 +365,13 @@ const billingHandler = async (c: any) => {
       const customerId = (prof as any)?.stripe_customer_id as string | null;
       if (!customerId) return c.json({ error: "No Stripe customer found for this user." }, 400);
 
-      const configuration = await ensurePortalConfigurationId();
+      let configuration: string | null = null;
+      try {
+        configuration = await ensurePortalConfigurationId();
+      } catch (e) {
+        console.warn("[billing] portal config resolution failed; continuing without configuration", e);
+        configuration = null;
+      }
       const portal = await stripeRequest(
         "/billing_portal/sessions",
         new URLSearchParams({
