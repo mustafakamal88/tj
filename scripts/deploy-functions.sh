@@ -87,27 +87,28 @@ done
 
 echo "- functions: OK (billing, stripe-webhook, broker-import)"
 
-DEBUG_FLAGS=()
-if [[ "${DEBUG:-}" == "1" || "${SUPABASE_DEBUG:-}" == "1" ]]; then
-  DEBUG_FLAGS+=(--debug)
-fi
-
 DEPLOY_FLAGS=(--use-api --project-ref "$PROJECT_REF")
 
 deploy_one() {
   local name="$1"
   echo
   echo "== Deploy: $name =="
-  local extra_flags=()
+  local args=(functions deploy "$name" "${DEPLOY_FLAGS[@]}")
+
+  if [[ "${DEBUG:-}" == "1" || "${SUPABASE_DEBUG:-}" == "1" ]]; then
+    args+=(--debug)
+  fi
+
   if [[ "$name" == "stripe-webhook" ]]; then
     # Stripe sends webhooks server-to-server and does not include a Supabase JWT.
-    extra_flags+=(--no-verify-jwt)
+    args+=(--no-verify-jwt)
   fi
   if [[ "$name" == "broker-import" ]]; then
     # Browser CORS preflight (OPTIONS) does not include Authorization; validate JWT inside the function.
-    extra_flags+=(--no-verify-jwt)
+    args+=(--no-verify-jwt)
   fi
-  if ! supabase functions deploy "$name" "${DEPLOY_FLAGS[@]}" "${DEBUG_FLAGS[@]}" "${extra_flags[@]}"; then
+
+  if ! supabase "${args[@]}"; then
     echo "ERROR: Deploy failed for '$name'." >&2
     echo "Try: supabase functions deploy $name --use-api --project-ref $PROJECT_REF --debug" >&2
     return 1
