@@ -1,0 +1,4 @@
+# Browser calls require CORS preflight (OPTIONS), which is unauthenticated.
+# We validate the Supabase user JWT inside the function for POST/GET routes.
+verify_jwt = false
+

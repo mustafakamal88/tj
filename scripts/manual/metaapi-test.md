@@ -20,7 +20,7 @@ supabase secrets set METAAPI_PROVISIONING_URL="https://mt-provisioning-api-v1.ag
 ## 2) Deploy
 
 ```bash
-supabase functions deploy broker-import --use-api --project-ref <PROJECT_REF> --debug
+supabase functions deploy broker-import --use-api --no-verify-jwt --project-ref <PROJECT_REF> --debug
 ```
 
 ## 3) Get a user JWT
@@ -47,6 +47,7 @@ curl -sS -X POST "$SUPABASE_URL/functions/v1/broker-import/connect" \
   -H "Content-Type: application/json" \
   -d '{
     "platform":"mt5",
+    "environment":"demo",
     "server":"Exness-MT5Trial",
     "login":"247939759",
     "password":"INVESTOR_PASSWORD_HERE",
@@ -105,4 +106,3 @@ where broker_provider = 'metaapi'
 group by 1,2,3,4
 having count(*) > 1;
 ```
-

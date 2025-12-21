@@ -103,6 +103,10 @@ deploy_one() {
     # Stripe sends webhooks server-to-server and does not include a Supabase JWT.
     extra_flags+=(--no-verify-jwt)
   fi
+  if [[ "$name" == "broker-import" ]]; then
+    # Browser CORS preflight (OPTIONS) does not include Authorization; validate JWT inside the function.
+    extra_flags+=(--no-verify-jwt)
+  fi
   if ! supabase functions deploy "$name" "${DEPLOY_FLAGS[@]}" "${DEBUG_FLAGS[@]}" "${extra_flags[@]}"; then
     echo "ERROR: Deploy failed for '$name'." >&2
     echo "Try: supabase functions deploy $name --use-api --project-ref $PROJECT_REF --debug" >&2

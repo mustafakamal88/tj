@@ -4,6 +4,7 @@ import { logger } from "npm:hono/logger";
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 
 type MtPlatform = "mt4" | "mt5";
+type BrokerEnvironment = "demo" | "live";
 type BrokerStatus = "created" | "deploying" | "connected" | "error";
 
 type BrokerConnectionRow = {
@@ -11,13 +12,15 @@ type BrokerConnectionRow = {
   user_id: string;
   provider: "metaapi";
   metaapi_account_id: string;
+  platform: MtPlatform;
+  environment: BrokerEnvironment;
   server: string | null;
   login: string | null;
-  account_type: string | null;
   status: BrokerStatus;
   last_import_at: string | null;
   created_at: string;
   updated_at: string;
+  trade_count?: number;
 };
 
 type MetaApiDeal = {
@@ -51,6 +54,8 @@ app.use(
     maxAge: 600,
   }),
 );
+
+app.options("*", (c) => c.text("", 204));
 
 function requireEnv(name: string): string {
   const value = Deno.env.get(name);
@@ -196,6 +201,13 @@ function normalizePlatform(value: string): MtPlatform | null {
   return null;
 }
 
+function normalizeEnvironment(value: string): BrokerEnvironment | null {
+  const lower = value.trim().toLowerCase();
+  if (lower === "demo") return "demo";
+  if (lower === "live") return "live";
+  return null;
+}
+
 function normalizeSymbol(value: string): string {
   return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 }
@@ -269,43 +281,71 @@ function dealKey(deal: { positionId: string; id: string }): string {
   return `${deal.positionId}:${deal.id}`;
 }
 
-app.get("/status", async (c) => {
+type ConnectInput = {
+  platform: MtPlatform;
+  environment: BrokerEnvironment;
+  server: string;
+  login: string;
+  password: string;
+};
+
+async function fetchTradeCountByLogin(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  userId: string,
+  login: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("trades")
+    .select("id", { head: true, count: "exact" })
+    .eq("user_id", userId)
+    .eq("broker_provider", PROVIDER)
+    .eq("account_login", login);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+async function handleStatus(c: any): Promise<Response> {
   try {
     const userId = await requireUserId(c.req.raw);
     const supabase = getSupabaseAdmin();
 
     const { data: connections, error } = await supabase
       .from("broker_connections")
-      .select("id,provider,metaapi_account_id,server,login,account_type,status,last_import_at,created_at,updated_at")
+      .select("id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at")
       .eq("user_id", userId)
       .eq("provider", PROVIDER)
+      .not("metaapi_account_id", "is", null)
       .order("created_at", { ascending: false })
       .returns<BrokerConnectionRow[]>();
 
     if (error) return fail(c, 500, error.message);
-    return ok(c, { connections: connections ?? [] });
+    const enriched: BrokerConnectionRow[] = [];
+    for (const conn of connections ?? []) {
+      const login = toString(conn.login);
+      const tradeCount = login ? await fetchTradeCountByLogin(supabase, userId, login) : 0;
+      enriched.push({ ...conn, trade_count: tradeCount });
+    }
+    return ok(c, { connections: enriched });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Server error.";
     if (message.toLowerCase().includes("authorization")) return fail(c, 401, "Unauthorized.", "unauthorized");
     return fail(c, 500, message);
   }
-});
+}
 
-app.post("/connect", async (c) => {
+async function handleConnect(c: any, body: Record<string, unknown>): Promise<Response> {
   try {
     const userId = await requireUserId(c.req.raw);
-    const body = await c.req.json().catch(() => null);
-    if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
 
     const server = toString(body.server);
     const login = toString(body.login);
     const password = toString(body.password);
     const platform = normalizePlatform(toString(body.platform) ?? "");
+    const environment = normalizeEnvironment(toString(body.environment) ?? toString(body.accountType) ?? "");
     const cloudType = toString(body.type) ?? "cloud-g2";
-    const accountType = toString(body.accountType ?? body.account_type);
 
-    if (!server || !login || !password || !platform) {
-      return fail(c, 400, "Missing server, login, password, or platform.", "bad_request");
+    if (!server || !login || !password || !platform || !environment) {
+      return fail(c, 400, "Missing platform, account type, server, login, or password.", "bad_request");
     }
 
     // Ensure required secrets are present early (never log them).
@@ -318,11 +358,13 @@ app.post("/connect", async (c) => {
     // Reuse an existing connection for this user+login+server if present.
     const { data: existing } = await supabase
       .from("broker_connections")
-      .select("id,metaapi_account_id,status,provider,server,login,account_type,last_import_at,created_at,updated_at,user_id")
+      .select("id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at,user_id")
       .eq("user_id", userId)
       .eq("provider", PROVIDER)
       .eq("server", server)
       .eq("login", login)
+      .eq("platform", platform)
+      .eq("environment", environment)
       .maybeSingle<BrokerConnectionRow>();
 
     if (existing?.id && existing.metaapi_account_id) {
@@ -330,7 +372,7 @@ app.post("/connect", async (c) => {
     }
 
     // Create and deploy a MetaApi account. Credentials are stored in MetaApi, not our DB.
-    const name = `TJ ${login}@${server}`;
+    const name = `TJ ${userId} ${platform.toUpperCase()} ${environment.toUpperCase()} ${login}@${server}`;
     const metaapiAccountId = await metaApiCreateAccount({
       login,
       password,
@@ -347,13 +389,14 @@ app.post("/connect", async (c) => {
         user_id: userId,
         provider: PROVIDER,
         metaapi_account_id: metaapiAccountId,
+        platform,
+        environment,
         server,
         login,
-        account_type: accountType,
         status: "created",
       })
       .select(
-        "id,provider,metaapi_account_id,server,login,account_type,status,last_import_at,created_at,updated_at",
+        "id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at",
       )
       .single();
 
@@ -368,7 +411,7 @@ app.post("/connect", async (c) => {
     const { data: fresh } = await supabase
       .from("broker_connections")
       .select(
-        "id,provider,metaapi_account_id,server,login,account_type,status,last_import_at,created_at,updated_at",
+        "id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at",
       )
       .eq("id", inserted.id)
       .single();
@@ -380,13 +423,11 @@ app.post("/connect", async (c) => {
     if (message.toLowerCase().includes("authorization")) return fail(c, 401, "Unauthorized.", "unauthorized");
     return fail(c, 500, message);
   }
-});
+}
 
-app.post("/import", async (c) => {
+async function handleImport(c: any, body: Record<string, unknown>): Promise<Response> {
   try {
     const userId = await requireUserId(c.req.raw);
-    const body = await c.req.json().catch(() => null);
-    if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
 
     const connectionId = toString(body.connectionId);
     const fromRaw = toString(body.from);
@@ -397,7 +438,7 @@ app.post("/import", async (c) => {
     const supabase = getSupabaseAdmin();
     const { data: connection, error } = await supabase
       .from("broker_connections")
-      .select("id,metaapi_account_id,server,login,account_type,status,user_id")
+      .select("id,metaapi_account_id,platform,environment,server,login,status,user_id")
       .eq("id", connectionId)
       .eq("user_id", userId)
       .eq("provider", PROVIDER)
@@ -527,6 +568,54 @@ app.post("/import", async (c) => {
     if (message.toLowerCase().includes("authorization")) return fail(c, 401, "Unauthorized.", "unauthorized");
     return fail(c, 500, message);
   }
+}
+
+async function handleAction(c: any): Promise<Response> {
+  const body = await c.req.json().catch(() => null);
+  if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
+  const action = toString(body.action);
+  if (!action) return fail(c, 400, "Missing action.", "bad_request");
+
+  if (action === "status") return handleStatus(c);
+  if (action === "connect") return handleConnect(c, body);
+  if (action === "import") return handleImport(c, body);
+
+  return fail(c, 400, `Unknown action: ${action}`, "bad_request");
+}
+
+app.onError((err, c) => {
+  console.error("[broker-import] unhandled error", err);
+  return fail(c, 500, "Server error.", "server_error");
+});
+
+app.notFound((c) => fail(c, 404, "Not found.", "not_found"));
+
+// Action-based router (preferred for supabase.functions.invoke("broker-import")).
+app.post("/", handleAction);
+app.post("/broker-import", handleAction);
+
+// Path-based routes (curl/manual testing + compatibility).
+app.get("/status", handleStatus);
+app.get("/broker-import/status", handleStatus);
+app.post("/connect", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
+  return handleConnect(c, body);
+});
+app.post("/broker-import/connect", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
+  return handleConnect(c, body);
+});
+app.post("/import", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
+  return handleImport(c, body);
+});
+app.post("/broker-import/import", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
+  return handleImport(c, body);
 });
 
 Deno.serve(app.fetch);

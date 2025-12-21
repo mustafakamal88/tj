@@ -8,13 +8,13 @@ import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { RefreshCw } from 'lucide-react';
 import {
-  brokerConnect,
-  brokerImportHistory,
-  brokerStatus,
+  connectMetaApi,
+  getMetaApiStatus,
+  importMetaApi,
   type BrokerConnection,
-} from '../../lib/brokerImport';
-
-type BrokerPlatform = 'mt5' | 'mt4';
+  type BrokerEnvironment,
+  type BrokerPlatform,
+} from '../utils/broker-import-api';
 
 interface BrokerConnectionDialogProps {
   open: boolean;
@@ -43,6 +43,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
   const [importing, setImporting] = useState(false);
 
   const [platform, setPlatform] = useState<BrokerPlatform>('mt5');
+  const [environment, setEnvironment] = useState<BrokerEnvironment>('demo');
   const [server, setServer] = useState('');
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
@@ -55,7 +56,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
   const refresh = async () => {
     setLoadingStatus(true);
     try {
-      const data = await brokerStatus();
+      const data = await getMetaApiStatus();
       setConnections(data.connections);
       if (!selectedId && data.connections.length) setSelectedId(data.connections[0].id);
     } catch (e) {
@@ -79,12 +80,12 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
 
     setConnecting(true);
     try {
-      const { connection } = await brokerConnect({
+      const { connection } = await connectMetaApi({
         platform,
+        environment,
         server: server.trim(),
         login: login.trim(),
         password,
-        type: 'cloud-g2',
       });
 
       toast.success('Broker connected');
@@ -107,7 +108,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
 
     setImporting(true);
     try {
-      const result = await brokerImportHistory({ connectionId: selectedId });
+      const result = await importMetaApi({ connectionId: selectedId });
       toast.success(`Imported ${result.upserted} trades`);
       await refresh();
       onImportComplete?.();
@@ -147,7 +148,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
               <SelectContent>
                 {connections.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
-                    {c.login ?? '—'} @ {c.server ?? '—'} ({c.status})
+                    {c.platform.toUpperCase()} {c.environment.toUpperCase()} — {c.server ?? '—'} — {c.login ?? '—'} ({c.status})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -159,12 +160,15 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
                   <div className="text-muted-foreground">
                     <span className="font-medium text-foreground">{selected.login ?? '—'}</span>
                     <span className="ml-2">@ {selected.server ?? '—'}</span>
+                    <span className="ml-2">
+                      ({selected.platform.toUpperCase()} {selected.environment.toUpperCase()})
+                    </span>
                   </div>
                   <Badge variant={statusBadgeVariant(selected.status)}>{selected.status}</Badge>
                 </div>
                 <div className="mt-2 grid grid-cols-1 gap-1 text-muted-foreground sm:grid-cols-2">
-                  <div>Created: {formatWhen(selected.created_at)}</div>
-                  <div>Last import: {formatWhen(selected.last_import_at)}</div>
+                  <div>Created: {formatWhen(selected.createdAt)}</div>
+                  <div>Last import: {formatWhen(selected.lastImportAt)}</div>
                 </div>
               </div>
             )}
@@ -183,6 +187,19 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
                   <SelectContent>
                     <SelectItem value="mt5">MetaTrader 5</SelectItem>
                     <SelectItem value="mt4">MetaTrader 4</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Account Type</Label>
+                <Select value={environment} onValueChange={(v) => setEnvironment(v as BrokerEnvironment)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="demo">Demo</SelectItem>
+                    <SelectItem value="live">Live</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -212,7 +229,11 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Close
               </Button>
-              <Button onClick={() => void handleConnect()} disabled={connecting} className="gap-2">
+              <Button
+                onClick={() => void handleConnect()}
+                disabled={connecting || !server.trim() || !login.trim() || !password}
+                className="gap-2"
+              >
                 {connecting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white" /> : null}
                 Connect
               </Button>
@@ -241,4 +262,3 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
     </Dialog>
   );
 }
-
