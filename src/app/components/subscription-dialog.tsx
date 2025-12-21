@@ -62,7 +62,7 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
       ],
       notIncluded: [
         'No trades after 15 or 14 days',
-        'No MT4/MT5 auto-sync',
+        'No broker connect (MetaApi)',
         'No CSV/Excel export',
         'No advanced analytics',
       ],
@@ -79,7 +79,7 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
       features: [
         'Unlimited historical data',
         'Unlimited trades',
-        'MT4/MT5 auto-sync (every 5 min)',
+        'Broker connect (MetaApi) + full history import',
         'Advanced analytics & charts',
         'CSV/Excel export',
         'Performance insights',
@@ -100,7 +100,7 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
       description: 'For professional traders',
       features: [
         'Everything in Pro, plus:',
-        'Real-time MT4/MT5 sync',
+        'Priority features badge',
         'AI-powered trade insights',
         'Performance coaching tips',
         'Advanced risk analysis',

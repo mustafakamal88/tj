@@ -32,11 +32,11 @@ export function LearnMorePage() {
       icon: TrendingUp,
       title: 'Recording Your Trades',
       category: 'How-To',
-      description: 'Step-by-step guide to logging trades manually or importing from MT4/MT5.',
+      description: 'Step-by-step guide to logging trades manually or importing from your broker.',
       content: [
         '**Manual Entry:** Click "Add Trade" button, fill in symbol, entry/exit prices, quantity, and trade type (long/short).',
-        '**MT4/MT5 Import:** Click "Import" button, upload your trading history file (HTML, XML, or CSV format).',
-        '**Auto-Sync:** Connect your MT4/MT5 account for automatic trade synchronization every 5 minutes (Pro/Premium plans).',
+        '**File Import:** Click "Import" button, upload a CSV or MT report file (HTML/XML) to bring in your history.',
+        '**Broker Import (MetaApi):** Use "Connect Broker" to securely connect your account and import full trade history (Pro/Premium plans).',
         'Always add notes about your trade setup, emotions, and lessons learned - this is where the real learning happens.',
         'Use tags to categorize trades by strategy, market condition, or setup type.',
       ],
@@ -101,8 +101,8 @@ export function LearnMorePage() {
       answer: 'Yes! TJ supports importing trades from MT4/MT5 history files and CSV formats. You can also manually enter historical trades.',
     },
     {
-      question: 'How do I connect MT4/MT5 for auto-sync?',
-      answer: 'Click "MT4/MT5 Sync" on the dashboard, enter your broker server and account number, then copy the Sync URL + Sync Key into the TJ MetaTrader connector (EA). Keep MetaTrader running to push trades automatically (requires Pro or Premium plan).',
+      question: 'How do I connect my MT4/MT5 broker account?',
+      answer: 'TJ no longer requires an EA/connector. Use "Connect Broker" on the dashboard to connect via MetaApi and import your full account history (requires Pro or Premium plan).',
     },
   ];
 

@@ -1,11 +1,10 @@
 # TJ — Supabase Edge Functions Deployment
 
-This repo deploys three Supabase Edge Functions:
+This repo deploys Supabase Edge Functions:
 
-- `server`
-- `mt-bridge`
 - `billing`
 - `stripe-webhook`
+- `broker-import`
 
 The recommended deployment method is:
 
@@ -72,10 +71,9 @@ DEBUG=1 ./scripts/deploy-functions.sh
 ## Deploy one function manually
 
 ```bash
-supabase functions deploy server --use-api --debug
-supabase functions deploy mt-bridge --use-api --debug
 supabase functions deploy billing --use-api --debug
 supabase functions deploy stripe-webhook --use-api --debug
+supabase functions deploy broker-import --use-api --debug
 ```
 
 If you are linked, you usually don’t need `--project-ref`, but it is supported:
@@ -106,6 +104,12 @@ Billing function (optional):
   - `PAYPAL_CLIENT_SECRET`
   - `PAYPAL_PLAN_ID_PRO`
   - `PAYPAL_PLAN_ID_PREMIUM`
+
+MetaApi broker import:
+
+- `METAAPI_TOKEN`
+- `METAAPI_BASE_URL` (must be `https://mt-client-api-v1.<region>.agiliumtrade.ai`)
+- Optional `METAAPI_PROVISIONING_URL` (defaults to `https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai`)
 
 ## Common errors and fixes
 

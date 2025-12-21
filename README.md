@@ -27,6 +27,6 @@
 
   Run `npm run dev` to start the development server.
 
-  ## MT4/MT5 sync (EA push)
+  ## Broker import (MetaApi)
 
-  See `docs/mt-bridge.md`.
+  See `scripts/manual/metaapi-test.md`.

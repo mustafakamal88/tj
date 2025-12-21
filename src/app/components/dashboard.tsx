@@ -1,14 +1,13 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
-import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Settings } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Link } from 'lucide-react';
 import { fetchTradesCount, fetchTradesForCalendarMonth } from '../utils/trades-api';
 import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
 import { filterTradesForFreeUser } from '../utils/data-limit';
-import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
+import { requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
 import type { Trade } from '../types/trade';
-import { mtStatus } from '../../lib/mtBridge';
 import { 
   format, 
   startOfMonth, 
@@ -21,16 +20,15 @@ import {
 } from 'date-fns';
 import { AddTradeDialog } from './add-trade-dialog';
 import { MTImportDialog } from './mt-import-dialog';
-import { MTConnectionDialog } from './mt-connection-dialog';
+import { BrokerConnectionDialog } from './broker-connection-dialog';
 
 export function Dashboard() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [trades, setTrades] = useState<Trade[]>([]);
   const [totalTradeCount, setTotalTradeCount] = useState(0);
-  const [devSyncInfo, setDevSyncInfo] = useState<{ connected: boolean; lastSyncAt: string | null } | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
+  const [isBrokerDialogOpen, setIsBrokerDialogOpen] = useState(false);
   const { plan, isActive, refresh: refreshProfile } = useProfile();
   const effectivePlan = isActive ? plan : 'free';
 
@@ -43,22 +41,7 @@ export function Dashboard() {
 
     const count = await fetchTradesCount();
     setTotalTradeCount(count);
-
-    if (import.meta.env.DEV) {
-      try {
-        const status = await mtStatus();
-        setDevSyncInfo({
-          connected: status.connected,
-          lastSyncAt: status.connection?.lastSyncAt ?? null,
-        });
-      } catch (e) {
-        console.warn('[dashboard] mtStatus failed (dev panel)', e);
-        setDevSyncInfo({ connected: false, lastSyncAt: null });
-      }
-    }
   };
-
-  const access = getFeatureAccess(effectivePlan);
 
   useEffect(() => {
     void refreshTrades();
@@ -69,60 +52,8 @@ export function Dashboard() {
 
     window.addEventListener('subscription-changed', handleSubscriptionChanged);
 
-    let autoSyncInterval: number | null = null;
-
-    const readMtConnection = () => {
-      try {
-        const raw = localStorage.getItem('mt-connection');
-        if (!raw) return null;
-        return JSON.parse(raw) as { autoSync?: unknown; method?: unknown };
-      } catch {
-        // ignore
-      }
-      return null;
-    };
-
-    const readAutoSyncEnabled = () => {
-      const parsed = readMtConnection();
-      if (typeof parsed?.autoSync === 'boolean') return parsed.autoSync;
-      return localStorage.getItem('mt-auto-sync') === 'true';
-    };
-
-    const updateAutoSync = (runOnce = false) => {
-      if (autoSyncInterval) {
-        window.clearInterval(autoSyncInterval);
-        autoSyncInterval = null;
-      }
-
-      const enabled = readAutoSyncEnabled();
-      if (!enabled) return;
-
-      const tick = async () => {
-        await refreshTrades();
-      };
-
-      // Keep the dashboard fresh while the user stays on this screen.
-      autoSyncInterval = window.setInterval(() => {
-        void tick();
-      }, 5 * 60 * 1000);
-
-      if (runOnce) void tick();
-    };
-
-    updateAutoSync(true);
-
-    const handleMtConnectionChanged = () => {
-      const enabled = readAutoSyncEnabled();
-      updateAutoSync(true);
-      if (!enabled) void refreshTrades();
-    };
-
-    window.addEventListener('mt-connection-changed', handleMtConnectionChanged);
-
     return () => {
       window.removeEventListener('subscription-changed', handleSubscriptionChanged);
-      window.removeEventListener('mt-connection-changed', handleMtConnectionChanged);
-      if (autoSyncInterval) window.clearInterval(autoSyncInterval);
     };
   }, [effectivePlan, currentMonth]);
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
@@ -164,6 +95,9 @@ export function Dashboard() {
       let key = trade.date;
       if (trade.closeTime) {
         const parsed = new Date(trade.closeTime);
+        if (!Number.isNaN(parsed.getTime())) key = format(parsed, 'yyyy-MM-dd');
+      } else if (trade.openTime) {
+        const parsed = new Date(trade.openTime);
         if (!Number.isNaN(parsed.getTime())) key = format(parsed, 'yyyy-MM-dd');
       }
       const existing = map.get(key);
@@ -235,15 +169,15 @@ export function Dashboard() {
                   (latest?.subscriptionPlan === 'pro' || latest?.subscriptionPlan === 'premium') &&
                   (status === 'active' || status === 'trialing');
                 if (!hasPaidAccess) {
-                  requestUpgrade('mt_sync');
+                  requestUpgrade('broker_import');
                   return;
                 }
-                setIsConnectionDialogOpen(true);
+                setIsBrokerDialogOpen(true);
               })()}
               className="gap-2"
             >
-              <Settings className="w-4 h-4" />
-              MT4/MT5 Sync
+              <Link className="w-4 h-4" />
+              Connect Broker
             </Button>
             <Button
               variant="outline"
@@ -270,22 +204,6 @@ export function Dashboard() {
             </Button>
           </div>
         </div>
-
-        {import.meta.env.DEV && (
-          <Card className="p-4 mb-6 text-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div className="text-muted-foreground">
-                <span className="font-medium text-foreground">Dev: Sync status</span>
-                <span className="ml-2">
-                  {devSyncInfo?.lastSyncAt ? `Last sync: ${new Date(devSyncInfo.lastSyncAt).toLocaleString()}` : 'Last sync: —'}
-                </span>
-              </div>
-              <div className="text-muted-foreground">
-                Total trades in DB: <span className="text-foreground font-medium">{totalTradeCount}</span>
-              </div>
-            </div>
-          </Card>
-        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -507,9 +425,10 @@ export function Dashboard() {
         onImportComplete={refreshTrades}
       />
 
-      <MTConnectionDialog
-        open={isConnectionDialogOpen}
-        onOpenChange={setIsConnectionDialogOpen}
+      <BrokerConnectionDialog
+        open={isBrokerDialogOpen}
+        onOpenChange={setIsBrokerDialogOpen}
+        onImportComplete={refreshTrades}
       />
     </div>
   );

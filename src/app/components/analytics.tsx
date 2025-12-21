@@ -40,59 +40,8 @@ export function Analytics() {
 
     window.addEventListener('subscription-changed', handleSubscriptionChanged);
 
-    let autoSyncInterval: number | null = null;
-
-    const readMtConnection = () => {
-      try {
-        const raw = localStorage.getItem('mt-connection');
-        if (!raw) return null;
-        return JSON.parse(raw) as { autoSync?: unknown; method?: unknown };
-      } catch {
-        // ignore
-      }
-      return null;
-    };
-
-    const readAutoSyncEnabled = () => {
-      const parsed = readMtConnection();
-      if (typeof parsed?.autoSync === 'boolean') return parsed.autoSync;
-      return localStorage.getItem('mt-auto-sync') === 'true';
-    };
-
-      const updateAutoSync = (runOnce = false) => {
-        if (autoSyncInterval) {
-          window.clearInterval(autoSyncInterval);
-          autoSyncInterval = null;
-        }
-
-      const enabled = readAutoSyncEnabled();
-      if (!enabled) return;
-
-      const tick = async () => {
-        await refreshTrades();
-      };
-
-      autoSyncInterval = window.setInterval(() => {
-        void tick();
-      }, 5 * 60 * 1000);
-
-      if (runOnce) void tick();
-    };
-
-    updateAutoSync(true);
-
-    const handleMtConnectionChanged = () => {
-      const enabled = readAutoSyncEnabled();
-      updateAutoSync(true);
-      if (!enabled) void refreshTrades();
-    };
-
-    window.addEventListener('mt-connection-changed', handleMtConnectionChanged);
-
     return () => {
       window.removeEventListener('subscription-changed', handleSubscriptionChanged);
-      window.removeEventListener('mt-connection-changed', handleMtConnectionChanged);
-      if (autoSyncInterval) window.clearInterval(autoSyncInterval);
     };
   }, [effectivePlan]);
 
@@ -176,7 +125,7 @@ export function Analytics() {
               <div>
                 <h2 className="text-xl mb-1">Advanced analytics are a Pro feature</h2>
                 <p className="text-sm text-muted-foreground">
-                  Upgrade to Pro to unlock imports, MT4/MT5 sync, and deeper analytics.
+                  Upgrade to Pro to unlock imports, broker connect, and deeper analytics.
                 </p>
               </div>
               <Button onClick={() => requestUpgrade('advanced_analytics')} className="bg-[#34a85a] hover:bg-[#2d9450]">

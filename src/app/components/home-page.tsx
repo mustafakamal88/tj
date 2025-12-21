@@ -50,7 +50,7 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
   const steps = [
     {
       title: 'Capture every trade',
-      description: 'Log entries, exits, and notes in seconds—manual entry, imports, or MT4/MT5 sync (plan-based).',
+      description: 'Log entries, exits, and notes in seconds—manual entry, imports, or broker connect via MetaApi (plan-based).',
     },
     {
       title: 'Review with clarity',
@@ -69,7 +69,7 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
     },
     {
       question: 'Can I import trades or sync MT4/MT5?',
-      answer: 'You can import trades, and paid plans add MT4/MT5 synchronization options for faster logging.',
+      answer: 'You can import trades, and paid plans add broker connect for MT4/MT5 accounts via MetaApi for faster logging.',
     },
     {
       question: 'Is my data private?',
@@ -91,7 +91,7 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
       price: '$15.34',
       period: '/month',
       description: 'For consistent traders who want more automation.',
-      bullets: ['Unlimited trades & history', 'MT4/MT5 auto-sync', 'Advanced analytics & export'],
+      bullets: ['Unlimited trades & history', 'Broker connect (MetaApi)', 'Advanced analytics & export'],
       highlighted: true,
     },
     {
@@ -99,7 +99,7 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
       price: '$28.37',
       period: '/month',
       description: 'For advanced workflows and deeper insights.',
-      bullets: ['Real-time sync', 'AI-powered insights', 'Multiple accounts & API access'],
+      bullets: ['Priority features badge', 'AI-powered insights', 'Multiple accounts & API access'],
       highlighted: false,
     },
   ];

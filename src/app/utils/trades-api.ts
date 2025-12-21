@@ -196,11 +196,24 @@ export async function fetchTradesForCalendarMonth(monthStart: Date, monthEndExcl
         .returns<TradeRow[]>(),
     );
 
-    const withNullCloseTime = await fetchTradesPage<TradeRow>(({ from, to }) =>
+    const withOpenTime = await fetchTradesPage<TradeRow>(({ from, to }) =>
       supabase
         .from('trades')
         .select(select)
         .is('close_time', null)
+        .gte('open_time', startIso)
+        .lt('open_time', endIso)
+        .order('open_time', { ascending: false })
+        .range(from, to)
+        .returns<TradeRow[]>(),
+    );
+
+    const withDateOnly = await fetchTradesPage<TradeRow>(({ from, to }) =>
+      supabase
+        .from('trades')
+        .select(select)
+        .is('close_time', null)
+        .is('open_time', null)
         .gte('date', startDate)
         .lt('date', endDate)
         .order('date', { ascending: false })
@@ -208,7 +221,7 @@ export async function fetchTradesForCalendarMonth(monthStart: Date, monthEndExcl
         .returns<TradeRow[]>(),
     );
 
-    const merged = [...withCloseTime, ...withNullCloseTime];
+    const merged = [...withCloseTime, ...withOpenTime, ...withDateOnly];
     return merged.map(mapTrade);
   } catch (error) {
     console.error('[trades-api] fetchTradesForCalendarMonth exception', error);

@@ -68,7 +68,7 @@ echo "- setting BUILD_ID secret"
 supabase secrets set BUILD_ID="$BUILD_ID" --project-ref "$PROJECT_REF" >/dev/null
 
 # Function sanity checks
-for name in server mt-bridge billing stripe-webhook; do
+for name in billing stripe-webhook broker-import; do
   dir="supabase/functions/$name"
   entry="$dir/index.ts"
 
@@ -85,7 +85,7 @@ for name in server mt-bridge billing stripe-webhook; do
 
 done
 
-echo "- functions: OK (server, mt-bridge, billing, stripe-webhook)"
+echo "- functions: OK (billing, stripe-webhook, broker-import)"
 
 DEBUG_FLAGS=()
 if [[ "${DEBUG:-}" == "1" || "${SUPABASE_DEBUG:-}" == "1" ]]; then
@@ -99,8 +99,8 @@ deploy_one() {
   echo
   echo "== Deploy: $name =="
   local extra_flags=()
-  if [[ "$name" == "stripe-webhook" || "$name" == "server" ]]; then
-    # Stripe/MetaTrader do not send a Supabase JWT. Disable JWT verification explicitly to avoid 401s.
+  if [[ "$name" == "stripe-webhook" ]]; then
+    # Stripe sends webhooks server-to-server and does not include a Supabase JWT.
     extra_flags+=(--no-verify-jwt)
   fi
   if ! supabase functions deploy "$name" "${DEPLOY_FLAGS[@]}" "${DEBUG_FLAGS[@]}" "${extra_flags[@]}"; then
@@ -111,7 +111,7 @@ deploy_one() {
 }
 
 failed=0
-for fn in server mt-bridge billing stripe-webhook; do
+for fn in billing stripe-webhook broker-import; do
   deploy_one "$fn" || failed=1
   # small pause to make logs easier to read
   sleep 1

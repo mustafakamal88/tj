@@ -41,7 +41,7 @@ export function BillingPage() {
           price: '$0',
           period: '14-day trial',
           description: 'Try the essentials.',
-          bullets: ['Manual entry only', 'No imports', 'No MT sync', 'Up to 15 trades during trial'],
+          bullets: ['Manual entry only', 'No imports', 'No broker connect', 'Up to 15 trades during trial'],
           highlighted: false,
         },
         {
@@ -50,7 +50,7 @@ export function BillingPage() {
           price: '$15.34',
           period: '/month',
           description: 'Unlimited trades + imports.',
-          bullets: ['Unlimited trades', 'CSV/XML/HTML imports', 'MT4/MT5 sync', 'Advanced analytics'],
+          bullets: ['Unlimited trades', 'CSV/XML/HTML imports', 'Broker connect (MetaApi)', 'Advanced analytics'],
           highlighted: true,
         },
         {
@@ -205,10 +205,10 @@ export function BillingPage() {
     <div className="min-h-[calc(100vh-4rem)] bg-background">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <div className="flex items-start justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl mb-2">Billing</h1>
-            <p className="text-muted-foreground">Upgrade to Pro/Premium to unlock imports, MT sync, and advanced analytics.</p>
-          </div>
+            <div>
+              <h1 className="text-3xl mb-2">Billing</h1>
+            <p className="text-muted-foreground">Upgrade to Pro/Premium to unlock imports, broker connect, and advanced analytics.</p>
+            </div>
           <div className="flex items-center gap-2">
             {profileLoading ? (
               <Badge variant="secondary">Loading…</Badge>
