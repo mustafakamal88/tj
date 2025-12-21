@@ -8,12 +8,7 @@ Set these in Supabase Dashboard → Edge Functions → Secrets or via CLI:
 
 ```bash
 supabase secrets set METAAPI_TOKEN="..." --project-ref <PROJECT_REF>
-supabase secrets set METAAPI_BASE_URL="https://mt-client-api-v1.london.agiliumtrade.ai" --project-ref <PROJECT_REF>
-```
-
-Optional override (defaults to the correct provisioning base):
-
-```bash
+supabase secrets set METAAPI_CLIENT_URL="https://mt-client-api-v1.london.agiliumtrade.ai" --project-ref <PROJECT_REF>
 supabase secrets set METAAPI_PROVISIONING_URL="https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai" --project-ref <PROJECT_REF>
 ```
 

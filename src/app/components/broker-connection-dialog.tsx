@@ -30,7 +30,7 @@ function formatWhen(value: string | null | undefined): string {
 }
 
 function statusBadgeVariant(status: BrokerConnection['status']): 'secondary' | 'default' | 'destructive' {
-  if (status === 'connected') return 'default';
+  if (status === 'connected' || status === 'imported') return 'default';
   if (status === 'error') return 'destructive';
   return 'secondary';
 }

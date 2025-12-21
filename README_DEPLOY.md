@@ -72,14 +72,14 @@ DEBUG=1 ./scripts/deploy-functions.sh
 
 ```bash
 supabase functions deploy billing --use-api --debug
-supabase functions deploy stripe-webhook --use-api --debug
-supabase functions deploy broker-import --use-api --debug
+supabase functions deploy stripe-webhook --use-api --no-verify-jwt --debug
+supabase functions deploy broker-import --use-api --no-verify-jwt --debug
 ```
 
 If you are linked, you usually don’t need `--project-ref`, but it is supported:
 
 ```bash
-supabase functions deploy server --use-api --project-ref <PROJECT_REF> --debug
+supabase functions deploy broker-import --use-api --no-verify-jwt --project-ref <PROJECT_REF> --debug
 ```
 
 ## Setting secrets
@@ -108,8 +108,8 @@ Billing function (optional):
 MetaApi broker import:
 
 - `METAAPI_TOKEN`
-- `METAAPI_BASE_URL` (must be `https://mt-client-api-v1.<region>.agiliumtrade.ai`)
-- Optional `METAAPI_PROVISIONING_URL` (defaults to `https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai`)
+- `METAAPI_CLIENT_URL` (must be `https://mt-client-api-v1.<region>.agiliumtrade.ai`)
+- `METAAPI_PROVISIONING_URL` (must be `https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai`)
 
 ## Common errors and fixes
 

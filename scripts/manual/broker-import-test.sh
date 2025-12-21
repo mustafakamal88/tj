@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Prereqs:
 # - You are logged into TJ and have a Supabase user JWT (access token)
-# - Supabase secrets set: METAAPI_TOKEN, METAAPI_BASE_URL, (optional METAAPI_PROVISIONING_URL)
+# - Supabase secrets set: METAAPI_TOKEN, METAAPI_CLIENT_URL, METAAPI_PROVISIONING_URL
 # - Edge Function deployed: broker-import
 #
 # Usage:
@@ -82,4 +82,3 @@ curl -sS "$BASE/status" \
   -H "apikey: $SUPABASE_ANON_KEY" \
   -H "Authorization: Bearer $USER_JWT"
 echo
-

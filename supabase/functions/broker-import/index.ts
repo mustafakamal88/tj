@@ -5,7 +5,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 
 type MtPlatform = "mt4" | "mt5";
 type BrokerEnvironment = "demo" | "live";
-type BrokerStatus = "created" | "deploying" | "connected" | "error";
+type BrokerStatus = "new" | "created" | "deploying" | "connected" | "imported" | "error";
 
 type BrokerConnectionRow = {
   id: string;
@@ -40,7 +40,7 @@ type MetaApiDeal = {
 
 type TradeType = "long" | "short";
 
-const PROVIDER: BrokerConnectionRow["provider"] = "metaapi";
+const PROVIDER = "metaapi" as const;
 
 const app = new Hono();
 
@@ -86,14 +86,27 @@ function ok(c: any, data: unknown) {
   return c.json({ ok: true, data });
 }
 
-function fail(c: any, status: number, error: string, code?: string, details?: Record<string, unknown>) {
-  return c.json({ ok: false, error, code: code ?? "error", ...(details ? { details } : {}) }, status);
+function fail(
+  c: any,
+  status: number,
+  error: string,
+  code?: string,
+  details?: Record<string, unknown>,
+) {
+  return c.json(
+    { ok: false, error, code: code ?? "error", ...(details ? { details } : {}) },
+    status,
+  );
 }
 
+// No regex: parse "Bearer <token>"
 function getBearerToken(authHeader: string | undefined | null): string | null {
   if (!authHeader) return null;
-  const match = authHeader.match(/^Bearer\\s+(.+)$/i);
-  return match?.[1]?.trim() ?? null;
+  const s = authHeader.trim();
+  if (s.length < 8) return null;
+  const prefix = "bearer ";
+  if (s.toLowerCase().startsWith(prefix)) return s.slice(prefix.length).trim();
+  return null;
 }
 
 function getSupabaseAdmin() {
@@ -109,19 +122,24 @@ async function requireUserId(req: Request): Promise<string> {
   return data.user.id;
 }
 
+function trimTrailingSlashes(input: string): string {
+  let s = input.trim();
+  while (s.endsWith("/")) s = s.slice(0, -1);
+  return s;
+}
+
 function metaApiClientBaseUrl(): string {
-  const base = requireEnv("METAAPI_BASE_URL").replace(/\\/+$/, "");
+  const base = trimTrailingSlashes(requireEnv("METAAPI_CLIENT_URL"));
   if (!base.includes("mt-client-api-v1")) {
     throw new Error(
-      'METAAPI_BASE_URL must point to "mt-client-api-v1" (e.g. https://mt-client-api-v1.london.agiliumtrade.ai).',
+      'METAAPI_CLIENT_URL must point to "mt-client-api-v1" (e.g. https://mt-client-api-v1.london.agiliumtrade.ai).',
     );
   }
   return base;
 }
 
 function metaApiProvisioningBaseUrl(): string {
-  const base = (Deno.env.get("METAAPI_PROVISIONING_URL") ??
-    "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai").replace(/\\/+$/, "");
+  const base = trimTrailingSlashes(requireEnv("METAAPI_PROVISIONING_URL"));
   if (!base.includes("mt-provisioning-api-v1")) {
     throw new Error(
       'METAAPI_PROVISIONING_URL must point to "mt-provisioning-api-v1" (e.g. https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai).',
@@ -131,67 +149,29 @@ function metaApiProvisioningBaseUrl(): string {
 }
 
 function metaApiAuthHeaders(): Record<string, string> {
-  // MetaApi REST APIs use `auth-token`, not Authorization: Bearer.
   return { "auth-token": requireEnv("METAAPI_TOKEN"), Accept: "application/json" };
 }
 
 async function metaApiJson(url: string, init?: RequestInit): Promise<any> {
   const res = await fetch(url, init);
-  const json = await res.json().catch(() => null);
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
   if (!res.ok) {
-    const message = json?.message ?? json?.error?.message ?? `MetaApi error (HTTP ${res.status}).`;
-    throw new Error(message);
+    const message =
+      json?.message ??
+      json?.error?.message ??
+      (typeof text === "string" && text.length ? text : `MetaApi error (HTTP ${res.status}).`);
+    const err = new Error(message);
+    (err as any).status = res.status;
+    (err as any).meta = json ?? { raw: text };
+    throw err;
   }
   return json;
-}
-
-async function metaApiCreateAccount(input: {
-  login: string;
-  password: string;
-  server: string;
-  platform: MtPlatform;
-  cloudType: string;
-  name: string;
-}): Promise<string> {
-  const url = `${metaApiProvisioningBaseUrl()}/users/current/accounts`;
-  const json = await metaApiJson(url, {
-    method: "POST",
-    headers: { ...metaApiAuthHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({
-      login: input.login,
-      password: input.password,
-      name: input.name,
-      server: input.server,
-      platform: input.platform,
-      type: input.cloudType,
-    }),
-  });
-  const id = toString(json?.id ?? json?._id ?? json?.accountId);
-  if (!id) throw new Error("MetaApi account create returned no id.");
-  return id;
-}
-
-async function metaApiDeployAccount(accountId: string): Promise<void> {
-  const url = `${metaApiProvisioningBaseUrl()}/users/current/accounts/${encodeURIComponent(accountId)}/deploy`;
-  await metaApiJson(url, { method: "POST", headers: metaApiAuthHeaders() });
-}
-
-async function metaApiReadAccount(accountId: string): Promise<any> {
-  const url = `${metaApiProvisioningBaseUrl()}/users/current/accounts/${encodeURIComponent(accountId)}`;
-  return await metaApiJson(url, { method: "GET", headers: metaApiAuthHeaders() });
-}
-
-async function metaApiWaitForDeployed(accountId: string, timeoutMs = 120_000): Promise<{ status: BrokerStatus }> {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const account = await metaApiReadAccount(accountId);
-    const state = toString(account?.state)?.toUpperCase();
-    if (state === "DEPLOYED") return { status: "connected" };
-    if (state === "DEPLOY_FAILED") return { status: "error" };
-    // wait a bit
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  return { status: "deploying" };
 }
 
 function normalizePlatform(value: string): MtPlatform | null {
@@ -208,17 +188,29 @@ function normalizeEnvironment(value: string): BrokerEnvironment | null {
   return null;
 }
 
+// No regex: keep only A-Z0-9
 function normalizeSymbol(value: string): string {
-  return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  const s = value ?? "";
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    const code = ch.charCodeAt(0);
+    const isNum = code >= 48 && code <= 57;
+    const isUpper = code >= 65 && code <= 90;
+    const isLower = code >= 97 && code <= 122;
+    if (isNum || isUpper || isLower) out += ch;
+  }
+  return out.toUpperCase();
 }
 
 function isClosingDeal(entryType: string): boolean {
-  // Opening deals in MT5 usually have entryType DEAL_ENTRY_IN.
-  return entryType.toUpperCase() !== "DEAL_ENTRY_IN";
+  const t = (entryType ?? "").toUpperCase();
+  // Keep it permissive but exclude pure "IN" (open)
+  return t !== "DEAL_ENTRY_IN";
 }
 
-function mapDealDirection(entryDealType: string): TradeType | null {
-  const t = entryDealType.toUpperCase();
+function mapDealDirection(typeField: string): TradeType | null {
+  const t = (typeField ?? "").toUpperCase();
   if (t.includes("BUY")) return "long";
   if (t.includes("SELL")) return "short";
   return null;
@@ -241,7 +233,6 @@ function toIsoDate(value: string): string {
 }
 
 function toMetaApiTimeString(date: Date): string {
-  // MetaApi examples use `YYYY-MM-DD HH:mm:ss.SSS` (UTC). Keep it deterministic.
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   return (
     `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ` +
@@ -265,29 +256,21 @@ async function metaApiFetchDealsByTimeRange(accountId: string, fromIso: string, 
 
 async function fetchDealsChunked(accountId: string, from: Date, to: Date): Promise<MetaApiDeal[]> {
   const out: MetaApiDeal[] = [];
-  // Fetch in 90-day windows to avoid huge responses/timeouts.
   for (let cursor = new Date(from.getTime()); cursor < to; cursor = addDays(cursor, 90)) {
-    const windowEnd = addDays(cursor, 90);
-    const end = windowEnd < to ? windowEnd : to;
-    const fromIso = toMetaApiTimeString(cursor);
-    const toIso = toMetaApiTimeString(end);
-    const deals = await metaApiFetchDealsByTimeRange(accountId, fromIso, toIso);
+    const end = addDays(cursor, 90) < to ? addDays(cursor, 90) : to;
+    const deals = await metaApiFetchDealsByTimeRange(
+      accountId,
+      toMetaApiTimeString(cursor),
+      toMetaApiTimeString(end),
+    );
     out.push(...deals);
   }
   return out;
 }
 
-function dealKey(deal: { positionId: string; id: string }): string {
-  return `${deal.positionId}:${deal.id}`;
+function dealKey(positionId: string, ticket: string): string {
+  return `${positionId}:${ticket}`;
 }
-
-type ConnectInput = {
-  platform: MtPlatform;
-  environment: BrokerEnvironment;
-  server: string;
-  login: string;
-  password: string;
-};
 
 async function fetchTradeCountByLogin(
   supabase: ReturnType<typeof getSupabaseAdmin>,
@@ -308,6 +291,36 @@ async function handleStatus(c: any): Promise<Response> {
   try {
     const userId = await requireUserId(c.req.raw);
     const supabase = getSupabaseAdmin();
+
+    const connectionId = toString(c.req.query("connectionId"));
+    if (connectionId) {
+      const { data: conn, error: connErr } = await supabase
+        .from("broker_connections")
+        .select("id,status,last_import_at,login")
+        .eq("id", connectionId)
+        .eq("user_id", userId)
+        .eq("provider", PROVIDER)
+        .maybeSingle();
+
+      if (connErr) return fail(c, 500, connErr.message);
+      if (!conn) return fail(c, 404, "Connection not found.", "not_found");
+
+      const accountLogin = toString((conn as any).login);
+      const tradesForConnection = accountLogin ? await fetchTradeCountByLogin(supabase, userId, accountLogin) : 0;
+
+      const { count: totalTrades, error: totalErr } = await supabase
+        .from("trades")
+        .select("id", { head: true, count: "exact" })
+        .eq("user_id", userId);
+      if (totalErr) return fail(c, 500, totalErr.message);
+
+      return ok(c, {
+        connection_status: (conn as any).status,
+        last_import_at: (conn as any).last_import_at ?? null,
+        trades_imported_total_for_connection: tradesForConnection,
+        trades_total_for_user: totalTrades ?? 0,
+      });
+    }
 
     const { data: connections, error } = await supabase
       .from("broker_connections")
@@ -333,6 +346,58 @@ async function handleStatus(c: any): Promise<Response> {
   }
 }
 
+async function metaApiCreateAccount(input: {
+  login: string;
+  password: string;
+  server: string;
+  platform: MtPlatform;
+  name: string;
+  environment: BrokerEnvironment;
+  cloudType: string;
+}): Promise<string> {
+  const url = `${metaApiProvisioningBaseUrl()}/users/current/accounts`;
+  const json = await metaApiJson(url, {
+    method: "POST",
+    headers: { ...metaApiAuthHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      login: input.login,
+      password: input.password,
+      name: input.name,
+      server: input.server,
+      platform: input.platform,
+      // Some MetaApi setups use "type" (cloud-g2), some use different fields.
+      type: input.cloudType,
+      // Keep environment recorded in TJ even if MetaApi ignores it.
+      environment: input.environment,
+    }),
+  });
+  const id = toString(json?.id ?? json?._id ?? json?.accountId);
+  if (!id) throw new Error("MetaApi account create returned no id.");
+  return id;
+}
+
+async function metaApiDeployAccount(accountId: string): Promise<void> {
+  const url = `${metaApiProvisioningBaseUrl()}/users/current/accounts/${encodeURIComponent(accountId)}/deploy`;
+  await metaApiJson(url, { method: "POST", headers: metaApiAuthHeaders() });
+}
+
+async function metaApiReadAccount(accountId: string): Promise<any> {
+  const url = `${metaApiProvisioningBaseUrl()}/users/current/accounts/${encodeURIComponent(accountId)}`;
+  return await metaApiJson(url, { method: "GET", headers: metaApiAuthHeaders() });
+}
+
+async function metaApiWaitForDeployed(accountId: string, timeoutMs = 120_000): Promise<{ status: BrokerStatus }> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const account = await metaApiReadAccount(accountId);
+    const state = (toString(account?.state) ?? "").toUpperCase();
+    if (state === "DEPLOYED") return { status: "connected" };
+    if (state === "DEPLOY_FAILED") return { status: "error" };
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return { status: "deploying" };
+}
+
 async function handleConnect(c: any, body: Record<string, unknown>): Promise<Response> {
   try {
     const userId = await requireUserId(c.req.raw);
@@ -345,17 +410,17 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
     const cloudType = toString(body.type) ?? "cloud-g2";
 
     if (!server || !login || !password || !platform || !environment) {
-      return fail(c, 400, "Missing platform, account type, server, login, or password.", "bad_request");
+      return fail(c, 400, "Missing platform, environment (demo/live), server, login, or password.", "bad_request");
     }
 
-    // Ensure required secrets are present early (never log them).
+    // Ensure required secrets exist.
     metaApiClientBaseUrl();
     metaApiProvisioningBaseUrl();
     requireEnv("METAAPI_TOKEN");
 
     const supabase = getSupabaseAdmin();
 
-    // Reuse an existing connection for this user+login+server if present.
+    // Reuse an existing connection if present.
     const { data: existing } = await supabase
       .from("broker_connections")
       .select("id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at,user_id")
@@ -371,18 +436,19 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
       return ok(c, { connection: existing });
     }
 
-    // Create and deploy a MetaApi account. Credentials are stored in MetaApi, not our DB.
     const name = `TJ ${userId} ${platform.toUpperCase()} ${environment.toUpperCase()} ${login}@${server}`;
+    console.log("[broker-import] connect: creating metaapi account", { userId, platform, environment, server, login });
+
     const metaapiAccountId = await metaApiCreateAccount({
       login,
       password,
       server,
       platform,
-      cloudType,
       name,
+      environment,
+      cloudType,
     });
 
-    // Write connection row immediately, then deploy and update status.
     const { data: inserted, error: insertError } = await supabase
       .from("broker_connections")
       .insert({
@@ -393,35 +459,35 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
         environment,
         server,
         login,
-        status: "created",
+        status: "new",
       })
-      .select(
-        "id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at",
-      )
+      .select("id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at")
       .single();
 
     if (insertError || !inserted) return fail(c, 500, insertError?.message ?? "Failed to save connection.");
 
-    // Deploy + wait best-effort.
     await supabase.from("broker_connections").update({ status: "deploying" }).eq("id", inserted.id);
     await metaApiDeployAccount(metaapiAccountId);
+
     const deployed = await metaApiWaitForDeployed(metaapiAccountId);
     await supabase.from("broker_connections").update({ status: deployed.status }).eq("id", inserted.id);
 
     const { data: fresh } = await supabase
       .from("broker_connections")
-      .select(
-        "id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at",
-      )
+      .select("id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at")
       .eq("id", inserted.id)
       .single();
 
+    console.log("[broker-import] connect done", { userId, connectionId: inserted.id, status: deployed.status });
     return ok(c, { connection: fresh ?? inserted });
   } catch (e) {
     console.error("[broker-import] connect error", e);
     const message = e instanceof Error ? e.message : "Server error.";
+    const status = (e as any)?.status;
     if (message.toLowerCase().includes("authorization")) return fail(c, 401, "Unauthorized.", "unauthorized");
-    return fail(c, 500, message);
+    return fail(c, Number.isFinite(status) ? status : 500, message, "connect_error", {
+      meta: (e as any)?.meta,
+    });
   }
 }
 
@@ -447,8 +513,8 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
     if (error) return fail(c, 500, error.message);
     if (!connection) return fail(c, 404, "Connection not found.", "not_found");
 
-    const accountId = toString(connection.metaapi_account_id);
-    const accountLogin = toString(connection.login);
+    const accountId = toString((connection as any).metaapi_account_id);
+    const accountLogin = toString((connection as any).login);
     if (!accountId || !accountLogin) return fail(c, 500, "Connection missing MetaApi account id/login.");
 
     const from = fromRaw ? new Date(fromRaw) : new Date("2000-01-01T00:00:00.000Z");
@@ -457,16 +523,10 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
       return fail(c, 400, "Invalid from/to range.", "bad_request");
     }
 
-    console.log("[broker-import] import start", {
-      userId,
-      connectionId,
-      accountId,
-      from: from.toISOString(),
-      to: to.toISOString(),
-    });
+    console.log("[broker-import] import start", { userId, connectionId, accountId });
 
-    // Fetch deals (history). For MVP, we convert closing deals into TJ trades.
     const deals = await fetchDealsChunked(accountId, from, to);
+
     const dealsByPosition = new Map<string, MetaApiDeal[]>();
     for (const d of deals) {
       const positionId = toString(d.positionId) ?? toString(d.orderId) ?? toString(d.id);
@@ -480,18 +540,18 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
     const seen = new Set<string>();
 
     for (const [positionId, list] of dealsByPosition) {
-      // Find the opening deal to infer entry price + direction.
       const sorted = [...list].sort((a, b) => {
         const at = Date.parse(toString(a.time) ?? "");
         const bt = Date.parse(toString(b.time) ?? "");
         return (Number.isFinite(at) ? at : 0) - (Number.isFinite(bt) ? bt : 0);
       });
 
-      const entryDeal = sorted.find((d) => toString(d.entryType)?.toUpperCase() === "DEAL_ENTRY_IN") ?? sorted[0];
+      const entryDeal =
+        sorted.find((d) => (toString(d.entryType) ?? "").toUpperCase() === "DEAL_ENTRY_IN") ?? sorted[0];
+
       const entryPrice = toNumber(entryDeal?.price) ?? 0;
       const entryTime = toString(entryDeal?.time);
-      const entryType = toString(entryDeal?.type) ?? "";
-      const tradeType = mapDealDirection(entryType) ?? "long";
+      const dir = mapDealDirection(toString(entryDeal?.type) ?? "") ?? "long";
 
       for (const d of sorted) {
         const ticket = toString(d.id);
@@ -499,7 +559,6 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
         const entryTypeRaw = toString(d.entryType);
         const closeTime = toString(d.time);
         if (!ticket || !symbolRaw || !entryTypeRaw || !closeTime) continue;
-
         if (!isClosingDeal(entryTypeRaw)) continue;
 
         const closePrice = toNumber(d.price) ?? entryPrice;
@@ -509,9 +568,9 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
         const swap = toNumber(d.swap) ?? 0;
         const pnl = profit + commission + swap;
 
-        const key = dealKey({ positionId, id: ticket });
-        if (seen.has(key)) continue;
-        seen.add(key);
+        const k = dealKey(positionId, ticket);
+        if (seen.has(k)) continue;
+        seen.add(k);
 
         rows.push({
           user_id: userId,
@@ -523,15 +582,16 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
           close_time: closeTime,
           commission: commission || null,
           swap: swap || null,
+
           date: toIsoDate(closeTime),
           symbol: normalizeSymbol(symbolRaw),
-          type: tradeType,
+          type: dir,
           entry: entryPrice,
           exit: closePrice,
           quantity: volume,
           outcome: outcomeFromPnL(pnl),
           pnl,
-          pnl_percentage: pnlPercentage(entryPrice, closePrice, tradeType),
+          pnl_percentage: pnlPercentage(entryPrice, closePrice, dir),
           notes: `Imported via MetaApi (deal ${ticket}, position ${positionId})`,
         });
       }
@@ -541,21 +601,21 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
       return ok(c, { imported: 0, upserted: 0, totalFetched: deals.length });
     }
 
+    // IMPORTANT: this requires your DB unique index to exist:
+    // (user_id, broker_provider, account_login, position_id, ticket) for broker_provider='metaapi'
     let upserted = 0;
     const chunkSize = 500;
     for (let i = 0; i < rows.length; i += chunkSize) {
       const chunk = rows.slice(i, i + chunkSize);
-      const { error: upsertError } = await supabase.from("trades").upsert(chunk, {
-        onConflict: "user_id,broker_provider,account_login,position_id,ticket",
-      });
-      if (upsertError) throw new Error(upsertError.message);
-      upserted += chunk.length;
+      const { data: affected, error: rpcError } = await supabase.rpc("upsert_metaapi_trades", { p_trades: chunk });
+      if (rpcError) throw new Error(rpcError.message);
+      upserted += typeof affected === "number" ? affected : chunk.length;
     }
 
     const now = new Date().toISOString();
     await supabase
       .from("broker_connections")
-      .update({ last_import_at: now, status: "connected" })
+      .update({ last_import_at: now, status: "imported" })
       .eq("id", connectionId)
       .eq("user_id", userId);
 
@@ -565,8 +625,11 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
   } catch (e) {
     console.error("[broker-import] import error", e);
     const message = e instanceof Error ? e.message : "Server error.";
+    const status = (e as any)?.status;
     if (message.toLowerCase().includes("authorization")) return fail(c, 401, "Unauthorized.", "unauthorized");
-    return fail(c, 500, message);
+    return fail(c, Number.isFinite(status) ? status : 500, message, "import_error", {
+      meta: (e as any)?.meta,
+    });
   }
 }
 
@@ -597,6 +660,7 @@ app.post("/broker-import", handleAction);
 // Path-based routes (curl/manual testing + compatibility).
 app.get("/status", handleStatus);
 app.get("/broker-import/status", handleStatus);
+
 app.post("/connect", async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
@@ -607,6 +671,7 @@ app.post("/broker-import/connect", async (c) => {
   if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
   return handleConnect(c, body);
 });
+
 app.post("/import", async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");

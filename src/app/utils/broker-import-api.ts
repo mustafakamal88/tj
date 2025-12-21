@@ -3,7 +3,7 @@ import { requireSupabaseClient } from './supabase';
 export type BrokerPlatform = 'mt4' | 'mt5';
 export type BrokerEnvironment = 'demo' | 'live';
 
-export type BrokerConnectionStatus = 'created' | 'deploying' | 'connected' | 'error';
+export type BrokerConnectionStatus = 'new' | 'created' | 'deploying' | 'connected' | 'imported' | 'error';
 
 export type BrokerConnection = {
   id: string;
@@ -33,7 +33,7 @@ function mapConnection(row: any): BrokerConnection {
     environment: (row.environment ?? 'demo') as BrokerEnvironment,
     server: row.server ?? null,
     login: row.login ?? null,
-    status: (row.status ?? 'created') as BrokerConnectionStatus,
+    status: (row.status ?? 'new') as BrokerConnectionStatus,
     lastImportAt: row.last_import_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
