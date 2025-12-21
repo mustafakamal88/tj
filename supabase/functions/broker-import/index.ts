@@ -1,6 +1,5 @@
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
-import { logger } from "npm:hono/logger";
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 
 type MtPlatform = "mt4" | "mt5";
@@ -44,7 +43,6 @@ const PROVIDER = "metaapi" as const;
 
 const app = new Hono();
 
-app.use("*", logger(console.log));
 app.use(
   "*",
   cors({
@@ -188,6 +186,13 @@ function normalizeEnvironment(value: string): BrokerEnvironment | null {
   return null;
 }
 
+function normalizeCloudType(value: string): string | null {
+  const lower = value.trim().toLowerCase();
+  if (lower === "cloud-g1") return "cloud-g1";
+  if (lower === "cloud-g2") return "cloud-g2";
+  return null;
+}
+
 // No regex: keep only A-Z0-9
 function normalizeSymbol(value: string): string {
   const s = value ?? "";
@@ -201,6 +206,28 @@ function normalizeSymbol(value: string): string {
     if (isNum || isUpper || isLower) out += ch;
   }
   return out.toUpperCase();
+}
+
+function fnv1a32(value: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+function magicForConnection(input: {
+  userId: string;
+  platform: MtPlatform;
+  environment: BrokerEnvironment;
+  server: string;
+  login: string;
+}): number {
+  // MetaTrader magic numbers are 32-bit signed ints. Keep it stable and non-zero.
+  const seed = `tj:${input.userId}:${input.platform}:${input.environment}:${input.server}:${input.login}`;
+  const h = fnv1a32(seed);
+  return (h % 2147483646) + 1; // 1..2147483646
 }
 
 function isClosingDeal(entryType: string): boolean {
@@ -352,8 +379,8 @@ async function metaApiCreateAccount(input: {
   server: string;
   platform: MtPlatform;
   name: string;
-  environment: BrokerEnvironment;
   cloudType: string;
+  magic: number;
 }): Promise<string> {
   const url = `${metaApiProvisioningBaseUrl()}/users/current/accounts`;
   const json = await metaApiJson(url, {
@@ -365,10 +392,10 @@ async function metaApiCreateAccount(input: {
       name: input.name,
       server: input.server,
       platform: input.platform,
-      // Some MetaApi setups use "type" (cloud-g2), some use different fields.
       type: input.cloudType,
-      // Keep environment recorded in TJ even if MetaApi ignores it.
-      environment: input.environment,
+      // MetaApi provisioning requires `magic` for account identification in MT terminals.
+      // We generate it deterministically per user+account.
+      magic: input.magic,
     }),
   });
   const id = toString(json?.id ?? json?._id ?? json?.accountId);
@@ -407,10 +434,14 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
     const password = toString(body.password);
     const platform = normalizePlatform(toString(body.platform) ?? "");
     const environment = normalizeEnvironment(toString(body.environment) ?? toString(body.accountType) ?? "");
-    const cloudType = toString(body.type) ?? "cloud-g2";
+    const cloudTypeRaw = toString(body.type) ?? "cloud-g2";
+    const cloudType = normalizeCloudType(cloudTypeRaw);
 
     if (!server || !login || !password || !platform || !environment) {
       return fail(c, 400, "Missing platform, environment (demo/live), server, login, or password.", "bad_request");
+    }
+    if (!cloudType) {
+      return fail(c, 400, 'Invalid MetaApi cloud type. Use "cloud-g1" or "cloud-g2".', "bad_request");
     }
 
     // Ensure required secrets exist.
@@ -439,14 +470,15 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
     const name = `TJ ${userId} ${platform.toUpperCase()} ${environment.toUpperCase()} ${login}@${server}`;
     console.log("[broker-import] connect: creating metaapi account", { userId, platform, environment, server, login });
 
+    const magic = magicForConnection({ userId, platform, environment, server, login });
     const metaapiAccountId = await metaApiCreateAccount({
       login,
       password,
       server,
       platform,
       name,
-      environment,
       cloudType,
+      magic,
     });
 
     const { data: inserted, error: insertError } = await supabase

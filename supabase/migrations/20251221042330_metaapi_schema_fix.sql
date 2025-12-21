@@ -155,6 +155,9 @@ create index if not exists trades_user_close_time_idx
 -- 3) RPC: server-side upsert for MetaApi trades (required for partial unique index)
 -- ---------------------------------------------------------------------------
 
+-- If an older version exists with a different return type, DROP first (Postgres can't replace return type).
+drop function if exists public.upsert_metaapi_trades(jsonb);
+
 create or replace function public.upsert_metaapi_trades(p_trades jsonb)
 returns integer
 language sql
@@ -239,4 +242,3 @@ revoke all on function public.upsert_metaapi_trades(jsonb) from public;
 grant execute on function public.upsert_metaapi_trades(jsonb) to service_role;
 
 commit;
-
