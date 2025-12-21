@@ -124,60 +124,22 @@ export function BillingPage() {
   }, [authLoading, user?.id, refresh]);
 
   useEffect(() => {
-    // Stripe redirects back with query params; webhooks update Supabase asynchronously.
-    // Poll profile refresh briefly until the paid plan becomes visible in the DB.
     if (authLoading) return;
     if (!user) return;
     if (handledReturnRef.current) return;
 
     const params = new URLSearchParams(window.location.search);
-    const success = params.get("success");
-    const canceled = params.get("canceled");
+    const canceled = params.get('checkout') === 'cancel';
 
     const clearQueryParams = () => {
       const url = new URL(window.location.href);
-      url.searchParams.delete("success");
-      url.searchParams.delete("canceled");
-      url.searchParams.delete("session_id");
-      window.history.replaceState({}, "", url.toString());
+      url.searchParams.delete('checkout');
+      window.history.replaceState({}, '', url.toString());
     };
 
-    if (success === "1") {
+    if (canceled) {
       handledReturnRef.current = true;
-      toast.success("Payment successful. Activating your plan…");
-
-      if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
-      let attempt = 0;
-
-      const tick = async () => {
-        // Refresh auth session first (defensive; avoids stale tokens after redirects).
-        try {
-          const supabase = getSupabaseClient();
-          await supabase?.auth.refreshSession();
-        } catch {
-          // ignore
-        }
-        await refresh();
-        if (paidActiveRef.current) {
-          clearQueryParams();
-          return;
-        }
-        attempt += 1;
-        if (attempt >= 8) {
-          clearQueryParams();
-          return;
-        }
-        const delay = Math.min(8000, 1000 * Math.pow(2, attempt)); // 2s,4s,8s...
-        pollTimerRef.current = window.setTimeout(() => void tick(), delay);
-      };
-
-      void tick();
-      return;
-    }
-
-    if (canceled === "1") {
-      handledReturnRef.current = true;
-      toast.info("Checkout canceled.");
+      toast.info('Checkout canceled.');
       clearQueryParams();
     }
   }, [authLoading, user?.id, refresh]);
@@ -260,7 +222,11 @@ export function BillingPage() {
                   </Button>
                 ) : (
                   <div className="space-y-3">
-                    {plan.key === 'pro' && isProActive ? (
+                    {plan.key === 'pro' && isPremiumActive ? (
+                      <Button className="w-full" variant="outline" disabled>
+                        Included with Premium
+                      </Button>
+                    ) : plan.key === 'pro' && isProActive ? (
                       <Button className="w-full" variant="outline" disabled>
                         Current plan
                       </Button>
@@ -272,41 +238,43 @@ export function BillingPage() {
                       <Button
                         className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
                         disabled={profileLoading || isLoading}
-                        onClick={() => void openPortal()}
+                        onClick={() => void startCheckout('premium', 'stripe')}
                       >
                         Upgrade to Premium
                       </Button>
                     ) : (
-                      <Button
-                        className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
-                        disabled={profileLoading || isLoading || isCurrent}
-                        onClick={() => void startCheckout(plan.key, 'stripe')}
-                      >
-                        Pay with Stripe (test)
-                      </Button>
+                      <>
+                        <Button
+                          className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
+                          disabled={profileLoading || isLoading || isCurrent}
+                          onClick={() => void startCheckout(plan.key, 'stripe')}
+                        >
+                          Pay with Stripe (test)
+                        </Button>
+                        <Button
+                          className="w-full"
+                          variant="outline"
+                          disabled={profileLoading || isLoading || isCurrent || !enablePayPal || isPaidActive}
+                          onClick={() => void startCheckout(plan.key, 'paypal')}
+                        >
+                          {enablePayPal ? 'Pay with PayPal (test)' : 'PayPal (disabled)'}
+                        </Button>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button className="w-full" variant="outline" disabled={!enableApplePay}>
+                            Apple Pay {enableApplePay ? '' : '(soon)'}
+                          </Button>
+                          <Button className="w-full" variant="outline" disabled={!enableGooglePay}>
+                            Google Pay {enableGooglePay ? '' : '(soon)'}
+                          </Button>
+                        </div>
+                        <Button className="w-full" variant="outline" disabled={!enableCrypto || !usdtAddress}>
+                          Crypto (USDT) {enableCrypto && usdtAddress ? '' : '(soon)'}
+                        </Button>
+                        {enableCrypto && usdtAddress ? (
+                          <p className="text-xs text-muted-foreground break-all">USDT address: {usdtAddress}</p>
+                        ) : null}
+                      </>
                     )}
-                    <Button
-                      className="w-full"
-                      variant="outline"
-                      disabled={profileLoading || isLoading || isCurrent || !enablePayPal || isPaidActive}
-                      onClick={() => void startCheckout(plan.key, 'paypal')}
-                    >
-                      {enablePayPal ? 'Pay with PayPal (test)' : 'PayPal (disabled)'}
-                    </Button>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button className="w-full" variant="outline" disabled={!enableApplePay}>
-                        Apple Pay {enableApplePay ? '' : '(soon)'}
-                      </Button>
-                      <Button className="w-full" variant="outline" disabled={!enableGooglePay}>
-                        Google Pay {enableGooglePay ? '' : '(soon)'}
-                      </Button>
-                    </div>
-                    <Button className="w-full" variant="outline" disabled={!enableCrypto || !usdtAddress}>
-                      Crypto (USDT) {enableCrypto && usdtAddress ? '' : '(soon)'}
-                    </Button>
-                    {enableCrypto && usdtAddress ? (
-                      <p className="text-xs text-muted-foreground break-all">USDT address: {usdtAddress}</p>
-                    ) : null}
                   </div>
                 )}
               </Card>

@@ -20,6 +20,19 @@ export type BrokerConnection = {
   tradeCount?: number;
 };
 
+export type ImportJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export type ImportJob = {
+  id: string;
+  connectionId: string;
+  status: ImportJobStatus;
+  progress: number;
+  total: number;
+  message: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type Ok<T> = { ok: true; data: T };
 type Fail = { ok: false; error: string; code?: string; details?: unknown };
 type ApiResponse<T> = Ok<T> | Fail;
@@ -38,6 +51,19 @@ function mapConnection(row: any): BrokerConnection {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     tradeCount: typeof row.trade_count === 'number' ? row.trade_count : undefined,
+  };
+}
+
+function mapJob(row: any): ImportJob {
+  return {
+    id: String(row.id),
+    connectionId: String(row.connection_id),
+    status: (row.status ?? 'queued') as ImportJobStatus,
+    progress: typeof row.progress === 'number' ? row.progress : Number(row.progress ?? 0),
+    total: typeof row.total === 'number' ? row.total : Number(row.total ?? 0),
+    message: typeof row.message === 'string' ? row.message : null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -134,12 +160,17 @@ export type ImportMetaApiInput = {
   to?: string;
 };
 
-export type ImportMetaApiResult = {
-  imported: number;
-  upserted: number;
-  totalFetched: number;
-};
+export async function startMetaApiImport(input: ImportMetaApiInput): Promise<{ job: ImportJob }> {
+  const out = await invokeBrokerImport<{ job: any }>('import', input);
+  return { job: mapJob(out.job) };
+}
 
-export async function importMetaApi(input: ImportMetaApiInput): Promise<ImportMetaApiResult> {
-  return invokeBrokerImport<ImportMetaApiResult>('import', input);
+export async function continueMetaApiImport(input: { jobId: string }): Promise<{ job: ImportJob; chunk?: { fetched: number; upserted: number } }> {
+  const out = await invokeBrokerImport<{ job: any; chunk?: { fetched: number; upserted: number } }>('import_continue', input);
+  return { job: mapJob(out.job), chunk: out.chunk };
+}
+
+export async function getMetaApiImportJob(input: { jobId: string }): Promise<{ job: ImportJob }> {
+  const out = await invokeBrokerImport<{ job: any }>('import_job', input);
+  return { job: mapJob(out.job) };
 }

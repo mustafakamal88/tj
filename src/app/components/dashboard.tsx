@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Link } from 'lucide-react';
@@ -7,6 +7,8 @@ import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/tr
 import { filterTradesForFreeUser } from '../utils/data-limit';
 import { requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
+import { getSupabaseClient } from '../utils/supabase';
+import { toast } from 'sonner';
 import type { Trade } from '../types/trade';
 import { 
   format, 
@@ -31,6 +33,13 @@ export function Dashboard() {
   const [isBrokerDialogOpen, setIsBrokerDialogOpen] = useState(false);
   const { plan, isActive, refresh: refreshProfile } = useProfile();
   const effectivePlan = isActive ? plan : 'free';
+  const paidActiveRef = useRef(false);
+  const handledReturnRef = useRef(false);
+  const pollTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    paidActiveRef.current = isActive && (plan === 'pro' || plan === 'premium');
+  }, [isActive, plan]);
 
   const refreshTrades = async () => {
     const start = startOfMonth(currentMonth);
@@ -56,6 +65,64 @@ export function Dashboard() {
       window.removeEventListener('subscription-changed', handleSubscriptionChanged);
     };
   }, [effectivePlan, currentMonth]);
+
+  useEffect(() => {
+    // Stripe redirects back to /dashboard; webhooks update Supabase asynchronously.
+    // Poll profile refresh briefly until the paid plan becomes visible in the DB.
+    if (handledReturnRef.current) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const checkout = params.get('checkout');
+    const portal = params.get('portal');
+    if (checkout !== 'success' && portal !== '1') return;
+
+    handledReturnRef.current = true;
+    if (checkout === 'success') toast.success('Payment successful. Activating your plan…');
+    if (portal === '1') toast.success('Welcome back. Syncing your subscription…');
+
+    const clearQueryParams = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('checkout');
+      url.searchParams.delete('portal');
+      window.history.replaceState({}, '', url.toString());
+    };
+
+    if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+    let attempt = 0;
+
+    const tick = async () => {
+      try {
+        await getSupabaseClient()?.auth.refreshSession();
+      } catch {
+        // ignore
+      }
+
+      await refreshProfile();
+
+      if (paidActiveRef.current) {
+        window.dispatchEvent(new Event('subscription-changed'));
+        clearQueryParams();
+        return;
+      }
+
+      attempt += 1;
+      if (attempt >= 8) {
+        clearQueryParams();
+        return;
+      }
+
+      const delay = Math.min(8000, 1000 * Math.pow(2, attempt)); // 2s,4s,8s...
+      pollTimerRef.current = window.setTimeout(() => void tick(), delay);
+    };
+
+    void tick();
+  }, [refreshProfile]);
+
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+    };
+  }, []);
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
   const monthEnd = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
 

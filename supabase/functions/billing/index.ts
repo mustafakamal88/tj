@@ -54,6 +54,17 @@ function requireStripePriceId(name: string): string {
   return value;
 }
 
+async function stripeGet(path: string): Promise<any> {
+  const secret = requireStripeSecretKey();
+  const res = await fetch(`https://api.stripe.com/v1${path}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${secret}` },
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(json?.error?.message ?? `Stripe error (HTTP ${res.status}).`);
+  return json;
+}
+
 async function stripeRequest(
   path: string,
   params: URLSearchParams,
@@ -78,6 +89,81 @@ function mapPlanToStripePrice(plan: SubscriptionPlan): string {
   if (plan === "pro") return requireStripePriceId("STRIPE_PRICE_PRO");
   if (plan === "premium") return requireStripePriceId("STRIPE_PRICE_PREMIUM");
   throw new Error("Invalid plan for Stripe.");
+}
+
+async function ensurePortalConfigurationId(): Promise<string | null> {
+  const fromEnv = (Deno.env.get("STRIPE_PORTAL_CONFIGURATION_ID") ?? "").trim();
+  if (fromEnv) return fromEnv;
+
+  // Try to reuse an existing configuration (avoid creating duplicates).
+  try {
+    const list = await stripeGet("/billing_portal/configurations?limit=20");
+    const configs: any[] = Array.isArray(list?.data) ? list.data : [];
+
+    const proPrice = mapPlanToStripePrice("pro");
+    const premiumPrice = mapPlanToStripePrice("premium");
+    const required = new Set([proPrice, premiumPrice]);
+
+    const hasAllPrices = (cfg: any) => {
+      const products = cfg?.features?.subscription_update?.products;
+      const prices: string[] = [];
+      if (Array.isArray(products)) {
+        for (const p of products) {
+          const ps = p?.prices;
+          if (Array.isArray(ps)) {
+            for (const v of ps) {
+              if (typeof v === "string") prices.push(v);
+            }
+          }
+        }
+      }
+      for (const need of required) if (!prices.includes(need)) return false;
+      return true;
+    };
+
+    const cfg = configs.find((c: any) => c?.features?.subscription_update?.enabled === true && hasAllPrices(c));
+    if (cfg?.id) return String(cfg.id);
+  } catch (e) {
+    console.warn("[billing] failed to list portal configurations; will create one", e);
+  }
+
+  // Create a configuration enabling subscription updates between Pro/Premium.
+  const proPrice = mapPlanToStripePrice("pro");
+  const premiumPrice = mapPlanToStripePrice("premium");
+  const proObj = await stripeGet(`/prices/${encodeURIComponent(proPrice)}`);
+  const premiumObj = await stripeGet(`/prices/${encodeURIComponent(premiumPrice)}`);
+
+  const groups = new Map<string, string[]>();
+  const add = (productId: unknown, priceId: string) => {
+    if (typeof productId !== "string" || !productId.trim()) return;
+    const arr = groups.get(productId) ?? [];
+    if (!arr.includes(priceId)) arr.push(priceId);
+    groups.set(productId, arr);
+  };
+  add(proObj?.product, proPrice);
+  add(premiumObj?.product, premiumPrice);
+
+  const params = new URLSearchParams();
+  params.set("business_profile[headline]", "Manage your TJ Trade Journal subscription");
+  params.set("features[subscription_cancel][enabled]", "true");
+  params.set("features[subscription_update][enabled]", "true");
+  params.set("features[subscription_update][proration_behavior]", "create_prorations");
+  params.set("features[subscription_update][default_allowed_updates][0]", "price");
+
+  let i = 0;
+  for (const [productId, priceIds] of groups.entries()) {
+    params.set(`features[subscription_update][products][${i}][product]`, productId);
+    for (let j = 0; j < priceIds.length; j++) {
+      params.set(`features[subscription_update][products][${i}][prices][${j}]`, priceIds[j]);
+    }
+    i += 1;
+  }
+
+  const created = await stripeRequest("/billing_portal/configurations", params, {
+    idempotencyKey: "tj_portal_cfg_v1",
+  });
+  if (created?.id) return String(created.id);
+  return null;
 }
 
 async function ensureStripeCustomer(
@@ -210,10 +296,17 @@ const billingHandler = async (c: any) => {
         typeof existingSubId === "string" &&
         existingSubId.length > 0;
       if (isSubscribed) {
-        return c.json(
-          { error: "You already have an active subscription. Use Manage subscription to make changes." },
-          409,
-        );
+        // Allow upgrades Free->Paid and Pro->Premium via checkout.
+        // Prevent "easy downgrades" from Premium->Pro in the app UI.
+        if (existingPlan === "premium" && plan === "pro") {
+          return c.json({ error: "Downgrades must be done in the Stripe customer portal." }, 409);
+        }
+        if (existingPlan === plan) {
+          return c.json(
+            { error: "You already have an active subscription. Use Manage subscription to make changes." },
+            409,
+          );
+        }
       }
 
       const customerId = await ensureStripeCustomer(supabase, userId, {
@@ -228,8 +321,8 @@ const billingHandler = async (c: any) => {
           customer: customerId,
           "line_items[0][price]": price,
           "line_items[0][quantity]": "1",
-          success_url: `${siteUrl}/billing?success=1`,
-          cancel_url: `${siteUrl}/billing?canceled=1`,
+          success_url: `${siteUrl}/dashboard?checkout=success`,
+          cancel_url: `${siteUrl}/billing?checkout=cancel`,
           "metadata[user_id]": userId,
           "metadata[plan]": plan,
           "subscription_data[metadata][user_id]": userId,
@@ -264,11 +357,13 @@ const billingHandler = async (c: any) => {
       const customerId = (prof as any)?.stripe_customer_id as string | null;
       if (!customerId) return c.json({ error: "No Stripe customer found for this user." }, 400);
 
+      const configuration = await ensurePortalConfigurationId();
       const portal = await stripeRequest(
         "/billing_portal/sessions",
         new URLSearchParams({
           customer: customerId,
-          return_url: `${siteUrl}/billing`,
+          ...(configuration ? { configuration } : {}),
+          return_url: `${siteUrl}/dashboard?portal=1`,
         }),
       );
 

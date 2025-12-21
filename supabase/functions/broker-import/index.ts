@@ -5,6 +5,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 type MtPlatform = "mt4" | "mt5";
 type BrokerEnvironment = "demo" | "live";
 type BrokerStatus = "new" | "created" | "deploying" | "connected" | "imported" | "error";
+type ImportJobStatus = "queued" | "running" | "succeeded" | "failed";
 
 type BrokerConnectionRow = {
   id: string;
@@ -40,6 +41,7 @@ type MetaApiDeal = {
 type TradeType = "long" | "short";
 
 const PROVIDER = "metaapi" as const;
+const IMPORT_WINDOW_DAYS = 30;
 
 const app = new Hono();
 
@@ -273,26 +275,72 @@ function addDays(date: Date, days: number): Date {
   return out;
 }
 
+type ImportJobRow = {
+  id: string;
+  user_id: string;
+  connection_id: string;
+  status: ImportJobStatus;
+  progress: number;
+  total: number;
+  message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type ImportJobState = {
+  from: string; // ISO
+  to: string; // ISO
+  windowDays: number;
+  fetchedTotal: number;
+  upsertedTotal: number;
+  lastChunk?: { from: string; to: string; fetched: number; upserted: number };
+  error?: string;
+};
+
+function parseJobState(message: string | null | undefined): ImportJobState | null {
+  if (!message) return null;
+  try {
+    const parsed = JSON.parse(message);
+    if (!isRecord(parsed)) return null;
+    const from = toString(parsed.from);
+    const to = toString(parsed.to);
+    const windowDays = toNumber(parsed.windowDays) ?? IMPORT_WINDOW_DAYS;
+    const fetchedTotal = toNumber(parsed.fetchedTotal) ?? 0;
+    const upsertedTotal = toNumber(parsed.upsertedTotal) ?? 0;
+    if (!from || !to) return null;
+    const out: ImportJobState = { from, to, windowDays, fetchedTotal, upsertedTotal };
+    if (isRecord(parsed.lastChunk)) {
+      const lcFrom = toString(parsed.lastChunk.from);
+      const lcTo = toString(parsed.lastChunk.to);
+      const lcFetched = toNumber(parsed.lastChunk.fetched) ?? 0;
+      const lcUpserted = toNumber(parsed.lastChunk.upserted) ?? 0;
+      if (lcFrom && lcTo) out.lastChunk = { from: lcFrom, to: lcTo, fetched: lcFetched, upserted: lcUpserted };
+    }
+    const err = toString(parsed.error);
+    if (err) out.error = err;
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function stringifyJobState(state: ImportJobState): string {
+  return JSON.stringify(state);
+}
+
+function computeTotalChunks(from: Date, to: Date, windowDays: number): number {
+  const spanMs = to.getTime() - from.getTime();
+  const chunkMs = windowDays * 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(spanMs) || spanMs <= 0 || !Number.isFinite(chunkMs) || chunkMs <= 0) return 1;
+  return Math.max(1, Math.ceil(spanMs / chunkMs));
+}
+
 async function metaApiFetchDealsByTimeRange(accountId: string, fromIso: string, toIso: string): Promise<MetaApiDeal[]> {
   const base = metaApiClientBaseUrl();
   const url =
     `${base}/users/current/accounts/${encodeURIComponent(accountId)}/history-deals/time/${encodeURIComponent(fromIso)}/${encodeURIComponent(toIso)}`;
   const json = await metaApiJson(url, { method: "GET", headers: metaApiAuthHeaders() });
   return Array.isArray(json) ? (json as MetaApiDeal[]) : [];
-}
-
-async function fetchDealsChunked(accountId: string, from: Date, to: Date): Promise<MetaApiDeal[]> {
-  const out: MetaApiDeal[] = [];
-  for (let cursor = new Date(from.getTime()); cursor < to; cursor = addDays(cursor, 90)) {
-    const end = addDays(cursor, 90) < to ? addDays(cursor, 90) : to;
-    const deals = await metaApiFetchDealsByTimeRange(
-      accountId,
-      toMetaApiTimeString(cursor),
-      toMetaApiTimeString(end),
-    );
-    out.push(...deals);
-  }
-  return out;
 }
 
 function dealKey(positionId: string, ticket: string): string {
@@ -555,105 +603,32 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
       return fail(c, 400, "Invalid from/to range.", "bad_request");
     }
 
-    console.log("[broker-import] import start", { userId, connectionId, accountId });
+    const total = computeTotalChunks(from, to, IMPORT_WINDOW_DAYS);
+    const state: ImportJobState = {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      windowDays: IMPORT_WINDOW_DAYS,
+      fetchedTotal: 0,
+      upsertedTotal: 0,
+    };
 
-    const deals = await fetchDealsChunked(accountId, from, to);
+    const { data: job, error: jobErr } = await supabase
+      .from("import_jobs")
+      .insert({
+        user_id: userId,
+        connection_id: connectionId,
+        status: "queued",
+        progress: 0,
+        total,
+        message: stringifyJobState(state),
+      })
+      .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+      .single<ImportJobRow>();
 
-    const dealsByPosition = new Map<string, MetaApiDeal[]>();
-    for (const d of deals) {
-      const positionId = toString(d.positionId) ?? toString(d.orderId) ?? toString(d.id);
-      if (!positionId) continue;
-      const list = dealsByPosition.get(positionId) ?? [];
-      list.push(d);
-      dealsByPosition.set(positionId, list);
-    }
+    if (jobErr || !job) return fail(c, 500, jobErr?.message ?? "Failed to create import job.");
 
-    const rows: any[] = [];
-    const seen = new Set<string>();
-
-    for (const [positionId, list] of dealsByPosition) {
-      const sorted = [...list].sort((a, b) => {
-        const at = Date.parse(toString(a.time) ?? "");
-        const bt = Date.parse(toString(b.time) ?? "");
-        return (Number.isFinite(at) ? at : 0) - (Number.isFinite(bt) ? bt : 0);
-      });
-
-      const entryDeal =
-        sorted.find((d) => (toString(d.entryType) ?? "").toUpperCase() === "DEAL_ENTRY_IN") ?? sorted[0];
-
-      const entryPrice = toNumber(entryDeal?.price) ?? 0;
-      const entryTime = toString(entryDeal?.time);
-      const dir = mapDealDirection(toString(entryDeal?.type) ?? "") ?? "long";
-
-      for (const d of sorted) {
-        const ticket = toString(d.id);
-        const symbolRaw = toString(d.symbol);
-        const entryTypeRaw = toString(d.entryType);
-        const closeTime = toString(d.time);
-        if (!ticket || !symbolRaw || !entryTypeRaw || !closeTime) continue;
-        if (!isClosingDeal(entryTypeRaw)) continue;
-
-        const closePrice = toNumber(d.price) ?? entryPrice;
-        const volume = toNumber(d.volume) ?? 0;
-        const profit = toNumber(d.profit) ?? 0;
-        const commission = toNumber(d.commission) ?? 0;
-        const swap = toNumber(d.swap) ?? 0;
-        const pnl = profit + commission + swap;
-
-        const k = dealKey(positionId, ticket);
-        if (seen.has(k)) continue;
-        seen.add(k);
-
-        rows.push({
-          user_id: userId,
-          broker_provider: PROVIDER,
-          account_login: accountLogin,
-          ticket,
-          position_id: positionId,
-          open_time: entryTime ?? null,
-          close_time: closeTime,
-          commission: commission || null,
-          swap: swap || null,
-
-          date: toIsoDate(closeTime),
-          symbol: normalizeSymbol(symbolRaw),
-          type: dir,
-          entry: entryPrice,
-          exit: closePrice,
-          quantity: volume,
-          outcome: outcomeFromPnL(pnl),
-          pnl,
-          pnl_percentage: pnlPercentage(entryPrice, closePrice, dir),
-          notes: `Imported via MetaApi (deal ${ticket}, position ${positionId})`,
-        });
-      }
-    }
-
-    if (rows.length === 0) {
-      return ok(c, { imported: 0, upserted: 0, totalFetched: deals.length });
-    }
-
-    // IMPORTANT: this requires your DB unique index to exist:
-    // (user_id, broker_provider, account_login, position_id, ticket) for broker_provider='metaapi'
-    let upserted = 0;
-    const chunkSize = 500;
-    for (let i = 0; i < rows.length; i += chunkSize) {
-      const chunk = rows.slice(i, i + chunkSize);
-      const { data: affected, error: rpcError } = await supabase.rpc("upsert_metaapi_trades", { p_trades: chunk });
-      if (rpcError) throw new Error(rpcError.message);
-      upserted += typeof affected === "number" ? affected : chunk.length;
-    }
-
-    const now = new Date().toISOString();
-    await supabase
-      .from("broker_connections")
-      .update({ last_import_at: now, status: "imported" })
-      .eq("id", connectionId)
-      .eq("user_id", userId);
-
-    console.log("[broker-import] import complete", { userId, connectionId, totalFetched: deals.length, upserted });
-
-    return ok(c, { imported: rows.length, upserted, totalFetched: deals.length });
+    console.log("[broker-import] import queued", { userId, connectionId, jobId: job.id, totalChunks: total });
+    return ok(c, { job });
   } catch (e) {
     console.error("[broker-import] import error", e);
     const message = e instanceof Error ? e.message : "Server error.";
@@ -665,6 +640,256 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
   }
 }
 
+async function buildTradeRowsFromDeals(input: {
+  deals: MetaApiDeal[];
+  userId: string;
+  accountLogin: string;
+}): Promise<any[]> {
+  const dealsByPosition = new Map<string, MetaApiDeal[]>();
+  for (const d of input.deals) {
+    const positionId = toString(d.positionId) ?? toString(d.orderId) ?? toString(d.id);
+    if (!positionId) continue;
+    const list = dealsByPosition.get(positionId) ?? [];
+    list.push(d);
+    dealsByPosition.set(positionId, list);
+  }
+
+  const rows: any[] = [];
+  const seen = new Set<string>();
+
+  for (const [positionId, list] of dealsByPosition) {
+    const sorted = [...list].sort((a, b) => {
+      const at = Date.parse(toString(a.time) ?? "");
+      const bt = Date.parse(toString(b.time) ?? "");
+      return (Number.isFinite(at) ? at : 0) - (Number.isFinite(bt) ? bt : 0);
+    });
+
+    const entryDeal =
+      sorted.find((d) => (toString(d.entryType) ?? "").toUpperCase() === "DEAL_ENTRY_IN") ?? sorted[0];
+
+    const entryPrice = toNumber(entryDeal?.price) ?? 0;
+    const entryTime = toString(entryDeal?.time);
+    const dir = mapDealDirection(toString(entryDeal?.type) ?? "") ?? "long";
+
+    for (const d of sorted) {
+      const ticket = toString(d.id);
+      const symbolRaw = toString(d.symbol);
+      const entryTypeRaw = toString(d.entryType);
+      const closeTime = toString(d.time);
+      if (!ticket || !symbolRaw || !entryTypeRaw || !closeTime) continue;
+      if (!isClosingDeal(entryTypeRaw)) continue;
+
+      const closePrice = toNumber(d.price) ?? entryPrice;
+      const volume = toNumber(d.volume) ?? 0;
+      const profit = toNumber(d.profit) ?? 0;
+      const commission = toNumber(d.commission) ?? 0;
+      const swap = toNumber(d.swap) ?? 0;
+      const pnl = profit + commission + swap;
+
+      const k = dealKey(positionId, ticket);
+      if (seen.has(k)) continue;
+      seen.add(k);
+
+      rows.push({
+        user_id: input.userId,
+        broker_provider: PROVIDER,
+        account_login: input.accountLogin,
+        ticket,
+        position_id: positionId,
+        open_time: entryTime ?? null,
+        close_time: closeTime,
+        commission: commission || null,
+        swap: swap || null,
+
+        date: toIsoDate(closeTime),
+        symbol: normalizeSymbol(symbolRaw),
+        type: dir,
+        entry: entryPrice,
+        exit: closePrice,
+        quantity: volume,
+        outcome: outcomeFromPnL(pnl),
+        pnl,
+        pnl_percentage: pnlPercentage(entryPrice, closePrice, dir),
+        notes: `Imported via MetaApi (deal ${ticket}, position ${positionId})`,
+      });
+    }
+  }
+
+  return rows;
+}
+
+async function handleImportJob(c: any, body?: Record<string, unknown>): Promise<Response> {
+  try {
+    const userId = await requireUserId(c.req.raw);
+    const jobId =
+      toString(body?.jobId) ??
+      toString(c.req.query("jobId")) ??
+      toString(c.req.query("id"));
+    if (!jobId) return fail(c, 400, "Missing jobId.", "bad_request");
+
+    const supabase = getSupabaseAdmin();
+    const { data: job, error } = await supabase
+      .from("import_jobs")
+      .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+      .eq("id", jobId)
+      .eq("user_id", userId)
+      .single<ImportJobRow>();
+
+    if (error) return fail(c, 500, error.message);
+    return ok(c, { job });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Server error.";
+    if (message.toLowerCase().includes("authorization")) return fail(c, 401, "Unauthorized.", "unauthorized");
+    return fail(c, 500, message);
+  }
+}
+
+async function handleImportContinue(c: any, body: Record<string, unknown>): Promise<Response> {
+  const userId = await requireUserId(c.req.raw);
+  const jobId = toString(body.jobId);
+  if (!jobId) return fail(c, 400, "Missing jobId.", "bad_request");
+
+  const supabase = getSupabaseAdmin();
+  const { data: job, error } = await supabase
+    .from("import_jobs")
+    .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+    .eq("id", jobId)
+    .eq("user_id", userId)
+    .single<ImportJobRow>();
+  if (error) return fail(c, 500, error.message);
+
+  if (job.status === "succeeded" || job.status === "failed") {
+    return ok(c, { job });
+  }
+
+  const state = parseJobState(job.message) ?? {
+    from: new Date("2000-01-01T00:00:00.000Z").toISOString(),
+    to: new Date().toISOString(),
+    windowDays: IMPORT_WINDOW_DAYS,
+    fetchedTotal: 0,
+    upsertedTotal: 0,
+  };
+
+  const from = new Date(state.from);
+  const to = new Date(state.to);
+  const windowDays = Math.max(1, Math.min(180, Math.floor(state.windowDays || IMPORT_WINDOW_DAYS)));
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
+    return fail(c, 500, "Import job has an invalid date range.", "job_invalid");
+  }
+
+  const chunkIndex = job.progress;
+  if (chunkIndex >= job.total) {
+    const { data: updated } = await supabase
+      .from("import_jobs")
+      .update({ status: "succeeded" })
+      .eq("id", jobId)
+      .eq("user_id", userId)
+      .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+      .single<ImportJobRow>();
+    return ok(c, { job: updated ?? { ...job, status: "succeeded" } });
+  }
+
+  const windowStart = addDays(from, chunkIndex * windowDays);
+  if (windowStart >= to) {
+    const { data: updated } = await supabase
+      .from("import_jobs")
+      .update({ status: "succeeded", progress: job.total })
+      .eq("id", jobId)
+      .eq("user_id", userId)
+      .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+      .single<ImportJobRow>();
+    return ok(c, { job: updated ?? { ...job, status: "succeeded" } });
+  }
+
+  const windowEnd = addDays(windowStart, windowDays) < to ? addDays(windowStart, windowDays) : to;
+
+  const { data: connection, error: connErr } = await supabase
+    .from("broker_connections")
+    .select("id,metaapi_account_id,login,status,user_id")
+    .eq("id", job.connection_id)
+    .eq("user_id", userId)
+    .eq("provider", PROVIDER)
+    .maybeSingle();
+
+  if (connErr) return fail(c, 500, connErr.message);
+  if (!connection) return fail(c, 404, "Connection not found for this job.", "not_found");
+
+  const accountId = toString((connection as any).metaapi_account_id);
+  const accountLogin = toString((connection as any).login);
+  if (!accountId || !accountLogin) return fail(c, 500, "Connection missing MetaApi account id/login.");
+
+  await supabase.from("import_jobs").update({ status: "running" }).eq("id", jobId).eq("user_id", userId);
+
+  console.log("[broker-import] import chunk", {
+    userId,
+    jobId,
+    connectionId: connection.id,
+    chunkIndex,
+    window: { from: windowStart.toISOString(), to: windowEnd.toISOString() },
+  });
+
+  const deals = await metaApiFetchDealsByTimeRange(accountId, toMetaApiTimeString(windowStart), toMetaApiTimeString(windowEnd));
+  const rows = await buildTradeRowsFromDeals({ deals, userId, accountLogin });
+
+  let upserted = 0;
+  if (rows.length) {
+    const chunkSize = 500;
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const { data: affected, error: rpcError } = await supabase.rpc("upsert_metaapi_trades", { p_trades: chunk });
+      if (rpcError) throw new Error(rpcError.message);
+      upserted += typeof affected === "number" ? affected : chunk.length;
+    }
+  }
+
+  state.fetchedTotal += deals.length;
+  state.upsertedTotal += upserted;
+  state.lastChunk = {
+    from: windowStart.toISOString(),
+    to: windowEnd.toISOString(),
+    fetched: deals.length,
+    upserted,
+  };
+
+  const nextProgress = chunkIndex + 1;
+  const done = nextProgress >= job.total || windowEnd >= to;
+  const nextStatus: ImportJobStatus = done ? "succeeded" : "running";
+
+  const { data: updatedJob, error: updateErr } = await supabase
+    .from("import_jobs")
+    .update({
+      status: nextStatus,
+      progress: done ? job.total : nextProgress,
+      message: stringifyJobState(state),
+    })
+    .eq("id", jobId)
+    .eq("user_id", userId)
+    .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+    .single<ImportJobRow>();
+
+  if (updateErr) return fail(c, 500, updateErr.message);
+
+  if (done) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("broker_connections")
+      .update({ last_import_at: now, status: "imported" })
+      .eq("id", connection.id)
+      .eq("user_id", userId);
+  }
+
+  console.log("[broker-import] import chunk done", {
+    userId,
+    jobId,
+    chunkIndex,
+    fetched: deals.length,
+    upserted,
+    status: nextStatus,
+  });
+
+  return ok(c, { job: updatedJob, chunk: { fetched: deals.length, upserted } });
+}
+
 async function handleAction(c: any): Promise<Response> {
   const body = await c.req.json().catch(() => null);
   if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
@@ -674,6 +899,8 @@ async function handleAction(c: any): Promise<Response> {
   if (action === "status") return handleStatus(c);
   if (action === "connect") return handleConnect(c, body);
   if (action === "import") return handleImport(c, body);
+  if (action === "import_continue") return handleImportContinue(c, body);
+  if (action === "import_job") return handleImportJob(c, body);
 
   return fail(c, 400, `Unknown action: ${action}`, "bad_request");
 }
@@ -714,5 +941,19 @@ app.post("/broker-import/import", async (c) => {
   if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
   return handleImport(c, body);
 });
+
+app.post("/import/continue", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
+  return handleImportContinue(c, body);
+});
+app.post("/broker-import/import/continue", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!isRecord(body)) return fail(c, 400, "Invalid JSON body.", "bad_request");
+  return handleImportContinue(c, body);
+});
+
+app.get("/import/job", handleImportJob);
+app.get("/broker-import/import/job", handleImportJob);
 
 Deno.serve(app.fetch);

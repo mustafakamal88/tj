@@ -1,19 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
+import { Progress } from './ui/progress';
 import { toast } from 'sonner';
 import { RefreshCw } from 'lucide-react';
 import {
   connectMetaApi,
   getMetaApiStatus,
-  importMetaApi,
   type BrokerConnection,
   type BrokerEnvironment,
   type BrokerPlatform,
+  type ImportJob,
+  continueMetaApiImport,
+  startMetaApiImport,
 } from '../utils/broker-import-api';
 
 interface BrokerConnectionDialogProps {
@@ -41,6 +44,8 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [job, setJob] = useState<ImportJob | null>(null);
+  const continueTimerRef = useRef<number | null>(null);
 
   const [platform, setPlatform] = useState<BrokerPlatform>('mt5');
   const [environment, setEnvironment] = useState<BrokerEnvironment>('demo');
@@ -71,6 +76,21 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
     if (!open) return;
     void refresh();
   }, [open]);
+
+  useEffect(() => {
+    // Stop background polling when dialog closes.
+    if (open) return;
+    if (continueTimerRef.current) window.clearTimeout(continueTimerRef.current);
+    continueTimerRef.current = null;
+    setJob(null);
+    setImporting(false);
+  }, [open]);
+
+  useEffect(() => {
+    return () => {
+      if (continueTimerRef.current) window.clearTimeout(continueTimerRef.current);
+    };
+  }, []);
 
   const handleConnect = async () => {
     if (!server.trim() || !login.trim() || !password) {
@@ -108,15 +128,45 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
 
     setImporting(true);
     try {
-      const result = await importMetaApi({ connectionId: selectedId });
-      toast.success(`Imported ${result.upserted} trades`);
-      await refresh();
-      onImportComplete?.();
+      const started = await startMetaApiImport({ connectionId: selectedId });
+      setJob(started.job);
+      toast.success('Import started. This may take a few minutes for large histories.');
+
+      const run = async (jobId: string) => {
+        try {
+          const res = await continueMetaApiImport({ jobId });
+          setJob(res.job);
+
+          if (res.job.status === 'succeeded') {
+            toast.success('Import complete.');
+            setImporting(false);
+            await refresh();
+            onImportComplete?.();
+            return;
+          }
+
+          if (res.job.status === 'failed') {
+            toast.error('Import failed. Please try again.');
+            setImporting(false);
+            await refresh();
+            return;
+          }
+
+          continueTimerRef.current = window.setTimeout(() => void run(jobId), 700);
+        } catch (e) {
+          console.error('[broker] import continue failed', e);
+          toast.error(e instanceof Error ? e.message : 'Import failed.');
+          setImporting(false);
+        }
+      };
+
+      continueTimerRef.current = window.setTimeout(() => void run(started.job.id), 200);
     } catch (e) {
       console.error('[broker] import failed', e);
       toast.error(e instanceof Error ? e.message : 'Import failed.');
-    } finally {
       setImporting(false);
+    } finally {
+      // importing flag is managed by the job loop
     }
   };
 
@@ -243,9 +293,28 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
           <div className="rounded-lg border p-4 space-y-3">
             <h3 className="text-sm font-medium">Import</h3>
             <p className="text-sm text-muted-foreground">
-              Imports closed deals from MetaApi and upserts them into your TJ trades. You can safely re-run imports —
-              duplicates won&apos;t be created.
+              Imports closed deals from MetaApi and upserts them into your TJ trades. The import runs in small chunks in
+              the background to avoid timeouts. You can safely re-run imports — duplicates won&apos;t be created.
             </p>
+            {job ? (
+              <div className="rounded-md border p-3 text-sm space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Job</span>
+                  <Badge variant={job.status === 'failed' ? 'destructive' : job.status === 'succeeded' ? 'default' : 'secondary'}>
+                    {job.status}
+                  </Badge>
+                </div>
+                <Progress
+                  value={job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0}
+                />
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {job.progress}/{job.total} chunks
+                  </span>
+                  <span>{job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0}%</span>
+                </div>
+              </div>
+            ) : null}
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button
                 onClick={() => void handleImport()}
