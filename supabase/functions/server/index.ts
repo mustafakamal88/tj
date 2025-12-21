@@ -714,15 +714,15 @@ const handleMtSync = async (c: any) => {
         const netPnl = profit + (commission ?? 0) + (swap ?? 0);
         const pct = pnlPercentage(entry, exit, type);
 
-        const accountLogin = digitsOnly(connection.account);
-        const ticketDigits = digitsOnly(ticket);
-        const positionDigits = digitsOnly(positionId);
+        const accountLogin = connection.account;
+        const ticketValue = ticket;
+        const positionValue = positionId ?? null;
 
         normalized.push({
           id,
           account_login: accountLogin,
-          ticket: ticketDigits,
-          position_id: positionDigits,
+          ticket: ticketValue,
+          position_id: positionValue,
           open_time: openIso,
           close_time: closeIso,
           date,
