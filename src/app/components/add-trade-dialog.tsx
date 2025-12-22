@@ -112,7 +112,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
   };
 
   const canUploadScreenshots = async (): Promise<
-    | { ok: true; profilePlan: string; storageUsedBytes: number; warning?: string }
+    | { ok: true; profilePlan: string; storageUsedBytes: number; warning?: string; warningDetail?: string }
     | { ok: false }
   > => {
     if (screenshots.length === 0) return { ok: true, profilePlan: 'free', storageUsedBytes: 0 };
@@ -148,8 +148,9 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     }
 
     const totalUploadBytes = screenshots.reduce((sum, file) => sum + file.size, 0);
-    const fallback = (warning: string) =>
-      ({ ok: true, profilePlan: 'free', storageUsedBytes: 0, warning } as const);
+    const FALLBACK_WARNING = 'Storage check unavailable. Upload may fail if you exceed your plan limit.';
+    const fallback = (warning: string, warningDetail?: string) =>
+      ({ ok: true, profilePlan: 'free', storageUsedBytes: 0, warning, warningDetail } as const);
 
     const { data: profileRow, error: profileError, status: profileStatus } = await supabase
       .from('profiles')
@@ -170,25 +171,25 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
           if (!Number.isFinite(getStorageLimitBytes(plan))) {
             return { ok: true, profilePlan: plan, storageUsedBytes: 0 };
           }
-          return fallback('Storage check unavailable; upload may fail if you’re over limit.');
+          return fallback(FALLBACK_WARNING);
         }
       }
 
-      if (profileStatus === 401) {
-        toast.error('Session expired, please login again.');
-      } else if (profileStatus === 403) {
-        toast.error('No permission to check storage. Contact support.');
-      } else {
-        toast.error('Unable to check storage limits. Please try again.');
-      }
+      const detail =
+        profileStatus === 401
+          ? 'Session expired, please login again.'
+          : profileStatus === 403
+            ? 'No permission to check storage limits.'
+            : 'Unable to check storage limits. Please try again.';
 
       // Do not block the user completely when storage check is unavailable.
-      return fallback('Storage check unavailable; upload may fail if you’re over limit.');
+      // We surface a generic warning, and only show the status-specific detail for actionable cases.
+      return fallback(FALLBACK_WARNING, detail);
     }
 
     if (!profileRow) {
       toast.error('Unable to load your profile. Please try again.');
-      return fallback('Storage check unavailable; upload may fail if you’re over limit.');
+      return fallback(FALLBACK_WARNING);
     }
 
     const plan = typeof profileRow.subscription_plan === 'string' ? profileRow.subscription_plan : 'free';
@@ -266,6 +267,12 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     if (!storageCheck.ok) return;
     if (storageCheck.warning) {
       toast.info(storageCheck.warning);
+      if (
+        storageCheck.warningDetail === 'Session expired, please login again.' ||
+        storageCheck.warningDetail === 'No permission to check storage limits.'
+      ) {
+        toast.error(storageCheck.warningDetail);
+      }
     }
 
     const trade = {
