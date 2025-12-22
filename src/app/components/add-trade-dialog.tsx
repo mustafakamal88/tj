@@ -20,7 +20,8 @@ interface AddTradeDialogProps {
 const SCREENSHOTS_BUCKET = 'trade-screenshots';
 const MAX_SCREENSHOTS_PER_TRADE = 3;
 const FREE_SCREENSHOT_STORAGE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
-const PRO_SCREENSHOT_STORAGE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB
+const PRO_SCREENSHOT_STORAGE_BYTES = 5 * 1024 * 1024 * 1024; // 5GB
+const PREMIUM_SCREENSHOT_STORAGE_BYTES = 10 * 1024 * 1024 * 1024; // 10GB
 
 type ScreenshotMeta = { name: string; size: number };
 
@@ -62,13 +63,13 @@ function toSafeNumber(value: unknown): number {
 }
 
 function getStorageLimitLabel(plan: string): string {
-  if (plan === 'pro') return '20GB';
-  if (plan === 'premium') return 'Unlimited';
+  if (plan === 'pro') return '5GB';
+  if (plan === 'premium') return '10GB';
   return '2GB';
 }
 
 function getStorageLimitBytes(plan: string): number {
-  if (plan === 'premium') return Number.POSITIVE_INFINITY;
+  if (plan === 'premium') return PREMIUM_SCREENSHOT_STORAGE_BYTES;
   if (plan === 'pro') return PRO_SCREENSHOT_STORAGE_BYTES;
   return FREE_SCREENSHOT_STORAGE_BYTES;
 }
@@ -385,9 +386,6 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
           .maybeSingle<{ subscription_plan: string }>();
         if (!planError && planOnly) {
           const plan = typeof planOnly.subscription_plan === 'string' ? planOnly.subscription_plan : 'free';
-          if (!Number.isFinite(getStorageLimitBytes(plan))) {
-            return { ok: true, profilePlan: plan, storageUsedBytes: 0 };
-          }
           return fallback(FALLBACK_WARNING);
         }
       }
