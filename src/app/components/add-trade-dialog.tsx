@@ -154,6 +154,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
   const [draftRestored, setDraftRestored] = useState(false);
   const draftSaveTimerRef = useRef<number | null>(null);
   const storageWarningShownRef = useRef(false);
+  const supabaseRef = useRef<ReturnType<typeof requireSupabaseClient> | null>(null);
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     symbol: '',
@@ -174,6 +175,43 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     return current.length ? current : restoredScreenshotMeta;
   }, [screenshots, restoredScreenshotMeta]);
 
+  const getSupabase = (): ReturnType<typeof requireSupabaseClient> => {
+    if (!supabaseRef.current) {
+      supabaseRef.current = requireSupabaseClient();
+    }
+    return supabaseRef.current;
+  };
+
+  const ensureSession = async (
+    supabase: ReturnType<typeof requireSupabaseClient>,
+  ): Promise<{ userId: string } | null> => {
+    const first = await supabase.auth.getSession();
+    let session = first.data.session;
+    if (!session) {
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        // ignore
+      }
+      const second = await supabase.auth.getSession();
+      session = second.data.session;
+    }
+    if (!session) return null;
+
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData.user?.id) return { userId: userData.user.id };
+
+    // Rare: session exists but user fetch fails; refresh once.
+    try {
+      await supabase.auth.refreshSession();
+    } catch {
+      // ignore
+    }
+    const retryUser = await supabase.auth.getUser();
+    const userId = retryUser.data.user?.id;
+    return userId ? { userId } : null;
+  };
+
   useEffect(() => {
     if (!open) return;
 
@@ -182,7 +220,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     (async () => {
       try {
-        const supabase = requireSupabaseClient();
+        const supabase = getSupabase();
         await supabase.auth.getSession();
 
         // Determine draft key from the current authenticated user.
@@ -305,35 +343,14 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     let supabase: ReturnType<typeof requireSupabaseClient>;
     try {
-      supabase = requireSupabaseClient();
+      supabase = getSupabase();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Supabase is not configured.');
       return { ok: false, reason: 'unknown' };
     }
 
-    // Ensure auth is initialized before hitting RLS-protected tables.
-    // In some browsers/Codespaces, initial hydration can race the first submit.
-    try {
-      await supabase.auth.getSession();
-    } catch {
-      // ignore
-    }
-
-    // Ensure we have a valid, current user token before hitting RLS-protected tables.
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    let user = userData.user;
-    if ((userError || !user) && authReady) {
-      try {
-        await supabase.auth.refreshSession();
-      } catch {
-        // ignore
-      }
-      const retry = await supabase.auth.getUser();
-      user = retry.data.user;
-    }
-    if (userError || !user) {
-      return { ok: false, reason: 'not_authenticated' };
-    }
+    const sessionInfo = await ensureSession(supabase);
+    if (!sessionInfo) return { ok: false, reason: 'not_authenticated' };
 
     const totalUploadBytes = files.reduce((sum, file) => sum + file.size, 0);
     const FALLBACK_WARNING = 'Storage check unavailable. Upload may fail if you exceed your plan limit.';
@@ -344,7 +361,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       supabase
         .from('profiles')
         .select('subscription_plan,storage_used_bytes')
-        .eq('id', user.id)
+        .eq('id', sessionInfo.userId)
         .maybeSingle<{ subscription_plan: string; storage_used_bytes: number | null }>();
 
     let { data: profileRow, error: profileError, status: profileStatus } = await runProfileSelect();
@@ -364,7 +381,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
         const { data: planOnly, error: planError } = await supabase
           .from('profiles')
           .select('subscription_plan')
-          .eq('id', user.id)
+          .eq('id', sessionInfo.userId)
           .maybeSingle<{ subscription_plan: string }>();
         if (!planError && planOnly) {
           const plan = typeof planOnly.subscription_plan === 'string' ? planOnly.subscription_plan : 'free';
@@ -480,24 +497,14 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     // Must-have: verify session before any RLS/storage checks.
     let supabase: ReturnType<typeof requireSupabaseClient>;
     try {
-      supabase = requireSupabaseClient();
+      supabase = getSupabase();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Supabase is not configured.');
       return;
     }
 
-    const firstSession = await supabase.auth.getSession();
-    let session = firstSession.data.session;
-    if (!session) {
-      try {
-        await supabase.auth.refreshSession();
-      } catch {
-        // ignore
-      }
-      const secondSession = await supabase.auth.getSession();
-      session = secondSession.data.session;
-    }
-    if (!session) {
+    const sessionInfo = await ensureSession(supabase);
+    if (!sessionInfo) {
       toast.error('Session expired, please login again.');
       return;
     }
@@ -536,27 +543,9 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     setIsSubmitting(true);
     try {
-      // Must-have: verify session, attempt refresh once, and keep draft if still missing.
-      const firstSession = await supabase.auth.getSession();
-      let session = firstSession.data.session;
-      if (!session) {
-        try {
-          await supabase.auth.refreshSession();
-        } catch {
-          // ignore
-        }
-        const secondSession = await supabase.auth.getSession();
-        session = secondSession.data.session;
-      }
-      if (!session) {
-        toast.error('Session expired, please login again.');
-        return;
-      }
-
-      // Re-check user at submit time to avoid stale session checks.
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData.user;
-      if (!user) {
+      // Re-check session once at submit time.
+      const sessionInfo = await ensureSession(supabase);
+      if (!sessionInfo) {
         toast.error('Session expired, please login again.');
         return;
       }
@@ -593,29 +582,17 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
       const tradeId = result.tradeId;
       if (screenshots.length > 0 && tradeId) {
-        const supabase = requireSupabaseClient();
-
-        // Ensure session is present for storage operations.
-        const sessionData = await supabase.auth.getSession();
-        if (!sessionData.data.session) {
-          try {
-            await supabase.auth.refreshSession();
-          } catch {
-            // ignore
-          }
-        }
-        const { data: userData } = await supabase.auth.getUser();
-        const user = userData.user;
-        if (!user) {
+        const sessionInfo = await ensureSession(supabase);
+        if (!sessionInfo) {
           toast.error('Session expired, please login again.');
           return;
         }
 
-        const uploaded = [];
+        const uploaded: Array<{ path: string; sizeBytes: number }> = [];
         for (const file of screenshots) {
           const safeName = sanitizeFileName(file.name || 'screenshot.png');
           const unique = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
-          const path = `${user.id}/trades/${tradeId}/${unique}-${safeName}`;
+          const path = `${sessionInfo.userId}/trades/${tradeId}/${unique}-${safeName}`;
 
           const uploadOnce = () =>
             supabase.storage.from(SCREENSHOTS_BUCKET).upload(path, file, {
