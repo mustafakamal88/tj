@@ -22,6 +22,24 @@ const MAX_SCREENSHOTS_PER_TRADE = 3;
 const FREE_SCREENSHOT_STORAGE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
 const PRO_SCREENSHOT_STORAGE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB
 
+function isMissingColumnOrSchemaCacheError(error: unknown): boolean {
+  const message = typeof (error as any)?.message === 'string' ? String((error as any).message) : '';
+  const details = typeof (error as any)?.details === 'string' ? String((error as any).details) : '';
+  const hint = typeof (error as any)?.hint === 'string' ? String((error as any).hint) : '';
+  const code = typeof (error as any)?.code === 'string' ? String((error as any).code) : '';
+  const text = `${message} ${details} ${hint} ${code}`.toLowerCase();
+  return text.includes('schema cache') || (text.includes('column') && text.includes('does not exist'));
+}
+
+function toSafeNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 function getStorageLimitLabel(plan: string): string {
   if (plan === 'pro') return '20GB';
   if (plan === 'premium') return 'Unlimited';
@@ -93,7 +111,10 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     setScreenshots((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const canUploadScreenshots = async (): Promise<{ ok: true; profilePlan: string; storageUsedBytes: number } | { ok: false }> => {
+  const canUploadScreenshots = async (): Promise<
+    | { ok: true; profilePlan: string; storageUsedBytes: number; warning?: string }
+    | { ok: false }
+  > => {
     if (screenshots.length === 0) return { ok: true, profilePlan: 'free', storageUsedBytes: 0 };
 
     let supabase: ReturnType<typeof requireSupabaseClient>;
@@ -104,44 +125,80 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       return { ok: false };
     }
 
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError) {
-      toast.error('Unable to verify session. Please try again.');
-      return { ok: false };
+    // Ensure auth is initialized before hitting RLS-protected tables.
+    // In some browsers, the session can take a tick to hydrate when the dialog opens.
+    if (!authReady) {
+      try {
+        await supabase.auth.getSession();
+      } catch {
+        // ignore
+      }
     }
 
-    const user = sessionData.session?.user;
+    // Ensure we have a valid, current user token before hitting RLS-protected tables.
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      toast.error('Session expired, please login again.');
+      return { ok: false };
+    }
+    const user = userData.user;
     if (!user) {
       toast.error('Please login to upload screenshots.');
       return { ok: false };
     }
 
-    const { data: profileRow, error: profileError } = await supabase
+    const totalUploadBytes = screenshots.reduce((sum, file) => sum + file.size, 0);
+    const fallback = (warning: string) =>
+      ({ ok: true, profilePlan: 'free', storageUsedBytes: 0, warning } as const);
+
+    const { data: profileRow, error: profileError, status: profileStatus } = await supabase
       .from('profiles')
       .select('subscription_plan,storage_used_bytes')
       .eq('id', user.id)
       .maybeSingle<{ subscription_plan: string; storage_used_bytes: number | null }>();
 
     if (profileError) {
-      toast.error('Unable to check storage limits. Please try again.');
-      return { ok: false };
+      // PostgREST schema cache can lag immediately after migrations; retry with a narrower select.
+      if (isMissingColumnOrSchemaCacheError(profileError)) {
+        const { data: planOnly, error: planError } = await supabase
+          .from('profiles')
+          .select('subscription_plan')
+          .eq('id', user.id)
+          .maybeSingle<{ subscription_plan: string }>();
+        if (!planError && planOnly) {
+          const plan = typeof planOnly.subscription_plan === 'string' ? planOnly.subscription_plan : 'free';
+          if (!Number.isFinite(getStorageLimitBytes(plan))) {
+            return { ok: true, profilePlan: plan, storageUsedBytes: 0 };
+          }
+          return fallback('Storage check unavailable; upload may fail if you’re over limit.');
+        }
+      }
+
+      if (profileStatus === 401) {
+        toast.error('Session expired, please login again.');
+      } else if (profileStatus === 403) {
+        toast.error('No permission to check storage. Contact support.');
+      } else {
+        toast.error('Unable to check storage limits. Please try again.');
+      }
+
+      // Do not block the user completely when storage check is unavailable.
+      return fallback('Storage check unavailable; upload may fail if you’re over limit.');
     }
 
     if (!profileRow) {
       toast.error('Unable to load your profile. Please try again.');
-      return { ok: false };
+      return fallback('Storage check unavailable; upload may fail if you’re over limit.');
     }
 
     const plan = typeof profileRow.subscription_plan === 'string' ? profileRow.subscription_plan : 'free';
-    const storageUsedBytes =
-      typeof profileRow.storage_used_bytes === 'number' && profileRow.storage_used_bytes >= 0 ? profileRow.storage_used_bytes : 0;
+    const storageUsedBytes = Math.max(0, toSafeNumber(profileRow.storage_used_bytes));
 
     const limitBytes = getStorageLimitBytes(plan);
     if (!Number.isFinite(limitBytes)) {
       return { ok: true, profilePlan: plan, storageUsedBytes };
     }
 
-    const totalUploadBytes = screenshots.reduce((sum, file) => sum + file.size, 0);
     if (storageUsedBytes + totalUploadBytes > limitBytes) {
       toast.error(`Storage limit reached (${getStorageLimitLabel(plan)}). Upgrade to upload more screenshots.`);
       return { ok: false };
@@ -207,6 +264,9 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     const storageCheck = await canUploadScreenshots();
     if (!storageCheck.ok) return;
+    if (storageCheck.warning) {
+      toast.info(storageCheck.warning);
+    }
 
     const trade = {
       date: formData.date,
