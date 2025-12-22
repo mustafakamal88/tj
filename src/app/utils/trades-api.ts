@@ -81,6 +81,21 @@ function errorMessage(error: unknown): string {
   return 'Unknown error';
 }
 
+function isMissingColumnOrSchemaCacheError(error: unknown): boolean {
+  const message = typeof (error as any)?.message === 'string' ? String((error as any).message) : '';
+  const details = typeof (error as any)?.details === 'string' ? String((error as any).details) : '';
+  const hint = typeof (error as any)?.hint === 'string' ? String((error as any).hint) : '';
+  const code = typeof (error as any)?.code === 'string' ? String((error as any).code) : '';
+  const text = `${message} ${details} ${hint} ${code}`.toLowerCase();
+  return text.includes('schema cache') || (text.includes('column') && text.includes('does not exist'));
+}
+
+const TRADES_SELECT_FULL =
+  'id,date,close_time,open_time,account_login,ticket,position_id,commission,swap,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+
+const TRADES_SELECT_BASE =
+  'id,date,symbol,type,entry,exit,quantity,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+
 function mapTrade(row: TradeRow): Trade {
   const market: TradeMarket | undefined =
     row.market === 'forex_cfd' || row.market === 'futures' ? (row.market as TradeMarket) : undefined;
@@ -124,13 +139,22 @@ export async function fetchTrades(): Promise<Trade[]> {
     const { data: authData } = await supabase.auth.getUser();
     if (!authData.user) return [];
 
-	    const { data, error } = await supabase
-	      .from('trades')
-	      .select(
-	        'id,date,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at',
-	      )
-	      .order('date', { ascending: false })
-	      .returns<TradeRow[]>();
+    const select =
+      'id,date,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+
+    let { data, error } = await supabase
+      .from('trades')
+      .select(select)
+      .order('date', { ascending: false })
+      .returns<TradeRow[]>();
+
+    if (error && isMissingColumnOrSchemaCacheError(error)) {
+      ({ data, error } = await supabase
+        .from('trades')
+        .select(TRADES_SELECT_BASE)
+        .order('date', { ascending: false })
+        .returns<TradeRow[]>());
+    }
 
     if (error) {
       console.error('[trades-api] fetchTrades failed', error);
@@ -198,47 +222,61 @@ export async function fetchTradesForCalendarMonth(monthStart: Date, monthEndExcl
     const startDate = toLocalIsoDate(monthStart);
     const endDate = toLocalIsoDate(monthEndExclusive);
 
-	    const select =
-	      'id,date,close_time,open_time,account_login,ticket,position_id,commission,swap,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+    try {
+      const withCloseTime = await fetchTradesPage<TradeRow>(({ from, to }) =>
+        supabase
+          .from('trades')
+          .select(TRADES_SELECT_FULL)
+          .gte('close_time', startIso)
+          .lt('close_time', endIso)
+          .order('close_time', { ascending: false })
+          .range(from, to)
+          .returns<TradeRow[]>(),
+      );
 
-    const withCloseTime = await fetchTradesPage<TradeRow>(({ from, to }) =>
-      supabase
-        .from('trades')
-        .select(select)
-        .gte('close_time', startIso)
-        .lt('close_time', endIso)
-        .order('close_time', { ascending: false })
-        .range(from, to)
-        .returns<TradeRow[]>(),
-    );
+      const withOpenTime = await fetchTradesPage<TradeRow>(({ from, to }) =>
+        supabase
+          .from('trades')
+          .select(TRADES_SELECT_FULL)
+          .is('close_time', null)
+          .gte('open_time', startIso)
+          .lt('open_time', endIso)
+          .order('open_time', { ascending: false })
+          .range(from, to)
+          .returns<TradeRow[]>(),
+      );
 
-    const withOpenTime = await fetchTradesPage<TradeRow>(({ from, to }) =>
-      supabase
-        .from('trades')
-        .select(select)
-        .is('close_time', null)
-        .gte('open_time', startIso)
-        .lt('open_time', endIso)
-        .order('open_time', { ascending: false })
-        .range(from, to)
-        .returns<TradeRow[]>(),
-    );
+      const withDateOnly = await fetchTradesPage<TradeRow>(({ from, to }) =>
+        supabase
+          .from('trades')
+          .select(TRADES_SELECT_FULL)
+          .is('close_time', null)
+          .is('open_time', null)
+          .gte('date', startDate)
+          .lt('date', endDate)
+          .order('date', { ascending: false })
+          .range(from, to)
+          .returns<TradeRow[]>(),
+      );
 
-    const withDateOnly = await fetchTradesPage<TradeRow>(({ from, to }) =>
-      supabase
-        .from('trades')
-        .select(select)
-        .is('close_time', null)
-        .is('open_time', null)
-        .gte('date', startDate)
-        .lt('date', endDate)
-        .order('date', { ascending: false })
-        .range(from, to)
-        .returns<TradeRow[]>(),
-    );
+      const merged = [...withCloseTime, ...withOpenTime, ...withDateOnly];
+      return merged.map(mapTrade);
+    } catch (e) {
+      if (!isMissingColumnOrSchemaCacheError(e)) throw e;
 
-    const merged = [...withCloseTime, ...withOpenTime, ...withDateOnly];
-    return merged.map(mapTrade);
+      // Fallback for stale schema cache: rely on date-only filtering using the guaranteed `date` column.
+      const withDateOnly = await fetchTradesPage<TradeRow>(({ from, to }) =>
+        supabase
+          .from('trades')
+          .select(TRADES_SELECT_BASE)
+          .gte('date', startDate)
+          .lt('date', endDate)
+          .order('date', { ascending: false })
+          .range(from, to)
+          .returns<TradeRow[]>(),
+      );
+      return withDateOnly.map(mapTrade);
+    }
   } catch (error) {
     console.error('[trades-api] fetchTradesForCalendarMonth exception', error);
     return [];
