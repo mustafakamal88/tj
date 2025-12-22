@@ -126,13 +126,11 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     }
 
     // Ensure auth is initialized before hitting RLS-protected tables.
-    // In some browsers, the session can take a tick to hydrate when the dialog opens.
-    if (!authReady) {
-      try {
-        await supabase.auth.getSession();
-      } catch {
-        // ignore
-      }
+    // In some browsers/Codespaces, initial hydration can race the first submit.
+    try {
+      await supabase.auth.getSession();
+    } catch {
+      // ignore
     }
 
     // Ensure we have a valid, current user token before hitting RLS-protected tables.
