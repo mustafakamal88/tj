@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,7 +7,6 @@ import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
 import { createTrade } from '../utils/trades-api';
-import { getMyProfile } from '../utils/profile';
 import { requireSupabaseClient } from '../utils/supabase';
 import { calculatePnL, determineOutcome } from '../utils/trade-calculations';
 import type { TradeMarket, TradeSizeUnit, TradeType } from '../types/trade';
@@ -43,6 +42,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [screenshots, setScreenshots] = useState<File[]>([]);
+  const [authReady, setAuthReady] = useState(false);
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     symbol: '',
@@ -56,6 +56,28 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     setup: '',
     mistakes: '',
   });
+
+  useEffect(() => {
+    if (!open) return;
+
+    let active = true;
+    setAuthReady(false);
+
+    (async () => {
+      try {
+        const supabase = requireSupabaseClient();
+        await supabase.auth.getSession();
+      } catch {
+        // Ignore; authReady will still allow the UI to proceed.
+      } finally {
+        if (active) setAuthReady(true);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [open]);
 
   const handleAddScreenshots = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -74,24 +96,58 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
   const canUploadScreenshots = async (): Promise<{ ok: true; profilePlan: string; storageUsedBytes: number } | { ok: false }> => {
     if (screenshots.length === 0) return { ok: true, profilePlan: 'free', storageUsedBytes: 0 };
 
-    const profile = await getMyProfile();
-    if (!profile) {
+    let supabase: ReturnType<typeof requireSupabaseClient>;
+    try {
+      supabase = requireSupabaseClient();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Supabase is not configured.');
+      return { ok: false };
+    }
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      toast.error('Unable to verify session. Please try again.');
+      return { ok: false };
+    }
+
+    const user = sessionData.session?.user;
+    if (!user) {
       toast.error('Please login to upload screenshots.');
       return { ok: false };
     }
 
-    const limitBytes = getStorageLimitBytes(profile.subscriptionPlan);
-    if (!Number.isFinite(limitBytes)) {
-      return { ok: true, profilePlan: profile.subscriptionPlan, storageUsedBytes: profile.storageUsedBytes };
-    }
+    const { data: profileRow, error: profileError } = await supabase
+      .from('profiles')
+      .select('subscription_plan,storage_used_bytes')
+      .eq('id', user.id)
+      .maybeSingle<{ subscription_plan: string; storage_used_bytes: number | null }>();
 
-    const totalUploadBytes = screenshots.reduce((sum, file) => sum + file.size, 0);
-    if (profile.storageUsedBytes + totalUploadBytes > limitBytes) {
-      toast.error(`Storage limit reached (${getStorageLimitLabel(profile.subscriptionPlan)}). Upgrade to upload more screenshots.`);
+    if (profileError) {
+      toast.error('Unable to check storage limits. Please try again.');
       return { ok: false };
     }
 
-    return { ok: true, profilePlan: profile.subscriptionPlan, storageUsedBytes: profile.storageUsedBytes };
+    if (!profileRow) {
+      toast.error('Unable to load your profile. Please try again.');
+      return { ok: false };
+    }
+
+    const plan = typeof profileRow.subscription_plan === 'string' ? profileRow.subscription_plan : 'free';
+    const storageUsedBytes =
+      typeof profileRow.storage_used_bytes === 'number' && profileRow.storage_used_bytes >= 0 ? profileRow.storage_used_bytes : 0;
+
+    const limitBytes = getStorageLimitBytes(plan);
+    if (!Number.isFinite(limitBytes)) {
+      return { ok: true, profilePlan: plan, storageUsedBytes };
+    }
+
+    const totalUploadBytes = screenshots.reduce((sum, file) => sum + file.size, 0);
+    if (storageUsedBytes + totalUploadBytes > limitBytes) {
+      toast.error(`Storage limit reached (${getStorageLimitLabel(plan)}). Upgrade to upload more screenshots.`);
+      return { ok: false };
+    }
+
+    return { ok: true, profilePlan: plan, storageUsedBytes };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -188,10 +244,15 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       const tradeId = result.tradeId;
       if (screenshots.length > 0 && tradeId) {
         const supabase = requireSupabaseClient();
-        const { data: authData } = await supabase.auth.getUser();
-        const user = authData.user;
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          toast.error('Unable to verify session. Please try again.');
+          return;
+        }
+
+        const user = sessionData.session?.user;
         if (!user) {
-          toast.error('Please login to upload screenshots.');
+          toast.error('Session expired, please login again.');
           return;
         }
 
@@ -206,7 +267,14 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
             contentType: file.type,
           });
           if (uploadError) {
-            toast.error(`Screenshot upload failed: ${uploadError.message}`);
+            const statusCode = (uploadError as { statusCode?: number }).statusCode;
+            if (statusCode === 401) {
+              toast.error('Session expired, please login again.');
+            } else if (statusCode === 403) {
+              toast.error('No permission to upload. Check storage policy.');
+            } else {
+              toast.error(`Screenshot upload failed: ${uploadError.message}`);
+            }
             return;
           }
 
