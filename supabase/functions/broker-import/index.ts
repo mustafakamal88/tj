@@ -43,6 +43,10 @@ type TradeType = "long" | "short";
 const PROVIDER = "metaapi" as const;
 // Larger window reduces MetaApi round-trips while keeping each chunk bounded for serverless time limits.
 const IMPORT_WINDOW_DAYS = 60;
+// Quick import should return recent trades fast (UI expects last ~1 month).
+const QUICK_IMPORT_DAYS_DEFAULT = 30;
+// Use smaller windows so each MetaApi request stays bounded even for large accounts.
+const QUICK_IMPORT_WINDOW_DAYS = 10;
 // Process a few windows per request to reduce total round-trips while staying within Edge Function limits.
 const IMPORT_CONTINUE_MAX_CHUNKS = 3;
 const IMPORT_CONTINUE_CONCURRENCY = 3;
@@ -76,6 +80,15 @@ function toString(value: unknown): string | null {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return null;
+}
+
+function clampInt(value: unknown, min: number, max: number): number | null {
+  const raw = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(raw)) return null;
+  const n = Math.floor(raw);
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
 }
 
 function toNumber(value: unknown): number | null {
@@ -879,6 +892,85 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
   }
 }
 
+async function handleQuickImport(c: any, body: Record<string, unknown>): Promise<Response> {
+  try {
+    const userId = await requireUserId(c.req.raw);
+    const connectionId = toString(body.connectionId);
+    if (!connectionId) return fail(c, 400, "Missing connectionId.", "bad_request");
+
+    const days = clampInt(body.days, 1, 90) ?? QUICK_IMPORT_DAYS_DEFAULT;
+    const now = new Date();
+    const from = new Date(now);
+    from.setUTCDate(from.getUTCDate() - days);
+
+    const supabase = getSupabaseAdmin();
+    const { data: connection, error } = await supabase
+      .from("broker_connections")
+      .select("id,metaapi_account_id,platform,environment,server,login,status,user_id")
+      .eq("id", connectionId)
+      .eq("user_id", userId)
+      .eq("provider", PROVIDER)
+      .maybeSingle();
+
+    if (error) return fail(c, 500, error.message);
+    if (!connection) return fail(c, 404, "Connection not found.", "not_found");
+
+    const accountId = toString((connection as any).metaapi_account_id);
+    const accountLogin = toString((connection as any).login);
+    if (!accountId || !accountLogin) return fail(c, 500, "Connection missing MetaApi account id/login.");
+
+    const windowDays = Math.max(1, Math.min(days, QUICK_IMPORT_WINDOW_DAYS));
+    const total = computeTotalChunks(from, now, windowDays);
+
+    const state: ImportJobState = {
+      from: from.toISOString(),
+      to: now.toISOString(),
+      windowDays,
+      fetchedTotal: 0,
+      upsertedTotal: 0,
+      metaapiAccountId: accountId,
+      accountLogin,
+    };
+
+    const { data: job, error: jobErr } = await supabase
+      .from("import_jobs")
+      .insert({
+        user_id: userId,
+        connection_id: connectionId,
+        status: "queued",
+        progress: 0,
+        total,
+        message: stringifyJobState(state),
+      })
+      .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+      .single<ImportJobRow>();
+
+    if (jobErr || !job) return fail(c, 500, jobErr?.message ?? "Failed to create import job.");
+
+    console.log("[broker-import] quick import queued", {
+      userId,
+      connectionId,
+      jobId: job.id,
+      days,
+      windowDays,
+      totalChunks: total,
+    });
+
+    return ok(c, {
+      job,
+      range: { from: state.from, to: state.to, days, windowDays },
+    });
+  } catch (e) {
+    console.error("[broker-import] quick import error", e);
+    const message = e instanceof Error ? e.message : "Server error.";
+    const status = (e as any)?.status;
+    if (message.toLowerCase().includes("authorization")) return fail(c, 401, "Unauthorized.", "unauthorized");
+    return fail(c, Number.isFinite(status) ? status : 500, message, "quick_import_error", {
+      meta: (e as any)?.meta,
+    });
+  }
+}
+
 async function buildTradeRowsFromDeals(input: {
   deals: MetaApiDeal[];
   userId: string;
@@ -1302,6 +1394,7 @@ async function handleAction(c: any): Promise<Response> {
   if (action === "status") return handleStatus(c);
   if (action === "connect") return handleConnect(c, body);
   if (action === "import") return handleImport(c, body);
+  if (action === "quick_import") return handleQuickImport(c, body);
   if (action === "import_continue") return handleImportContinue(c, body);
   if (action === "import_job") return handleImportJob(c, body);
 

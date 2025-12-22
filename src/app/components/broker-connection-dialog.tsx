@@ -18,6 +18,7 @@ import {
   continueMetaApiImport,
   getMetaApiImportJob,
   startMetaApiImport,
+  startMetaApiQuickImport,
 } from '../utils/broker-import-api';
 import {
   METAAPI_BACKGROUND_IMPORT_EVENT,
@@ -27,7 +28,22 @@ import {
   type MetaApiBackgroundImport,
 } from '../utils/broker-import-background';
 
-const QUICK_IMPORT_DAYS = 60;
+const QUICK_IMPORT_DAYS = 30;
+
+function parseImportTotals(message: string | null | undefined): { fetchedTotal?: number; upsertedTotal?: number } {
+  if (!message) return {};
+  try {
+    const parsed = JSON.parse(message) as any;
+    const fetchedTotal = typeof parsed?.fetchedTotal === 'number' ? parsed.fetchedTotal : Number(parsed?.fetchedTotal);
+    const upsertedTotal = typeof parsed?.upsertedTotal === 'number' ? parsed.upsertedTotal : Number(parsed?.upsertedTotal);
+    return {
+      fetchedTotal: Number.isFinite(fetchedTotal) ? fetchedTotal : undefined,
+      upsertedTotal: Number.isFinite(upsertedTotal) ? upsertedTotal : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
 
 interface BrokerConnectionDialogProps {
   open: boolean;
@@ -204,16 +220,11 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
     setImporting(true);
     setImportMode('quick');
     try {
-      const now = new Date();
-      const from = new Date(now);
-      from.setDate(from.getDate() - QUICK_IMPORT_DAYS);
-
-      const fromIso = from.toISOString();
-      const toIso = now.toISOString();
-
-      const started = await startMetaApiImport({ connectionId, from: fromIso, to: toIso });
+      const started = await startMetaApiQuickImport({ connectionId, days: QUICK_IMPORT_DAYS });
       setJob(started.job);
       toast.success('Quick import started.');
+
+      const fromIso = started.range.from;
 
 	      const run = async (jobId: string) => {
 	        try {
@@ -221,7 +232,13 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
 	          setJob(res.job);
 
 	          if (res.job.status === 'succeeded') {
-	            toast.success('Import complete.');
+              const totals = parseImportTotals(res.job.message);
+              const imported = typeof totals.upsertedTotal === 'number' ? totals.upsertedTotal : undefined;
+              toast.success(
+                imported != null
+                  ? `Imported ${imported} trades (last ${QUICK_IMPORT_DAYS} days).`
+                  : `Import complete (last ${QUICK_IMPORT_DAYS} days).`,
+              );
 	            setLastQuickImport({ connectionId, from: fromIso });
 	            setImporting(false);
 	            await refresh();

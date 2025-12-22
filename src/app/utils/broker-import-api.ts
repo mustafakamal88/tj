@@ -165,6 +165,32 @@ export async function startMetaApiImport(input: ImportMetaApiInput): Promise<{ j
   return { job: mapJob(out.job) };
 }
 
+export type QuickImportRange = {
+  from: string;
+  to: string;
+  days: number;
+  windowDays: number;
+};
+
+export async function startMetaApiQuickImport(input: { connectionId: string; days?: number }): Promise<{
+  job: ImportJob;
+  range: QuickImportRange;
+}> {
+  const out = await invokeBrokerImport<{ job: any; range: any }>('quick_import', input);
+  if (!out?.range || typeof out.range !== 'object') {
+    throw new Error('Broker import returned an invalid response.');
+  }
+  return {
+    job: mapJob(out.job),
+    range: {
+      from: String(out.range?.from ?? ''),
+      to: String(out.range?.to ?? ''),
+      days: typeof out.range?.days === 'number' ? out.range.days : Number(out.range?.days ?? 30),
+      windowDays: typeof out.range?.windowDays === 'number' ? out.range.windowDays : Number(out.range?.windowDays ?? 10),
+    },
+  };
+}
+
 export type ContinueMetaApiImportResult =
   | { status: 'ok'; job: ImportJob; chunk?: { fetched: number; upserted: number } }
   | { status: 'rate_limited'; retryAt: string; message: string; job: ImportJob };
