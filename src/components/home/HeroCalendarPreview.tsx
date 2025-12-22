@@ -118,6 +118,19 @@ function buildWeekSummaries(): WeekSummary[] {
 function CalendarPreviewCard({ isDark }: { isDark: boolean }) {
   const cells = useMemo(() => buildCells(), []);
   const weekSummaries = useMemo(() => buildWeekSummaries(), []);
+  const summary = useMemo(() => {
+    const entries = Object.values(tradesByDay);
+    const tradedDays = entries.length;
+    const winningDays = entries.filter((t) => t.pnl > 0).length;
+    const totalTrades = entries.reduce((sum, t) => sum + t.trades, 0);
+    const net = entries.reduce((sum, t) => sum + t.pnl, 0);
+
+    return {
+      winRate: tradedDays ? Math.round((winningDays / tradedDays) * 100) : 0,
+      net,
+      totalTrades,
+    };
+  }, []);
 
   const frame = cn(
     'relative overflow-hidden rounded-3xl border shadow-xl',
@@ -289,17 +302,28 @@ function CalendarPreviewCard({ isDark }: { isDark: boolean }) {
         <div className="mt-4 grid grid-cols-3 gap-3">
           <div className={cn('rounded-2xl border px-4 py-3', isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200/70')}>
             <p className={cn('text-[10px] font-medium uppercase tracking-wide', muted)}>Win rate</p>
-            <p className="mt-1 text-sm font-semibold">70%</p>
+            <p className="mt-1 text-sm font-semibold tabular-nums">{summary.winRate}%</p>
           </div>
           <div className={cn('rounded-2xl border px-4 py-3', isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200/70')}>
             <p className={cn('text-[10px] font-medium uppercase tracking-wide', muted)}>Net P/L</p>
-            <p className={cn('mt-1 text-sm font-semibold tabular-nums', isDark ? 'text-emerald-300' : 'text-emerald-600')}>
-              +$1,705
+            <p
+              className={cn(
+                'mt-1 text-sm font-semibold tabular-nums',
+                summary.net >= 0
+                  ? isDark
+                    ? 'text-emerald-300'
+                    : 'text-emerald-600'
+                  : isDark
+                    ? 'text-rose-300'
+                    : 'text-rose-600',
+              )}
+            >
+              {formatPnl(summary.net)}
             </p>
           </div>
           <div className={cn('rounded-2xl border px-4 py-3', isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200/70')}>
             <p className={cn('text-[10px] font-medium uppercase tracking-wide', muted)}>Trades</p>
-            <p className="mt-1 text-sm font-semibold tabular-nums">34</p>
+            <p className="mt-1 text-sm font-semibold tabular-nums">{summary.totalTrades}</p>
           </div>
         </div>
       </div>
@@ -330,4 +354,3 @@ export function HeroCalendarPreview() {
     </div>
   );
 }
-
