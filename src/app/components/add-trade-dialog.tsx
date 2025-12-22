@@ -7,7 +7,7 @@ import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
 import { createTrade } from '../utils/trades-api';
-import { requireSupabaseClient } from '../utils/supabase';
+import { ensureSession, requireSupabaseClient, toastSessionExpiredOnce, toastSupabaseError } from '../utils/supabase';
 import { calculatePnL, determineOutcome } from '../utils/trade-calculations';
 import type { TradeMarket, TradeSizeUnit, TradeType } from '../types/trade';
 
@@ -135,16 +135,6 @@ function isPermissionStatus(status: unknown): boolean {
   return status === 403 || status === '403';
 }
 
-function looksLikeAuthErrorMessage(message: string): boolean {
-  const m = message.toLowerCase();
-  return m.includes('jwt') || m.includes('token') || m.includes('expired') || m.includes('not_authenticated');
-}
-
-function looksLikeRlsErrorMessage(message: string): boolean {
-  const m = message.toLowerCase();
-  return m.includes('row-level security') || m.includes('permission denied') || m.includes('not allowed');
-}
-
 export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -181,36 +171,6 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       supabaseRef.current = requireSupabaseClient();
     }
     return supabaseRef.current;
-  };
-
-  const ensureSession = async (
-    supabase: ReturnType<typeof requireSupabaseClient>,
-  ): Promise<{ userId: string } | null> => {
-    const first = await supabase.auth.getSession();
-    let session = first.data.session;
-    if (!session) {
-      try {
-        await supabase.auth.refreshSession();
-      } catch {
-        // ignore
-      }
-      const second = await supabase.auth.getSession();
-      session = second.data.session;
-    }
-    if (!session) return null;
-
-    const { data: userData } = await supabase.auth.getUser();
-    if (userData.user?.id) return { userId: userData.user.id };
-
-    // Rare: session exists but user fetch fails; refresh once.
-    try {
-      await supabase.auth.refreshSession();
-    } catch {
-      // ignore
-    }
-    const retryUser = await supabase.auth.getUser();
-    const userId = retryUser.data.user?.id;
-    return userId ? { userId } : null;
   };
 
   useEffect(() => {
@@ -350,8 +310,9 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       return { ok: false, reason: 'unknown' };
     }
 
-    const sessionInfo = await ensureSession(supabase);
-    if (!sessionInfo) return { ok: false, reason: 'not_authenticated' };
+    const session = await ensureSession(supabase);
+    if (!session) return { ok: false, reason: 'not_authenticated' };
+    const userId = session.user.id;
 
     const totalUploadBytes = files.reduce((sum, file) => sum + file.size, 0);
     const FALLBACK_WARNING = 'Storage check unavailable. Upload may fail if you exceed your plan limit.';
@@ -362,7 +323,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       supabase
         .from('profiles')
         .select('subscription_plan,storage_used_bytes')
-        .eq('id', sessionInfo.userId)
+        .eq('id', userId)
         .maybeSingle<{ subscription_plan: string; storage_used_bytes: number | null }>();
 
     let { data: profileRow, error: profileError, status: profileStatus } = await runProfileSelect();
@@ -382,7 +343,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
         const { data: planOnly, error: planError } = await supabase
           .from('profiles')
           .select('subscription_plan')
-          .eq('id', sessionInfo.userId)
+          .eq('id', userId)
           .maybeSingle<{ subscription_plan: string }>();
         if (!planError && planOnly) {
           const plan = typeof planOnly.subscription_plan === 'string' ? planOnly.subscription_plan : 'free';
@@ -503,14 +464,14 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     const sessionInfo = await ensureSession(supabase);
     if (!sessionInfo) {
-      toast.error('Session expired, please login again.');
+      toastSessionExpiredOnce();
       return;
     }
 
     const storageCheck = await canUploadScreenshots();
     if (!storageCheck.ok) {
       if (storageCheck.reason === 'not_authenticated') {
-        toast.error('Session expired, please login again.');
+        toastSessionExpiredOnce();
       }
       return;
     }
@@ -544,7 +505,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       // Re-check session once at submit time.
       const sessionInfo = await ensureSession(supabase);
       if (!sessionInfo) {
-        toast.error('Session expired, please login again.');
+        toastSessionExpiredOnce();
         return;
       }
 
@@ -563,11 +524,12 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
       if (!result.ok) {
         const msg = (result.message ?? '').trim();
-        if (result.reason === 'not_authenticated' || looksLikeAuthErrorMessage(msg)) {
-          toast.error('Session expired, please login again.');
-        } else if (looksLikeRlsErrorMessage(msg)) {
-          toast.error('Permission denied saving trade.');
+        if (result.reason === 'not_authenticated') {
+          const session = await ensureSession(supabase);
+          if (!session) toastSessionExpiredOnce();
+          else toast.error('Authentication error, please retry.');
         } else {
+          // The API surface here doesn't provide HTTP status codes, so keep messaging minimal.
           toast.error(msg || 'Failed to save trade.');
         }
         if (result.reason === 'upgrade_required') {
@@ -580,17 +542,19 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
       const tradeId = result.tradeId;
       if (screenshots.length > 0 && tradeId) {
-        const sessionInfo = await ensureSession(supabase);
-        if (!sessionInfo) {
-          toast.error('Session expired, please login again.');
+        const session = await ensureSession(supabase);
+        if (!session) {
+          toastSessionExpiredOnce();
           return;
         }
+
+        const userId = session.user.id;
 
         const uploaded: Array<{ path: string; sizeBytes: number }> = [];
         for (const file of screenshots) {
           const safeName = sanitizeFileName(file.name || 'screenshot.png');
           const unique = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
-          const path = `${sessionInfo.userId}/trades/${tradeId}/${unique}-${safeName}`;
+          const path = `${userId}/trades/${tradeId}/${unique}-${safeName}`;
 
           const uploadOnce = () =>
             supabase.storage.from(SCREENSHOTS_BUCKET).upload(path, file, {
@@ -610,13 +574,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
           }
           if (uploadError) {
             const statusCode = (uploadError as { statusCode?: number }).statusCode;
-            if (statusCode === 401) {
-              toast.error('Session expired, please login again.');
-            } else if (statusCode === 403) {
-              toast.error('No permission to upload. Check storage policy.');
-            } else {
-              toast.error(`Screenshot upload failed: ${uploadError.message}`);
-            }
+            await toastSupabaseError(supabase, { error: uploadError, status: statusCode });
             return;
           }
 
@@ -643,11 +601,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
             ({ error: metaError, status: metaStatus } = await metaInsertOnce());
           }
           if (metaError) {
-            if (isPermissionStatus(metaStatus) || looksLikeRlsErrorMessage(metaError.message ?? '')) {
-              toast.error('Permission denied saving screenshots.');
-            } else {
-            toast.error(`Screenshot tracking failed: ${metaError.message}`);
-            }
+            await toastSupabaseError(supabase, { error: metaError, status: metaStatus });
             return;
           }
 
@@ -667,11 +621,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
             ({ error: updateError, status: updateStatus } = await updateOnce());
           }
           if (updateError) {
-            if (isPermissionStatus(updateStatus) || looksLikeRlsErrorMessage(updateError.message ?? '')) {
-              toast.error('Permission denied saving trade.');
-            } else {
-            toast.error(`Failed to attach screenshots: ${updateError.message}`);
-            }
+            await toastSupabaseError(supabase, { error: updateError, status: updateStatus });
             return;
           }
         }
