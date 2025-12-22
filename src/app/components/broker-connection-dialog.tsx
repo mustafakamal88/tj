@@ -76,6 +76,19 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
     [connections, selectedId],
   );
 
+  const jobStatusText = useMemo(() => {
+    if (!job?.message) return null;
+    try {
+      const parsed = JSON.parse(job.message) as { statusText?: unknown } | null;
+      if (!parsed || typeof parsed !== 'object') return null;
+      const value = (parsed as any).statusText;
+      if (typeof value === 'string' && value.trim()) return value.trim();
+      return null;
+    } catch {
+      return null;
+    }
+  }, [job?.message]);
+
   const refresh = async () => {
     setLoadingStatus(true);
     try {
@@ -414,6 +427,9 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
                     {job.status}
                   </Badge>
                 </div>
+                {jobStatusText && (job.status === 'running' || job.status === 'queued') ? (
+                  <div className="text-xs text-muted-foreground">{jobStatusText}</div>
+                ) : null}
                 <Progress
                   value={job.total ? Math.min(100, Math.round((job.progress / job.total) * 100)) : 0}
                 />

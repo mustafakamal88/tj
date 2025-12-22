@@ -157,19 +157,141 @@ function metaApiAuthHeaders(): Record<string, string> {
   return { "auth-token": requireEnv("METAAPI_TOKEN"), Accept: "application/json" };
 }
 
-async function metaApiJson(url: string, init?: RequestInit): Promise<any> {
-  const res = await fetch(url, init);
-  const text = await res.text();
-  let json: any = null;
+type MetaApiRetryContext = {
+  attempt: number;
+  retryAfterMs: number;
+  recommendedRetryTime?: string;
+  meta?: unknown;
+};
+
+type MetaApiRetryOptions = {
+  maxRetries?: number;
+  onRateLimit?: (ctx: MetaApiRetryContext) => void | Promise<void>;
+};
+
+function safeJsonParse(value: string): unknown {
+  if (!value.trim()) return null;
   try {
-    json = text ? JSON.parse(text) : null;
+    return JSON.parse(value);
   } catch {
-    json = null;
+    return null;
   }
+}
+
+function metaApiRecommendedRetryTime(meta: unknown): string | null {
+  if (!isRecord(meta)) return null;
+  const direct = toString((meta as any).recommendedRetryTime);
+  if (direct) return direct;
+  const metadata = (meta as any).metadata;
+  if (isRecord(metadata)) {
+    const nested = toString((metadata as any).recommendedRetryTime);
+    if (nested) return nested;
+  }
+  const error = (meta as any).error;
+  if (isRecord(error)) {
+    const nested = toString((error as any).recommendedRetryTime);
+    if (nested) return nested;
+    const nestedMetadata = (error as any).metadata;
+    if (isRecord(nestedMetadata)) {
+      const nested2 = toString((nestedMetadata as any).recommendedRetryTime);
+      if (nested2) return nested2;
+    }
+  }
+  return null;
+}
+
+function retryAfterMsFromHeaders(headers: Headers): number | null {
+  const value = headers.get("retry-after");
+  if (!value) return null;
+  const asSeconds = Number(value);
+  if (Number.isFinite(asSeconds) && asSeconds >= 0) return Math.round(asSeconds * 1000);
+  const asDate = Date.parse(value);
+  if (Number.isFinite(asDate)) return Math.max(0, asDate - Date.now());
+  return null;
+}
+
+function computeMetaApiRetryDelayMs(input: {
+  attempt: number;
+  headers: Headers;
+  meta?: unknown;
+}): { delayMs: number; recommendedRetryTime?: string } {
+  const recommendedRetryTime = metaApiRecommendedRetryTime(input.meta);
+  if (recommendedRetryTime) {
+    const recommendedMs = Date.parse(recommendedRetryTime);
+    if (Number.isFinite(recommendedMs)) {
+      const delayMs = Math.min(10_000, Math.max(250, recommendedMs - Date.now() + 250));
+      return { delayMs, recommendedRetryTime };
+    }
+  }
+
+  const headerDelay = retryAfterMsFromHeaders(input.headers);
+  if (typeof headerDelay === "number" && Number.isFinite(headerDelay)) {
+    return { delayMs: Math.min(10_000, Math.max(250, headerDelay)), recommendedRetryTime: recommendedRetryTime ?? undefined };
+  }
+
+  const exp = Math.min(10_000, Math.round(500 * Math.pow(2, Math.max(0, input.attempt))));
+  return { delayMs: exp, recommendedRetryTime: recommendedRetryTime ?? undefined };
+}
+
+async function sleep(ms: number): Promise<void> {
+  if (!Number.isFinite(ms) || ms <= 0) return;
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function metaApiRequestWithRetry(
+  url: string,
+  init?: RequestInit,
+  opts?: MetaApiRetryOptions,
+): Promise<Response> {
+  const maxRetries = Math.max(0, Math.floor(opts?.maxRetries ?? 12));
+  let lastMeta: unknown = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, init);
+    if (res.status !== 429) return res;
+
+    const text = await res.text();
+    const meta = safeJsonParse(text) ?? (text ? { raw: text } : null);
+    lastMeta = meta;
+
+    const { delayMs, recommendedRetryTime } = computeMetaApiRetryDelayMs({ attempt, headers: res.headers, meta });
+
+    if (attempt >= maxRetries) {
+      const err = new Error("MetaApi rate limit exceeded. Please try again in a moment.");
+      (err as any).status = 429;
+      (err as any).meta = meta;
+      (err as any).retryAfterMs = delayMs;
+      (err as any).recommendedRetryTime = recommendedRetryTime;
+      throw err;
+    }
+
+    try {
+      await opts?.onRateLimit?.({
+        attempt: attempt + 1,
+        retryAfterMs: delayMs,
+        recommendedRetryTime: recommendedRetryTime ?? undefined,
+        meta,
+      });
+    } catch (e) {
+      console.warn("[broker-import] rate limit callback failed", e);
+    }
+
+    await sleep(delayMs);
+  }
+
+  const err = new Error("MetaApi rate limit exceeded. Please try again in a moment.");
+  (err as any).status = 429;
+  (err as any).meta = lastMeta;
+  throw err;
+}
+
+async function metaApiJson(url: string, init?: RequestInit, opts?: MetaApiRetryOptions): Promise<any> {
+  const res = await metaApiRequestWithRetry(url, init, opts);
+  const text = await res.text();
+  const json = text ? safeJsonParse(text) : null;
   if (!res.ok) {
     const message =
-      json?.message ??
-      json?.error?.message ??
+      (isRecord(json) ? ((json as any).message ?? (json as any)?.error?.message) : null) ??
       (typeof text === "string" && text.length ? text : `MetaApi error (HTTP ${res.status}).`);
     const err = new Error(message);
     (err as any).status = res.status;
@@ -301,6 +423,8 @@ type ImportJobState = {
   metaapiAccountId?: string;
   accountLogin?: string;
   lastChunk?: { from: string; to: string; fetched: number; upserted: number };
+  statusText?: string;
+  rateLimitedUntil?: string;
   error?: string;
 };
 
@@ -327,6 +451,10 @@ function parseJobState(message: string | null | undefined): ImportJobState | nul
       const lcUpserted = toNumber(parsed.lastChunk.upserted) ?? 0;
       if (lcFrom && lcTo) out.lastChunk = { from: lcFrom, to: lcTo, fetched: lcFetched, upserted: lcUpserted };
     }
+    const statusText = toString((parsed as any).statusText);
+    if (statusText) out.statusText = statusText;
+    const rateLimitedUntil = toString((parsed as any).rateLimitedUntil);
+    if (rateLimitedUntil) out.rateLimitedUntil = rateLimitedUntil;
     const err = toString(parsed.error);
     if (err) out.error = err;
     return out;
@@ -382,12 +510,47 @@ async function upsertMetaApiTrades(
   return upserted;
 }
 
-async function metaApiFetchDealsByTimeRange(accountId: string, fromIso: string, toIso: string): Promise<MetaApiDeal[]> {
-  const base = metaApiClientBaseUrl();
-  const url =
-    `${base}/users/current/accounts/${encodeURIComponent(accountId)}/history-deals/time/${encodeURIComponent(fromIso)}/${encodeURIComponent(toIso)}`;
-  const json = await metaApiJson(url, { method: "GET", headers: metaApiAuthHeaders() });
-  return Array.isArray(json) ? (json as MetaApiDeal[]) : [];
+const metaApiHistoryLocks = new Map<string, { locked: boolean; waiters: Array<() => void> }>();
+
+async function withMetaApiHistoryLock<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+  const key = accountId.trim();
+  if (!key) return await work();
+
+  const lock = metaApiHistoryLocks.get(key) ?? { locked: false, waiters: [] };
+  metaApiHistoryLocks.set(key, lock);
+
+  if (lock.locked) {
+    await new Promise<void>((resolve) => lock.waiters.push(resolve));
+  }
+  lock.locked = true;
+
+  try {
+    return await work();
+  } finally {
+    const next = lock.waiters.shift();
+    if (next) {
+      // Hand off the lock without allowing a new caller to barge in.
+      next();
+    } else {
+      lock.locked = false;
+      metaApiHistoryLocks.delete(key);
+    }
+  }
+}
+
+async function metaApiFetchDealsByTimeRange(
+  accountId: string,
+  fromIso: string,
+  toIso: string,
+  opts?: MetaApiRetryOptions,
+): Promise<MetaApiDeal[]> {
+  return await withMetaApiHistoryLock(accountId, async () => {
+    const base = metaApiClientBaseUrl();
+    const url =
+      `${base}/users/current/accounts/${encodeURIComponent(accountId)}/history-deals/time/${encodeURIComponent(fromIso)}/${encodeURIComponent(toIso)}`;
+    const json = await metaApiJson(url, { method: "GET", headers: metaApiAuthHeaders() }, opts);
+    return Array.isArray(json) ? (json as MetaApiDeal[]) : [];
+  });
 }
 
 function dealKey(positionId: string, ticket: string): string {
@@ -832,6 +995,14 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
       return fail(c, 500, "Import job has an invalid date range.", "job_invalid");
     }
 
+    if (state.statusText && state.rateLimitedUntil) {
+      const untilMs = Date.parse(state.rateLimitedUntil);
+      if (Number.isFinite(untilMs) && untilMs <= Date.now()) {
+        delete state.statusText;
+        delete state.rateLimitedUntil;
+      }
+    }
+
     const chunkIndex = job.progress;
     if (chunkIndex >= job.total) {
       const { data: updated } = await supabase
@@ -891,6 +1062,25 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
       return ok(c, { job: updated ?? { ...job, status: "succeeded", progress: job.total } });
     }
 
+    const rateLimitTracker = { lastDbUpdateMs: 0 };
+    const onRateLimit = async (ctx: MetaApiRetryContext) => {
+      state.statusText = "Rate limited, retrying…";
+      state.rateLimitedUntil = new Date(Date.now() + ctx.retryAfterMs).toISOString();
+
+      const nowMs = Date.now();
+      if (nowMs - rateLimitTracker.lastDbUpdateMs < 4_000) return;
+      rateLimitTracker.lastDbUpdateMs = nowMs;
+
+      const { error: updateErr } = await supabase
+        .from("import_jobs")
+        .update({ message: stringifyJobState(state) })
+        .eq("id", jobId)
+        .eq("user_id", userId);
+      if (updateErr) {
+        console.warn("[broker-import] failed to persist rate limit status", updateErr);
+      }
+    };
+
     const results = await runPromisePool(work, IMPORT_CONTINUE_CONCURRENCY, async (chunk) => {
       console.log("[broker-import] import chunk", {
         userId,
@@ -904,6 +1094,7 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
         accountId,
         toMetaApiTimeString(chunk.start),
         toMetaApiTimeString(chunk.end),
+        { onRateLimit },
       );
       const rows = await buildTradeRowsFromDeals({ deals, userId, accountLogin });
       const upserted = rows.length ? await upsertMetaApiTrades(supabase, rows) : 0;
