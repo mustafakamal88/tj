@@ -9,6 +9,7 @@ import { BillingPage } from './components/billing-page';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
 import { OnboardingDialog } from './components/onboarding-dialog';
+import { MetaApiImportRunner } from './components/metaapi-import-runner';
 import { ThemeProvider } from './components/theme-provider';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
@@ -181,6 +182,7 @@ function AppContent() {
         onOpenChange={handleAuthDialogOpenChange}
         defaultTab={authDialogDefaultTab}
       />
+      <MetaApiImportRunner />
       <OnboardingDialog
         open={Boolean(user && !authLoading && !profileLoading && profile && !profile.onboardingCompletedAt)}
         userId={user?.id ?? ''}

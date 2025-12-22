@@ -43,8 +43,9 @@ type TradeType = "long" | "short";
 const PROVIDER = "metaapi" as const;
 // Larger window reduces MetaApi round-trips while keeping each chunk bounded for serverless time limits.
 const IMPORT_WINDOW_DAYS = 60;
-const IMPORT_CONTINUE_MAX_CHUNKS = 2;
-const IMPORT_CONTINUE_CONCURRENCY = 2;
+// Process a few windows per request to reduce total round-trips while staying within Edge Function limits.
+const IMPORT_CONTINUE_MAX_CHUNKS = 3;
+const IMPORT_CONTINUE_CONCURRENCY = 3;
 const IMPORT_UPSERT_CHUNK_SIZE = 500;
 
 const app = new Hono();

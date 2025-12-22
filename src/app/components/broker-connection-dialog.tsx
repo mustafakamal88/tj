@@ -16,8 +16,18 @@ import {
   type BrokerPlatform,
   type ImportJob,
   continueMetaApiImport,
+  getMetaApiImportJob,
   startMetaApiImport,
 } from '../utils/broker-import-api';
+import {
+  METAAPI_BACKGROUND_IMPORT_EVENT,
+  METAAPI_IMPORT_JOB_UPDATED_EVENT,
+  readMetaApiBackgroundImport,
+  writeMetaApiBackgroundImport,
+  type MetaApiBackgroundImport,
+} from '../utils/broker-import-background';
+
+const QUICK_IMPORT_DAYS = 60;
 
 interface BrokerConnectionDialogProps {
   open: boolean;
@@ -45,7 +55,15 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
   const [connecting, setConnecting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [job, setJob] = useState<ImportJob | null>(null);
+  const [importMode, setImportMode] = useState<'quick' | 'full' | null>(null);
+  const [lastQuickImport, setLastQuickImport] = useState<{ connectionId: string; from: string } | null>(null);
+  const [backgroundImport, setBackgroundImport] = useState<MetaApiBackgroundImport | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return readMetaApiBackgroundImport();
+  });
   const continueTimerRef = useRef<number | null>(null);
+  const jobIdRef = useRef<string | null>(null);
+  const backgroundJobIdRef = useRef<string | null>(null);
 
   const [platform, setPlatform] = useState<BrokerPlatform>('mt5');
   const [environment, setEnvironment] = useState<BrokerEnvironment>('demo');
@@ -75,21 +93,64 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
   useEffect(() => {
     if (!open) return;
     void refresh();
+
+    const bg = readMetaApiBackgroundImport();
+    setBackgroundImport(bg);
+    if (!bg) return;
+
+    setImportMode('full');
+    void (async () => {
+      try {
+        const res = await getMetaApiImportJob({ jobId: bg.jobId });
+        setJob(res.job);
+      } catch (e) {
+        console.error('[broker] load import job failed', e);
+      }
+    })();
   }, [open]);
 
   useEffect(() => {
-    // Stop background polling when dialog closes.
+    // Stop local polling when dialog closes.
     if (open) return;
     if (continueTimerRef.current) window.clearTimeout(continueTimerRef.current);
     continueTimerRef.current = null;
     setJob(null);
     setImporting(false);
+    setImportMode(null);
   }, [open]);
 
   useEffect(() => {
     return () => {
       if (continueTimerRef.current) window.clearTimeout(continueTimerRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    jobIdRef.current = job?.id ?? null;
+  }, [job]);
+
+  useEffect(() => {
+    backgroundJobIdRef.current = backgroundImport?.jobId ?? null;
+  }, [backgroundImport]);
+
+  useEffect(() => {
+    const sync = () => setBackgroundImport(readMetaApiBackgroundImport());
+    sync();
+    window.addEventListener(METAAPI_BACKGROUND_IMPORT_EVENT, sync);
+    return () => window.removeEventListener(METAAPI_BACKGROUND_IMPORT_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    const handle = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { job?: ImportJob } | undefined;
+      const nextJob = detail?.job;
+      if (!nextJob) return;
+      const active = jobIdRef.current ?? backgroundJobIdRef.current;
+      if (!active || nextJob.id !== active) return;
+      setJob(nextJob);
+    };
+    window.addEventListener(METAAPI_IMPORT_JOB_UPDATED_EVENT, handle as EventListener);
+    return () => window.removeEventListener(METAAPI_IMPORT_JOB_UPDATED_EVENT, handle as EventListener);
   }, []);
 
   const handleConnect = async () => {
@@ -126,11 +187,20 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
       return;
     }
 
+    const connectionId = selectedId;
     setImporting(true);
+    setImportMode('quick');
     try {
-      const started = await startMetaApiImport({ connectionId: selectedId });
+      const now = new Date();
+      const from = new Date(now);
+      from.setDate(from.getDate() - QUICK_IMPORT_DAYS);
+
+      const fromIso = from.toISOString();
+      const toIso = now.toISOString();
+
+      const started = await startMetaApiImport({ connectionId, from: fromIso, to: toIso });
       setJob(started.job);
-      toast.success('Import started. This may take a few minutes for large histories.');
+      toast.success('Quick import started.');
 
       const run = async (jobId: string) => {
         try {
@@ -139,6 +209,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
 
           if (res.job.status === 'succeeded') {
             toast.success('Import complete.');
+            setLastQuickImport({ connectionId, from: fromIso });
             setImporting(false);
             await refresh();
             onImportComplete?.();
@@ -160,7 +231,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
         }
       };
 
-      continueTimerRef.current = window.setTimeout(() => void run(started.job.id), 200);
+      void run(started.job.id);
     } catch (e) {
       console.error('[broker] import failed', e);
       toast.error(e instanceof Error ? e.message : 'Import failed.');
@@ -169,6 +240,45 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
       // importing flag is managed by the job loop
     }
   };
+
+  const handleFullHistoryImport = async () => {
+    if (!selectedId) {
+      toast.error('Select a connection first.');
+      return;
+    }
+
+    const connectionId = selectedId;
+    setImporting(true);
+    setImportMode('full');
+    try {
+      const to = lastQuickImport?.connectionId === connectionId ? lastQuickImport.from : undefined;
+      const started = await startMetaApiImport({ connectionId, ...(to ? { to } : {}) });
+      setJob(started.job);
+      writeMetaApiBackgroundImport({
+        jobId: started.job.id,
+        connectionId,
+        mode: 'full',
+        startedAt: new Date().toISOString(),
+        to,
+      });
+      toast.success('Full history import started in background.');
+    } catch (e) {
+      console.error('[broker] import failed', e);
+      toast.error(e instanceof Error ? e.message : 'Import failed.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const jobLabel = job
+    ? importMode === 'quick'
+      ? `Quick import (last ${QUICK_IMPORT_DAYS} days)`
+      : 'Full history (running in background)'
+    : null;
+
+  const disableImports = importing || !selectedId || Boolean(backgroundImport) || job?.status === 'running' || job?.status === 'queued';
+  const fullHistoryLabel =
+    lastQuickImport?.connectionId === selectedId ? 'Continue full history in background' : 'Import Full History';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -299,7 +409,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
             {job ? (
               <div className="rounded-md border p-3 text-sm space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Importing trades</span>
+                  <span className="text-muted-foreground">{jobLabel ?? 'Importing trades'}</span>
                   <Badge variant={job.status === 'failed' ? 'destructive' : job.status === 'succeeded' ? 'default' : 'secondary'}>
                     {job.status}
                   </Badge>
@@ -317,12 +427,25 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
             ) : null}
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button
-                onClick={() => void handleImport()}
-                disabled={importing || !selectedId}
+                variant="outline"
+                onClick={() => void handleFullHistoryImport()}
+                disabled={disableImports}
                 className="gap-2"
               >
-                {importing ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white" /> : null}
-                Import Full History
+                {importing && importMode === 'full' ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white" />
+                ) : null}
+                {fullHistoryLabel}
+              </Button>
+              <Button
+                onClick={() => void handleImport()}
+                disabled={disableImports}
+                className="gap-2"
+              >
+                {importing && importMode === 'quick' ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white" />
+                ) : null}
+                Quick Import
               </Button>
             </div>
           </div>
