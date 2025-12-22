@@ -90,6 +90,22 @@ function isMissingColumnOrSchemaCacheError(error: unknown): boolean {
   return text.includes('schema cache') || (text.includes('column') && text.includes('does not exist'));
 }
 
+async function getAuthenticatedUser(): Promise<{ id: string } | null> {
+  const supabase = requireSupabaseClient();
+
+  // Warm session hydration before querying RLS-protected tables.
+  // In some browsers the initial dashboard load can race auth initialization.
+  try {
+    await supabase.auth.getSession();
+  } catch {
+    // ignore
+  }
+
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) return null;
+  return { id: data.user.id };
+}
+
 const TRADES_SELECT_FULL =
   'id,date,close_time,open_time,account_login,ticket,position_id,commission,swap,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
 
@@ -136,8 +152,8 @@ function mapTrade(row: TradeRow): Trade {
 export async function fetchTrades(): Promise<Trade[]> {
   try {
     const supabase = requireSupabaseClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) return [];
+    const user = await getAuthenticatedUser();
+    if (!user) return [];
 
     const select =
       'id,date,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
@@ -171,6 +187,8 @@ export async function fetchTrades(): Promise<Trade[]> {
 async function getMyTradeCount(): Promise<number> {
   try {
     const supabase = requireSupabaseClient();
+    const user = await getAuthenticatedUser();
+    if (!user) return 0;
     const { count, error } = await supabase.from('trades').select('id', { count: 'exact', head: true });
     if (error) {
       console.error('[trades-api] getMyTradeCount failed', error);
@@ -214,8 +232,8 @@ async function fetchTradesPage<T extends TradeRow>(
 export async function fetchTradesForCalendarMonth(monthStart: Date, monthEndExclusive: Date): Promise<Trade[]> {
   try {
     const supabase = requireSupabaseClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) return [];
+    const user = await getAuthenticatedUser();
+    if (!user) return [];
 
     const startIso = monthStart.toISOString();
     const endIso = monthEndExclusive.toISOString();
