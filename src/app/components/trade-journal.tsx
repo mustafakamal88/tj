@@ -10,6 +10,7 @@ import { formatCurrency, formatPercentage } from '../utils/trade-calculations';
 import { filterTradesForFreeUser } from '../utils/data-limit';
 import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
+import { getEffectivePlan, hasPaidEntitlement } from '../utils/entitlements';
 import type { Trade } from '../types/trade';
 import { format } from 'date-fns';
 import { AddTradeDialog } from './add-trade-dialog';
@@ -25,8 +26,8 @@ export function TradeJournal() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'long' | 'short'>('all');
   const [filterOutcome, setFilterOutcome] = useState<'all' | 'win' | 'loss' | 'breakeven'>('all');
-  const { plan, isActive, refresh: refreshProfile } = useProfile();
-  const effectivePlan = isActive ? plan : 'free';
+  const { profile, loading: profileLoading, refresh: refreshProfile } = useProfile();
+  const effectivePlan = getEffectivePlan(profile);
 
   const refreshTrades = async () => {
     const allTrades = await fetchTrades();
@@ -84,13 +85,13 @@ export function TradeJournal() {
           <div className="flex gap-2">
             <Button
               variant="outline"
+              disabled={profileLoading}
               onClick={() => void (async () => {
+                if (profileLoading) return;
                 const latest = await refreshProfile();
-                const status = (latest?.subscriptionStatus ?? '').toLowerCase();
-                const hasPaidAccess =
-                  (latest?.subscriptionPlan === 'pro' || latest?.subscriptionPlan === 'premium') &&
-                  (status === 'active' || status === 'trialing');
-                if (!hasPaidAccess) {
+                const entitlementProfile = latest ?? profile;
+                if (!entitlementProfile) return;
+                if (!hasPaidEntitlement(entitlementProfile)) {
                   requestUpgrade('import');
                   return;
                 }

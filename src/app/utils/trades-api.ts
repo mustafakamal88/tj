@@ -6,6 +6,7 @@ import {
 } from './data-limit';
 import { getMyProfile } from './profile';
 import { requireSupabaseClient } from './supabase';
+import { hasPaidEntitlement } from './entitlements';
 
 export type AddTradeResult =
   | { ok: true }
@@ -245,9 +246,7 @@ async function canAddTrades(tradeCountToAdd: number): Promise<AddTradeResult> {
     return { ok: false, reason: 'not_authenticated', message: 'Please login to add trades.' };
   }
 
-  const status = (profile.subscriptionStatus ?? '').toLowerCase();
-  const paidActive = profile.subscriptionPlan !== 'free' && (status === 'active' || status === 'trialing');
-  if (paidActive) return { ok: true };
+  if (hasPaidEntitlement(profile)) return { ok: true };
 
   // MVP rule: imports (bulk adds) require Pro/Premium even during the trial.
   if (tradeCountToAdd > 1) {

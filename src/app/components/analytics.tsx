@@ -18,11 +18,12 @@ import { TrendingUp, TrendingDown, Target, DollarSign, Percent, Activity } from 
 import { format } from 'date-fns';
 import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
+import { getEffectivePlan } from '../utils/entitlements';
 
 export function Analytics() {
   const [trades, setTrades] = useState<Trade[]>([]);
-  const { plan, isActive } = useProfile();
-  const effectivePlan = isActive ? plan : 'free';
+  const { profile } = useProfile();
+  const effectivePlan = getEffectivePlan(profile);
   const access = getFeatureAccess(effectivePlan);
 
   const refreshTrades = async () => {

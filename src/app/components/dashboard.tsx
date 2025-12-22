@@ -7,6 +7,7 @@ import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/tr
 import { filterTradesForFreeUser } from '../utils/data-limit';
 import { requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
+import { getEffectivePlan, hasPaidEntitlement } from '../utils/entitlements';
 import { getSupabaseClient } from '../utils/supabase';
 import { toast } from 'sonner';
 import type { Trade } from '../types/trade';
@@ -31,15 +32,15 @@ export function Dashboard() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isBrokerDialogOpen, setIsBrokerDialogOpen] = useState(false);
-  const { plan, isActive, refresh: refreshProfile } = useProfile();
-  const effectivePlan = isActive ? plan : 'free';
+  const { profile, loading: profileLoading, refresh: refreshProfile } = useProfile();
+  const effectivePlan = getEffectivePlan(profile);
   const paidActiveRef = useRef(false);
   const handledReturnRef = useRef(false);
   const pollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    paidActiveRef.current = isActive && (plan === 'pro' || plan === 'premium');
-  }, [isActive, plan]);
+    paidActiveRef.current = hasPaidEntitlement(profile);
+  }, [profile]);
 
   const refreshTrades = async () => {
     const start = startOfMonth(currentMonth);
@@ -229,13 +230,13 @@ export function Dashboard() {
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
+              disabled={profileLoading}
               onClick={() => void (async () => {
+                if (profileLoading) return;
                 const latest = await refreshProfile();
-                const status = (latest?.subscriptionStatus ?? '').toLowerCase();
-                const hasPaidAccess =
-                  (latest?.subscriptionPlan === 'pro' || latest?.subscriptionPlan === 'premium') &&
-                  (status === 'active' || status === 'trialing');
-                if (!hasPaidAccess) {
+                const entitlementProfile = latest ?? profile;
+                if (!entitlementProfile) return;
+                if (!hasPaidEntitlement(entitlementProfile)) {
                   requestUpgrade('broker_import');
                   return;
                 }
@@ -248,13 +249,13 @@ export function Dashboard() {
             </Button>
             <Button
               variant="outline"
+              disabled={profileLoading}
               onClick={() => void (async () => {
+                if (profileLoading) return;
                 const latest = await refreshProfile();
-                const status = (latest?.subscriptionStatus ?? '').toLowerCase();
-                const hasPaidAccess =
-                  (latest?.subscriptionPlan === 'pro' || latest?.subscriptionPlan === 'premium') &&
-                  (status === 'active' || status === 'trialing');
-                if (!hasPaidAccess) {
+                const entitlementProfile = latest ?? profile;
+                if (!entitlementProfile) return;
+                if (!hasPaidEntitlement(entitlementProfile)) {
                   requestUpgrade('import');
                   return;
                 }

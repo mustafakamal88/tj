@@ -52,11 +52,16 @@ function useProfileState(): ProfileContextValue {
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
   const refreshSeqRef = useRef(0);
+  const profileRef = useRef<Profile | null>(null);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
 
   const refresh = useCallback(async (): Promise<Profile | null> => {
     const seq = ++refreshSeqRef.current;
     const supabase = getSupabaseClient();
-    let nextProfile: Profile | null = null;
+    let nextProfile: Profile | null = profileRef.current;
 
     if (!supabase) {
       if (!mountedRef.current) return;
@@ -91,6 +96,10 @@ function useProfileState(): ProfileContextValue {
         return null;
       }
 
+      if (nextProfile && nextProfile.id !== user.id) {
+        nextProfile = null;
+      }
+
       const { data, error } = await supabase
         .from('profiles')
         .select(
@@ -105,13 +114,11 @@ function useProfileState(): ProfileContextValue {
 
       if (error) {
         console.error('[useProfile] profiles select failed', error);
-        nextProfile = null;
-        return null;
+        return nextProfile;
       }
 
       if (!data) {
-        nextProfile = null;
-        return null;
+        return nextProfile;
       }
 
       nextProfile = {
@@ -126,9 +133,16 @@ function useProfileState(): ProfileContextValue {
         primaryChallenge: data.primary_challenge ? String(data.primary_challenge) : null,
         onboardingCompletedAt: data.onboarding_completed_at ? String(data.onboarding_completed_at) : null,
       };
+
+      if (DEBUG_PROFILE) {
+        console.log('[useProfile] entitlements', {
+          plan: nextProfile.subscriptionPlan,
+          status: nextProfile.subscriptionStatus,
+          currentPeriodEnd: nextProfile.currentPeriodEnd,
+        });
+      }
     } catch (err) {
       console.error('[useProfile] refresh failed', err);
-      nextProfile = null;
     } finally {
       window.clearTimeout(loadingTimeout);
       if (!mountedRef.current) return;
@@ -160,7 +174,7 @@ function useProfileState(): ProfileContextValue {
 
   const plan = useMemo<SubscriptionPlan>(() => profile?.subscriptionPlan ?? 'free', [profile]);
   const isActive = useMemo<boolean>(() => {
-    const status = (profile?.subscriptionStatus ?? '').toLowerCase();
+    const status = (profile?.subscriptionStatus ?? '').toLowerCase().trim();
     return status === 'active' || status === 'trialing';
   }, [profile]);
 

@@ -9,6 +9,7 @@ import { useProfile } from '../utils/use-profile';
 import { useAuth } from '../utils/auth';
 import { invokeBilling, invokeBillingHealth, invokeBillingUrl } from '../utils/billing';
 import { getSupabaseClient } from '../utils/supabase';
+import { hasPaidEntitlement } from '../utils/entitlements';
 
 type PaymentMethod = 'stripe' | 'paypal' | 'applepay' | 'googlepay' | 'crypto';
 
@@ -27,7 +28,7 @@ export function BillingPage() {
   const enableGooglePay = isEnabled('VITE_ENABLE_GOOGLEPAY');
   const enableCrypto = isEnabled('VITE_ENABLE_CRYPTO');
   const usdtAddress = (import.meta.env.VITE_USDT_ADDRESS as string | undefined) ?? '';
-  const isPaidActive = !profileLoading && isActive && (plan === 'pro' || plan === 'premium');
+  const isPaidActive = !profileLoading && !!profile && hasPaidEntitlement(profile);
   const currentPlan: SubscriptionPlan | null = profileLoading ? null : isPaidActive ? plan : 'free';
   const isProActive = isPaidActive && plan === 'pro';
   const isPremiumActive = isPaidActive && plan === 'premium';
@@ -172,7 +173,7 @@ export function BillingPage() {
             <p className="text-muted-foreground">Upgrade to Pro/Premium to unlock imports, broker connect, and advanced analytics.</p>
             </div>
           <div className="flex items-center gap-2">
-            {profileLoading ? (
+            {profileLoading || !profile ? (
               <Badge variant="secondary">Loading…</Badge>
             ) : (
               <Badge

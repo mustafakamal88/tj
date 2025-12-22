@@ -94,9 +94,11 @@ function AppContent() {
       const ok = await ensureProfile(user);
       if (!ok) {
         toast.error('Profile setup failed. Apply the Supabase schema/policies, then reload.');
+        return;
       }
+      await refreshProfile();
     })();
-  }, [user]);
+  }, [user, refreshProfile]);
 
   useEffect(() => {
     if (authLoading) return;
