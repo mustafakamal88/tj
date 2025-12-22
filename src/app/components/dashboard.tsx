@@ -316,7 +316,7 @@ export function Dashboard() {
         </div>
 
         {/* Calendar Card */}
-        <Card className="p-6">
+        <Card className="p-4 sm:p-6">
           {/* Calendar Header */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-4">
@@ -343,18 +343,16 @@ export function Dashboard() {
           </div>
 
           {/* Calendar Grid */}
-          <div className="overflow-x-auto">
-            <div className="min-w-[800px]">
+          <div className="overflow-x-hidden sm:overflow-x-auto">
+            <div className="min-w-0 w-full sm:min-w-[800px]">
               {/* Day Headers */}
-              <div className="grid grid-cols-8 gap-0 mb-2">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Week'].map((day) => (
-                  <div
-                    key={day}
-                    className="text-center text-sm text-muted-foreground py-2"
-                  >
+              <div className="grid grid-cols-7 sm:grid-cols-8 gap-0 mb-2 sm:[grid-template-columns:repeat(7,minmax(0,1fr))_120px]">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                  <div key={day} className="text-center text-[10px] sm:text-sm text-muted-foreground py-1.5 sm:py-2">
                     {day}
                   </div>
                 ))}
+                <div className="hidden sm:block text-center text-sm text-muted-foreground py-2">Week</div>
               </div>
 
               {/* Calendar Rows */}
@@ -364,8 +362,7 @@ export function Dashboard() {
                   return (
                     <div
                       key={weekIndex}
-                      className="grid grid-cols-8 gap-0"
-                      style={{ gridTemplateColumns: 'repeat(7, 1fr) 120px' }}
+                      className="grid grid-cols-7 sm:grid-cols-8 gap-0 sm:[grid-template-columns:repeat(7,minmax(0,1fr))_120px]"
                     >
                       {/* Day Cells */}
                       {week.map((day, dayIndex) => {
@@ -376,7 +373,8 @@ export function Dashboard() {
                           <div
                             key={dayIndex}
                             className={`
-                              border-b border-r p-4 min-h-[100px] flex flex-col
+                              border-b p-1 sm:p-4 aspect-square sm:aspect-auto sm:min-h-[100px] flex flex-col min-w-0 overflow-hidden
+                              ${dayIndex === 6 ? 'border-r-0 sm:border-r' : 'border-r'}
                               ${isEmpty ? 'bg-muted/20' : ''}
                               ${isToday(day) ? 'bg-blue-50 dark:bg-blue-950/20' : ''}
                               ${dayData && !dayData.isClosed ? 'hover:bg-accent cursor-pointer' : ''}
@@ -385,17 +383,17 @@ export function Dashboard() {
                             {!isEmpty && (
                               <>
                                 {/* Date */}
-                                <div className="text-sm text-muted-foreground mb-2">
+                                <div className="text-[10px] sm:text-sm text-muted-foreground mb-1 sm:mb-2 leading-none">
                                   {format(day, 'd')}
                                 </div>
 
                                 {/* P&L */}
-                                <div className="flex-1 flex items-center justify-center">
+                                <div className="flex-1 min-h-0 flex items-center justify-center">
                                   {dayData?.isClosed ? (
-                                    <span className="text-2xl text-muted-foreground">—</span>
+                                    <span className="text-sm sm:text-2xl text-muted-foreground leading-none">—</span>
                                   ) : (
                                     <span
-                                      className={`text-xl font-medium ${
+                                      className={`block w-full truncate text-center text-xs sm:text-xl font-medium tabular-nums leading-tight ${
                                         dayData && dayData.pnl >= 0
                                           ? 'text-green-600'
                                           : 'text-red-600'
@@ -407,7 +405,7 @@ export function Dashboard() {
                                 </div>
 
                                 {/* Trade Count */}
-                                <div className="text-xs text-center text-muted-foreground mt-2">
+                                <div className="w-full truncate text-[10px] sm:text-xs text-center text-muted-foreground mt-1 sm:mt-2 leading-tight">
                                   {dayData?.isClosed ? (
                                     'Closed'
                                   ) : (
@@ -423,7 +421,7 @@ export function Dashboard() {
                       })}
 
                       {/* Week Summary Cell */}
-                      <div className="border-b p-4 min-h-[100px] flex flex-col items-center justify-center bg-muted/30">
+                      <div className="hidden sm:flex border-b p-4 min-h-[100px] flex-col items-center justify-center bg-muted/30">
                         <div className="text-sm text-muted-foreground mb-2">
                           Week {weekIndex + 1}
                         </div>
