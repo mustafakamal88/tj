@@ -343,16 +343,15 @@ export function Dashboard() {
           </div>
 
           {/* Calendar Grid */}
-          <div className="overflow-x-hidden sm:overflow-x-auto">
-            <div className="min-w-0 w-full sm:min-w-[800px]">
+          <div className="overflow-x-auto overflow-y-hidden -mx-4 px-4 sm:mx-0 sm:px-0">
+            <div className="w-full min-w-[800px]">
               {/* Day Headers */}
-              <div className="grid grid-cols-7 sm:grid-cols-8 gap-0 mb-2 sm:[grid-template-columns:repeat(7,minmax(0,1fr))_120px]">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+              <div className="grid grid-cols-8 gap-0 mb-2 [grid-template-columns:repeat(7,minmax(0,1fr))_120px]">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Week'].map((day) => (
                   <div key={day} className="text-center text-[10px] sm:text-sm text-muted-foreground py-1.5 sm:py-2">
                     {day}
                   </div>
                 ))}
-                <div className="hidden sm:block text-center text-sm text-muted-foreground py-2">Week</div>
               </div>
 
               {/* Calendar Rows */}
@@ -362,7 +361,7 @@ export function Dashboard() {
                   return (
                     <div
                       key={weekIndex}
-                      className="grid grid-cols-7 sm:grid-cols-8 gap-0 sm:[grid-template-columns:repeat(7,minmax(0,1fr))_120px]"
+                      className="grid grid-cols-8 gap-0 [grid-template-columns:repeat(7,minmax(0,1fr))_120px]"
                     >
                       {/* Day Cells */}
                       {week.map((day, dayIndex) => {
@@ -373,8 +372,7 @@ export function Dashboard() {
                           <div
                             key={dayIndex}
                             className={`
-                              border-b p-1 sm:p-4 aspect-square sm:aspect-auto sm:min-h-[100px] flex flex-col min-w-0 overflow-hidden
-                              ${dayIndex === 6 ? 'border-r-0 sm:border-r' : 'border-r'}
+                              border-b border-r p-1 sm:p-4 aspect-square sm:aspect-auto sm:min-h-[100px] flex flex-col min-w-0 overflow-hidden
                               ${isEmpty ? 'bg-muted/20' : ''}
                               ${isToday(day) ? 'bg-blue-50 dark:bg-blue-950/20' : ''}
                               ${dayData && !dayData.isClosed ? 'hover:bg-accent cursor-pointer' : ''}
@@ -393,7 +391,7 @@ export function Dashboard() {
                                     <span className="text-sm sm:text-2xl text-muted-foreground leading-none">—</span>
                                   ) : (
                                     <span
-                                      className={`block w-full truncate text-center text-xs sm:text-xl font-medium tabular-nums leading-tight ${
+                                      className={`block w-full text-center whitespace-nowrap text-[11px] sm:text-xl font-medium tabular-nums leading-tight ${
                                         dayData && dayData.pnl >= 0
                                           ? 'text-green-600'
                                           : 'text-red-600'
@@ -405,7 +403,7 @@ export function Dashboard() {
                                 </div>
 
                                 {/* Trade Count */}
-                                <div className="w-full truncate text-[10px] sm:text-xs text-center text-muted-foreground mt-1 sm:mt-2 leading-tight">
+                                <div className="w-full truncate whitespace-nowrap text-[10px] sm:text-xs text-center text-muted-foreground mt-1 sm:mt-2 leading-tight">
                                   {dayData?.isClosed ? (
                                     'Closed'
                                   ) : (
@@ -421,62 +419,31 @@ export function Dashboard() {
                       })}
 
                       {/* Week Summary Cell */}
-                      <div className="hidden sm:flex border-b p-4 min-h-[100px] flex-col items-center justify-center bg-muted/30">
-                        <div className="text-sm text-muted-foreground mb-2">
+                      <div className="border-b p-2 sm:p-4 min-h-0 sm:min-h-[100px] flex flex-col items-center justify-center bg-muted/30 min-w-0 overflow-hidden">
+                        <div className="text-xs sm:text-sm text-muted-foreground mb-1 sm:mb-2 leading-none">
                           Week {weekIndex + 1}
                         </div>
                         {weekData.days > 0 ? (
                           <>
                             <div
-                              className={`text-xl font-medium ${
+                              className={`text-sm sm:text-xl font-medium tabular-nums whitespace-nowrap ${
                                 weekData.pnl >= 0 ? 'text-green-600' : 'text-red-600'
                               }`}
                             >
                               {formatCurrency(weekData.pnl).replace('.00', '')}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-2">
+                            <div className="text-[10px] sm:text-xs text-muted-foreground mt-1 sm:mt-2 leading-tight whitespace-nowrap">
                               {weekData.days} {weekData.days === 1 ? 'day' : 'days'}
                             </div>
                           </>
                         ) : (
-                          <span className="text-xl text-muted-foreground">—</span>
+                          <span className="text-sm sm:text-xl text-muted-foreground leading-none">—</span>
                         )}
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          </div>
-
-          {/* Weekly Summary (mobile-only) */}
-          <div className="mt-4 sm:hidden">
-            <h3 className="text-sm font-medium mb-2">Weekly Summary</h3>
-            <div className="space-y-2">
-              {weeks.map((week, weekIndex) => {
-                const weekData = getWeekData(week);
-                return (
-                  <div key={weekIndex} className="rounded-lg border bg-muted/10 px-3 py-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-muted-foreground">Week {weekIndex + 1}</span>
-                      {weekData.days > 0 ? (
-                        <span
-                          className={`text-sm font-medium tabular-nums ${
-                            weekData.pnl >= 0 ? 'text-green-600' : 'text-red-600'
-                          }`}
-                        >
-                          {formatCurrency(weekData.pnl).replace('.00', '')}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-muted-foreground tabular-nums">—</span>
-                      )}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {weekData.days} {weekData.days === 1 ? 'day' : 'days'}
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           </div>
 
