@@ -8,6 +8,7 @@ export type Profile = {
   fullName: string | null;
   subscriptionPlan: SubscriptionPlan;
   subscriptionStatus: string | null;
+  storageUsedBytes: number;
   trialStartAt: string;
   isAdmin: boolean;
   primaryChallenge: string | null;
@@ -20,6 +21,7 @@ type ProfileRow = {
   full_name: string | null;
   subscription_plan: SubscriptionPlan;
   subscription_status: string | null;
+  storage_used_bytes?: number | null;
   trial_start_at: string;
   is_admin: boolean;
 };
@@ -32,7 +34,7 @@ export async function getMyProfile(): Promise<Profile | null> {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id,email,full_name,subscription_plan,subscription_status,trial_start_at,is_admin')
+    .select('id,email,full_name,subscription_plan,subscription_status,storage_used_bytes,trial_start_at,is_admin')
     .eq('id', user.id)
     .maybeSingle<ProfileRow>();
 
@@ -48,6 +50,7 @@ export async function getMyProfile(): Promise<Profile | null> {
     fullName: data.full_name,
     subscriptionPlan: data.subscription_plan,
     subscriptionStatus: data.subscription_status ? String(data.subscription_status) : null,
+    storageUsedBytes: typeof data.storage_used_bytes === 'number' && data.storage_used_bytes >= 0 ? data.storage_used_bytes : 0,
     trialStartAt: data.trial_start_at,
     isAdmin: data.is_admin,
     primaryChallenge: null,

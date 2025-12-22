@@ -1,4 +1,4 @@
-import type { Trade, TradeOutcome, TradeType } from '../types/trade';
+import type { Trade, TradeMarket, TradeOutcome, TradeSizeUnit, TradeType } from '../types/trade';
 import {
   FREE_TRADE_LIMIT,
   getFreePlanAddTradeBlockMessage,
@@ -9,16 +9,20 @@ import { requireSupabaseClient } from './supabase';
 import { hasPaidEntitlement } from './entitlements';
 
 export type AddTradeResult =
-  | { ok: true }
+  | { ok: true; tradeId?: string }
   | { ok: false; reason: 'trade_limit' | 'trial_expired' | 'not_authenticated' | 'upgrade_required' | 'unknown'; message: string };
 
 export type TradeInput = {
+  id?: string;
   date: string;
   symbol: string;
   type: TradeType;
   entry: number;
   exit: number;
   quantity: number;
+  market?: TradeMarket;
+  size?: number;
+  sizeUnit?: TradeSizeUnit;
   outcome: TradeOutcome;
   pnl: number;
   pnlPercentage: number;
@@ -45,6 +49,9 @@ type TradeRow = {
   entry: number | string;
   exit: number | string;
   quantity: number | string;
+  market?: string | null;
+  size?: number | string | null;
+  size_unit?: string | null;
   outcome: TradeOutcome;
   pnl: number | string;
   pnl_percentage: number | string;
@@ -75,6 +82,11 @@ function errorMessage(error: unknown): string {
 }
 
 function mapTrade(row: TradeRow): Trade {
+  const market: TradeMarket | undefined =
+    row.market === 'forex_cfd' || row.market === 'futures' ? (row.market as TradeMarket) : undefined;
+  const sizeUnit: TradeSizeUnit | undefined =
+    row.size_unit === 'lots' || row.size_unit === 'contracts' ? (row.size_unit as TradeSizeUnit) : undefined;
+
   return {
     id: row.id,
     date: row.date,
@@ -90,6 +102,9 @@ function mapTrade(row: TradeRow): Trade {
     entry: toNumber(row.entry),
     exit: toNumber(row.exit),
     quantity: toNumber(row.quantity),
+    market,
+    size: toOptionalNumber(row.size),
+    sizeUnit,
     outcome: row.outcome,
     pnl: toNumber(row.pnl),
     pnlPercentage: toNumber(row.pnl_percentage),
@@ -109,13 +124,13 @@ export async function fetchTrades(): Promise<Trade[]> {
     const { data: authData } = await supabase.auth.getUser();
     if (!authData.user) return [];
 
-    const { data, error } = await supabase
-      .from('trades')
-      .select(
-        'id,date,symbol,type,entry,exit,quantity,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at',
-      )
-      .order('date', { ascending: false })
-      .returns<TradeRow[]>();
+	    const { data, error } = await supabase
+	      .from('trades')
+	      .select(
+	        'id,date,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at',
+	      )
+	      .order('date', { ascending: false })
+	      .returns<TradeRow[]>();
 
     if (error) {
       console.error('[trades-api] fetchTrades failed', error);
@@ -183,8 +198,8 @@ export async function fetchTradesForCalendarMonth(monthStart: Date, monthEndExcl
     const startDate = toLocalIsoDate(monthStart);
     const endDate = toLocalIsoDate(monthEndExclusive);
 
-    const select =
-      'id,date,close_time,open_time,account_login,ticket,position_id,commission,swap,symbol,type,entry,exit,quantity,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+	    const select =
+	      'id,date,close_time,open_time,account_login,ticket,position_id,commission,swap,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
 
     const withCloseTime = await fetchTradesPage<TradeRow>(({ from, to }) =>
       supabase
@@ -278,29 +293,37 @@ export async function createTrade(trade: TradeInput): Promise<AddTradeResult> {
     const allowed = await canAddTrades(1);
     if (!allowed.ok) return allowed;
 
-    const { error } = await supabase.from('trades').insert({
-      date: trade.date,
-      symbol: trade.symbol,
-      type: trade.type,
-      entry: trade.entry,
-      exit: trade.exit,
-      quantity: trade.quantity,
-      outcome: trade.outcome,
-      pnl: trade.pnl,
-      pnl_percentage: trade.pnlPercentage,
-      notes: trade.notes ?? null,
-      emotions: trade.emotions ?? null,
-      setup: trade.setup ?? null,
-      mistakes: trade.mistakes ?? null,
-      screenshots: trade.screenshots ?? null,
-      tags: trade.tags ?? null,
-    });
+    const { data, error } = await supabase
+      .from('trades')
+      .insert({
+        id: trade.id,
+	      date: trade.date,
+	      symbol: trade.symbol,
+	      type: trade.type,
+	      entry: trade.entry,
+	      exit: trade.exit,
+	      quantity: trade.quantity,
+        market: trade.market ?? null,
+        size: trade.size ?? null,
+        size_unit: trade.sizeUnit ?? null,
+	      outcome: trade.outcome,
+	      pnl: trade.pnl,
+	      pnl_percentage: trade.pnlPercentage,
+	      notes: trade.notes ?? null,
+	      emotions: trade.emotions ?? null,
+	      setup: trade.setup ?? null,
+	      mistakes: trade.mistakes ?? null,
+	      screenshots: trade.screenshots ?? null,
+	      tags: trade.tags ?? null,
+      })
+      .select('id')
+      .single<{ id: string }>();
 
     if (error) {
       return { ok: false, reason: 'unknown', message: error.message };
     }
 
-    return { ok: true };
+    return { ok: true, tradeId: data?.id };
   } catch (error) {
     return { ok: false, reason: 'unknown', message: errorMessage(error) };
   }
@@ -322,12 +345,16 @@ export async function createTradesWithProgress(
     if (!allowed.ok) return allowed;
 
     const rows = trades.map((trade) => ({
+      id: trade.id,
       date: trade.date,
       symbol: trade.symbol,
       type: trade.type,
       entry: trade.entry,
       exit: trade.exit,
       quantity: trade.quantity,
+      market: trade.market ?? null,
+      size: trade.size ?? null,
+      size_unit: trade.sizeUnit ?? null,
       outcome: trade.outcome,
       pnl: trade.pnl,
       pnl_percentage: trade.pnlPercentage,
