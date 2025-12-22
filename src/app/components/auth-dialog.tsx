@@ -10,11 +10,12 @@ import { getSupabaseClient } from '../utils/supabase';
 interface AuthDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  defaultTab?: 'login' | 'signup';
 }
 
-export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
+export function AuthDialog({ open, onOpenChange, defaultTab = 'login' }: AuthDialogProps) {
   const supabase = getSupabaseClient();
-  const [tab, setTab] = useState<'login' | 'signup'>('login');
+  const [tab, setTab] = useState<'login' | 'signup'>(defaultTab);
   const [submitting, setSubmitting] = useState(false);
 
   const [loginEmail, setLoginEmail] = useState('');
@@ -28,6 +29,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
   useEffect(() => {
     if (!open) return;
+    setTab(defaultTab);
     if (!supabase) {
       toast.error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
     }
@@ -35,7 +37,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     setLoginPassword('');
     setSignupPassword('');
     setConfirmPassword('');
-  }, [open, supabase]);
+  }, [open, supabase, defaultTab]);
 
   const redirectTo = useMemo(() => {
     // Needed for magic links/OAuth providers; safe for email/password too.

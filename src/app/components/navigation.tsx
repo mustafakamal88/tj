@@ -18,7 +18,7 @@ interface NavigationProps {
   currentPage: Page;
   onNavigate: (page: Page) => void;
   user: string | null;
-  onAuthClick: () => void;
+  onAuthClick: (tab?: 'login' | 'signup') => void;
   onLogout: () => void;
   onSubscriptionClick: () => void;
   onBillingClick: () => void;
@@ -127,10 +127,10 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
               </DropdownMenu>
             ) : (
               <>
-                <Button variant="ghost" onClick={onAuthClick}>
+                <Button variant="ghost" onClick={() => onAuthClick()}>
                   Log in
                 </Button>
-                <Button onClick={onAuthClick} className="bg-[#34a85a] hover:bg-[#2d9450]">
+                <Button onClick={() => onAuthClick('signup')} className="bg-[#34a85a] hover:bg-[#2d9450]">
                   Get started
                 </Button>
               </>
@@ -239,7 +239,7 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
                     </Button>
                     <Button
                       onClick={() => {
-                        onAuthClick();
+                        onAuthClick('signup');
                         setMobileMenuOpen(false);
                       }}
                       className="w-full bg-[#34a85a] hover:bg-[#2d9450]"

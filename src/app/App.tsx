@@ -21,9 +21,20 @@ export type Page = 'home' | 'dashboard' | 'journal' | 'analytics' | 'learn' | 'b
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
+  const [authDialogDefaultTab, setAuthDialogDefaultTab] = useState<'login' | 'signup'>('login');
   const [isSubscriptionDialogOpen, setIsSubscriptionDialogOpen] = useState(false);
   const { user, loading: authLoading, signOut } = useAuth();
   const userEmail = user?.email ?? null;
+
+  const openAuthDialog = (tab: 'login' | 'signup' = 'login') => {
+    setAuthDialogDefaultTab(tab);
+    setIsAuthDialogOpen(true);
+  };
+
+  const handleAuthDialogOpenChange = (open: boolean) => {
+    setIsAuthDialogOpen(open);
+    if (!open) setAuthDialogDefaultTab('login');
+  };
 
   const setRoute = (page: Page, opts?: { replace?: boolean }) => {
     setCurrentPage(page);
@@ -109,7 +120,7 @@ function AppContent() {
     // Check if trying to access protected routes
     if ((page === 'dashboard' || page === 'journal' || page === 'analytics' || page === 'billing') && !userEmail) {
       toast.error('Please login to access this page');
-      setIsAuthDialogOpen(true);
+      openAuthDialog('login');
       return;
     }
     setRoute(page);
@@ -118,12 +129,12 @@ function AppContent() {
   const renderPage = () => {
     // Redirect to home if not logged in and trying to access protected routes
     if ((currentPage === 'dashboard' || currentPage === 'journal' || currentPage === 'analytics' || currentPage === 'billing') && !userEmail) {
-      return <HomePage onGetStarted={() => setIsAuthDialogOpen(true)} onLearnMore={() => setCurrentPage('learn')} />;
+      return <HomePage onGetStarted={() => openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
     }
 
     switch (currentPage) {
       case 'home':
-        return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : setIsAuthDialogOpen(true)} onLearnMore={() => setCurrentPage('learn')} />;
+        return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
       case 'dashboard':
         return <Dashboard />;
       case 'journal':
@@ -135,7 +146,7 @@ function AppContent() {
       case 'billing':
         return <BillingPage />;
       default:
-        return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : setIsAuthDialogOpen(true)} onLearnMore={() => setCurrentPage('learn')} />;
+        return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
     }
   };
 
@@ -155,7 +166,7 @@ function AppContent() {
         currentPage={currentPage}
         onNavigate={handleNavigate}
         user={userEmail}
-        onAuthClick={() => setIsAuthDialogOpen(true)}
+        onAuthClick={openAuthDialog}
         onLogout={handleLogout}
         onSubscriptionClick={() => setIsSubscriptionDialogOpen(true)}
         onBillingClick={() => handleNavigate('billing')}
@@ -163,7 +174,8 @@ function AppContent() {
       {renderPage()}
       <AuthDialog
         open={isAuthDialogOpen}
-        onOpenChange={setIsAuthDialogOpen}
+        onOpenChange={handleAuthDialogOpenChange}
+        defaultTab={authDialogDefaultTab}
       />
       <SubscriptionDialog
         open={isSubscriptionDialogOpen}
