@@ -213,6 +213,11 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     if (isSubmitting) return;
     setFieldErrors({});
 
+    if (!authReady) {
+      toast.error('Please wait a moment for your session to load.');
+      return;
+    }
+
     // Validation
     if (!formData.symbol || !formData.entry || !formData.exit || !formData.quantity) {
       toast.error('Please fill in all required fields');
@@ -297,9 +302,38 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     setIsSubmitting(true);
     try {
-      const result = await createTrade(trade);
+      // Re-check auth at submit time to avoid stale session checks.
+      const supabase = requireSupabaseClient();
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      const user = userData.user;
+      if (userError || !user) {
+        toast.error('Please login to add trades.');
+        return;
+      }
+
+      let result = await createTrade(trade);
+
+      // Occasionally in Codespaces/slow boots, auth can hydrate after the first call.
+      // Retry once after a refresh if the API reports not_authenticated.
+      if (!result.ok && result.reason === 'not_authenticated') {
+        try {
+          await supabase.auth.refreshSession();
+        } catch {
+          // ignore
+        }
+        result = await createTrade(trade);
+      }
+
       if (!result.ok) {
-        toast.error(result.message);
+        const msg = (result.message ?? '').trim();
+        const lower = msg.toLowerCase();
+        if (result.reason === 'not_authenticated' || lower.includes('jwt') || lower.includes('token')) {
+          toast.error('Session expired, please login again.');
+        } else if (lower.includes('row-level security') || lower.includes('permission denied') || lower.includes('not allowed')) {
+          toast.error('Permission denied saving trade.');
+        } else {
+          toast.error(msg || 'Failed to save trade.');
+        }
         if (result.reason === 'upgrade_required') {
           window.dispatchEvent(new Event('open-billing'));
         } else if (result.reason === 'trade_limit' || result.reason === 'trial_expired') {
@@ -600,7 +634,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 	            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || !authReady}>
               {isSubmitting ? 'Adding…' : 'Add Trade'}
             </Button>
           </div>
