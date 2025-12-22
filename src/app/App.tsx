@@ -8,12 +8,13 @@ import { LearnMorePage } from './components/learn-more-page';
 import { BillingPage } from './components/billing-page';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
+import { OnboardingDialog } from './components/onboarding-dialog';
 import { ThemeProvider } from './components/theme-provider';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { getSupabaseClient } from './utils/supabase';
 import { ensureProfile } from './utils/profile';
-import { ProfileProvider } from './utils/use-profile';
+import { ProfileProvider, useProfile } from './utils/use-profile';
 import { AuthProvider, useAuth } from './utils/auth';
 
 export type Page = 'home' | 'dashboard' | 'journal' | 'analytics' | 'learn' | 'billing';
@@ -24,6 +25,7 @@ function AppContent() {
   const [authDialogDefaultTab, setAuthDialogDefaultTab] = useState<'login' | 'signup'>('login');
   const [isSubscriptionDialogOpen, setIsSubscriptionDialogOpen] = useState(false);
   const { user, loading: authLoading, signOut } = useAuth();
+  const { profile, loading: profileLoading, refresh: refreshProfile } = useProfile();
   const userEmail = user?.email ?? null;
 
   const openAuthDialog = (tab: 'login' | 'signup' = 'login') => {
@@ -176,6 +178,11 @@ function AppContent() {
         open={isAuthDialogOpen}
         onOpenChange={handleAuthDialogOpenChange}
         defaultTab={authDialogDefaultTab}
+      />
+      <OnboardingDialog
+        open={Boolean(user && !authLoading && !profileLoading && profile && !profile.onboardingCompletedAt)}
+        userId={user?.id ?? ''}
+        onCompleted={() => void refreshProfile()}
       />
       <SubscriptionDialog
         open={isSubscriptionDialogOpen}

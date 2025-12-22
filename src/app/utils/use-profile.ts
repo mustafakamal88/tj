@@ -14,6 +14,8 @@ export type Profile = {
   currentPeriodEnd: string | null;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  primaryChallenge: string | null;
+  onboardingCompletedAt: string | null;
 };
 
 type ProfileRow = {
@@ -25,6 +27,8 @@ type ProfileRow = {
   current_period_end: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  primary_challenge: string | null;
+  onboarding_completed_at: string | null;
 };
 
 function normalizePlan(value: unknown): SubscriptionPlan {
@@ -89,7 +93,9 @@ function useProfileState(): ProfileContextValue {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('id,email,is_admin,subscription_plan,subscription_status,current_period_end,stripe_customer_id,stripe_subscription_id')
+        .select(
+          'id,email,is_admin,subscription_plan,subscription_status,current_period_end,stripe_customer_id,stripe_subscription_id,primary_challenge,onboarding_completed_at',
+        )
         .eq('id', user.id)
         .maybeSingle<ProfileRow>();
 
@@ -117,6 +123,8 @@ function useProfileState(): ProfileContextValue {
         currentPeriodEnd: data.current_period_end ? String(data.current_period_end) : null,
         stripeCustomerId: data.stripe_customer_id ? String(data.stripe_customer_id) : null,
         stripeSubscriptionId: data.stripe_subscription_id ? String(data.stripe_subscription_id) : null,
+        primaryChallenge: data.primary_challenge ? String(data.primary_challenge) : null,
+        onboardingCompletedAt: data.onboarding_completed_at ? String(data.onboarding_completed_at) : null,
       };
     } catch (err) {
       console.error('[useProfile] refresh failed', err);
