@@ -1,10 +1,10 @@
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Card } from './ui/card';
-import { Separator } from './ui/separator';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { SiteFooter } from './site-footer';
 import { BarChart3, BookOpen, Calendar, Check, Shield, Target, TrendingUp } from 'lucide-react';
+import { HeroDashboardPreview } from './home/HeroDashboardPreview';
 
 interface HomePageProps {
   onGetStarted: () => void;
@@ -104,8 +104,6 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
     },
   ];
 
-  const sampleBars = [22, 28, 18, 34, 30, 44, 38, 52, 46, 60];
-
   return (
     <div id="top" className="min-h-[calc(100vh-4rem)] bg-background">
       <main>
@@ -176,57 +174,11 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
                 </div>
               </div>
 
-              {/* Preview */}
-              <div className="relative">
-                <div className="absolute -inset-6 -z-10 rounded-3xl bg-gradient-to-tr from-[#34a85a]/20 via-transparent to-sky-500/20 blur-2xl" />
-                <Card className="p-6 border-[#34a85a]/15 bg-background/70 backdrop-blur-sm shadow-xl">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold truncate">Dashboard preview</p>
-                      <p className="text-xs text-muted-foreground">Sample data</p>
-                    </div>
-                    <Badge variant="secondary" className="whitespace-nowrap">
-                      This month
-                    </Badge>
-                  </div>
-
-                  <Separator className="my-5" />
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="rounded-lg border bg-card p-3">
-                      <p className="text-[11px] text-muted-foreground">Win rate</p>
-                      <p className="mt-1 text-lg font-semibold">58%</p>
-                    </div>
-                    <div className="rounded-lg border bg-card p-3">
-                      <p className="text-[11px] text-muted-foreground">Net P&L</p>
-                      <p className="mt-1 text-lg font-semibold text-green-600">+$1,240</p>
-                    </div>
-                    <div className="rounded-lg border bg-card p-3">
-                      <p className="text-[11px] text-muted-foreground">Trades</p>
-                      <p className="mt-1 text-lg font-semibold">32</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 rounded-lg border bg-card p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-medium">Equity curve</p>
-                      <BarChart3 className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                    <div className="flex items-end gap-1 h-16" aria-hidden="true">
-                      {sampleBars.map((h, i) => (
-                        <div
-                          key={i}
-                          className="w-full rounded-sm bg-gradient-to-t from-[#34a85a]/80 to-[#34a85a]/30"
-                          style={{ height: `${h}%` }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </Card>
-              </div>
-            </div>
-          </div>
-        </section>
+	              {/* Preview */}
+	              <HeroDashboardPreview />
+	            </div>
+	          </div>
+	        </section>
 
         {/* Features */}
         <section id="features" className="py-20 scroll-mt-24">
