@@ -166,6 +166,7 @@ type MetaApiRetryContext = {
 
 type MetaApiRetryOptions = {
   maxRetries?: number;
+  pauseAfterMs?: number;
   onRateLimit?: (ctx: MetaApiRetryContext) => void | Promise<void>;
 };
 
@@ -219,17 +220,20 @@ function computeMetaApiRetryDelayMs(input: {
   if (recommendedRetryTime) {
     const recommendedMs = Date.parse(recommendedRetryTime);
     if (Number.isFinite(recommendedMs)) {
-      const delayMs = Math.min(10_000, Math.max(250, recommendedMs - Date.now() + 250));
+      const delayMs = Math.min(15_000, Math.max(250, recommendedMs - Date.now() + 250));
       return { delayMs, recommendedRetryTime };
     }
   }
 
   const headerDelay = retryAfterMsFromHeaders(input.headers);
   if (typeof headerDelay === "number" && Number.isFinite(headerDelay)) {
-    return { delayMs: Math.min(10_000, Math.max(250, headerDelay)), recommendedRetryTime: recommendedRetryTime ?? undefined };
+    return {
+      delayMs: Math.min(15_000, Math.max(250, headerDelay)),
+      recommendedRetryTime: recommendedRetryTime ?? undefined,
+    };
   }
 
-  const exp = Math.min(10_000, Math.round(500 * Math.pow(2, Math.max(0, input.attempt))));
+  const exp = Math.min(15_000, Math.round(500 * Math.pow(2, Math.max(0, input.attempt))));
   return { delayMs: exp, recommendedRetryTime: recommendedRetryTime ?? undefined };
 }
 
@@ -238,12 +242,33 @@ async function sleep(ms: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
+const METAAPI_RATE_LIMIT_DEFAULT_PAUSE_AFTER_MS = 2_000;
+
+class MetaApiRateLimitPauseError extends Error {
+  status = 429 as const;
+  code = "rate_limited" as const;
+  meta?: unknown;
+  retryAfterMs: number;
+  retryAt: string;
+  recommendedRetryTime?: string;
+
+  constructor(input: { meta?: unknown; retryAfterMs: number; retryAt: string; recommendedRetryTime?: string }) {
+    super("Rate limited, retrying soon");
+    this.name = "MetaApiRateLimitPauseError";
+    this.meta = input.meta;
+    this.retryAfterMs = input.retryAfterMs;
+    this.retryAt = input.retryAt;
+    this.recommendedRetryTime = input.recommendedRetryTime;
+  }
+}
+
 async function metaApiRequestWithRetry(
   url: string,
   init?: RequestInit,
   opts?: MetaApiRetryOptions,
 ): Promise<Response> {
   const maxRetries = Math.max(0, Math.floor(opts?.maxRetries ?? 12));
+  const pauseAfterMs = Math.max(250, Math.floor(opts?.pauseAfterMs ?? METAAPI_RATE_LIMIT_DEFAULT_PAUSE_AFTER_MS));
   let lastMeta: unknown = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -255,14 +280,15 @@ async function metaApiRequestWithRetry(
     lastMeta = meta;
 
     const { delayMs, recommendedRetryTime } = computeMetaApiRetryDelayMs({ attempt, headers: res.headers, meta });
+    const retryAt = new Date(Date.now() + delayMs).toISOString();
 
-    if (attempt >= maxRetries) {
-      const err = new Error("MetaApi rate limit exceeded. Please try again in a moment.");
-      (err as any).status = 429;
-      (err as any).meta = meta;
-      (err as any).retryAfterMs = delayMs;
-      (err as any).recommendedRetryTime = recommendedRetryTime;
-      throw err;
+    if (attempt >= maxRetries || delayMs > pauseAfterMs) {
+      throw new MetaApiRateLimitPauseError({
+        meta,
+        retryAfterMs: delayMs,
+        retryAt,
+        recommendedRetryTime: recommendedRetryTime ?? undefined,
+      });
     }
 
     try {
@@ -279,10 +305,11 @@ async function metaApiRequestWithRetry(
     await sleep(delayMs);
   }
 
-  const err = new Error("MetaApi rate limit exceeded. Please try again in a moment.");
-  (err as any).status = 429;
-  (err as any).meta = lastMeta;
-  throw err;
+  throw new MetaApiRateLimitPauseError({
+    meta: lastMeta,
+    retryAfterMs: 15_000,
+    retryAt: new Date(Date.now() + 15_000).toISOString(),
+  });
 }
 
 async function metaApiJson(url: string, init?: RequestInit, opts?: MetaApiRetryOptions): Promise<any> {
@@ -995,11 +1022,20 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
       return fail(c, 500, "Import job has an invalid date range.", "job_invalid");
     }
 
-    if (state.statusText && state.rateLimitedUntil) {
+    if (state.rateLimitedUntil) {
       const untilMs = Date.parse(state.rateLimitedUntil);
-      if (Number.isFinite(untilMs) && untilMs <= Date.now()) {
-        delete state.statusText;
-        delete state.rateLimitedUntil;
+      if (Number.isFinite(untilMs)) {
+        if (untilMs <= Date.now()) {
+          delete state.statusText;
+          delete state.rateLimitedUntil;
+        } else {
+          return ok(c, {
+            status: "rate_limited",
+            retryAt: state.rateLimitedUntil,
+            message: "Rate limited, retrying soon",
+            job,
+          });
+        }
       }
     }
 
@@ -1081,7 +1117,10 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
       }
     };
 
-    const results = await runPromisePool(work, IMPORT_CONTINUE_CONCURRENCY, async (chunk) => {
+    const results: Array<{ index: number; start: Date; end: Date; fetched: number; upserted: number }> = [];
+    let rateLimited: { retryAt: string; message: string } | null = null;
+
+    for (const chunk of work) {
       console.log("[broker-import] import chunk", {
         userId,
         jobId,
@@ -1090,27 +1129,36 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
         window: { from: chunk.start.toISOString(), to: chunk.end.toISOString() },
       });
 
-      const deals = await metaApiFetchDealsByTimeRange(
-        accountId,
-        toMetaApiTimeString(chunk.start),
-        toMetaApiTimeString(chunk.end),
-        { onRateLimit },
-      );
-      const rows = await buildTradeRowsFromDeals({ deals, userId, accountLogin });
-      const upserted = rows.length ? await upsertMetaApiTrades(supabase, rows) : 0;
+      try {
+        const deals = await metaApiFetchDealsByTimeRange(
+          accountId,
+          toMetaApiTimeString(chunk.start),
+          toMetaApiTimeString(chunk.end),
+          { onRateLimit },
+        );
+        const rows = await buildTradeRowsFromDeals({ deals, userId, accountLogin });
+        const upserted = rows.length ? await upsertMetaApiTrades(supabase, rows) : 0;
 
-      console.log("[broker-import] import chunk done", {
-        userId,
-        jobId,
-        chunkIndex: chunk.index,
-        fetched: deals.length,
-        upserted,
-      });
+        console.log("[broker-import] import chunk done", {
+          userId,
+          jobId,
+          chunkIndex: chunk.index,
+          fetched: deals.length,
+          upserted,
+        });
 
-      return { index: chunk.index, start: chunk.start, end: chunk.end, fetched: deals.length, upserted };
-    });
-
-    results.sort((a, b) => a.index - b.index);
+        results.push({ index: chunk.index, start: chunk.start, end: chunk.end, fetched: deals.length, upserted });
+      } catch (e) {
+        if (e instanceof MetaApiRateLimitPauseError) {
+          state.statusText = "Rate limited, retrying…";
+          state.rateLimitedUntil = e.retryAt;
+          if (state.error) delete state.error;
+          rateLimited = { retryAt: e.retryAt, message: e.message };
+          break;
+        }
+        throw e;
+      }
+    }
 
     let fetched = 0;
     let upserted = 0;
@@ -1122,17 +1170,23 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
     state.fetchedTotal += fetched;
     state.upsertedTotal += upserted;
 
-    const last = results[results.length - 1];
-    state.lastChunk = {
-      from: last.start.toISOString(),
-      to: last.end.toISOString(),
-      fetched: last.fetched,
-      upserted: last.upserted,
-    };
+    const last = results.length ? results[results.length - 1] : null;
+    if (last) {
+      state.lastChunk = {
+        from: last.start.toISOString(),
+        to: last.end.toISOString(),
+        fetched: last.fetched,
+        upserted: last.upserted,
+      };
+    }
+    if (!rateLimited) {
+      if (state.statusText) delete state.statusText;
+      if (state.rateLimitedUntil) delete state.rateLimitedUntil;
+    }
     if (state.error) delete state.error;
 
     const nextProgress = chunkIndex + results.length;
-    const done = nextProgress >= job.total || last.end >= to;
+    const done = nextProgress >= job.total || (last ? last.end >= to : false);
     const nextStatus: ImportJobStatus = done ? "succeeded" : "running";
 
     const { data: updatedJob, error: updateErr } = await supabase
@@ -1158,6 +1212,15 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
         .eq("user_id", userId);
     }
 
+    if (rateLimited) {
+      return ok(c, {
+        status: "rate_limited",
+        retryAt: rateLimited.retryAt,
+        message: "Rate limited, retrying soon",
+        job: updatedJob,
+      });
+    }
+
     return ok(c, { job: updatedJob, chunk: { fetched, upserted } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Import failed.";
@@ -1165,6 +1228,42 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
     console.error("[broker-import] import continue error", e);
 
     if (userId && job) {
+      if (e instanceof MetaApiRateLimitPauseError) {
+        const nextState =
+          state ??
+          parseJobState(job.message) ?? {
+            from: new Date("2000-01-01T00:00:00.000Z").toISOString(),
+            to: new Date().toISOString(),
+            windowDays: IMPORT_WINDOW_DAYS,
+            fetchedTotal: 0,
+            upsertedTotal: 0,
+          };
+        nextState.statusText = "Rate limited, retrying…";
+        nextState.rateLimitedUntil = e.retryAt;
+        if (nextState.error) delete nextState.error;
+
+        const { data: updatedRateLimitedJob } = await supabase
+          .from("import_jobs")
+          .update({ status: "running", message: stringifyJobState(nextState) })
+          .eq("id", jobId)
+          .eq("user_id", userId)
+          .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+          .single<ImportJobRow>();
+
+        return ok(c, {
+          status: "rate_limited",
+          retryAt: e.retryAt,
+          message: "Rate limited, retrying soon",
+          job:
+            updatedRateLimitedJob ??
+            ({
+              ...job,
+              status: "running",
+              message: stringifyJobState(nextState),
+            } as ImportJobRow),
+        });
+      }
+
       const nextState =
         state ??
         parseJobState(job.message) ?? {

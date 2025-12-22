@@ -165,9 +165,24 @@ export async function startMetaApiImport(input: ImportMetaApiInput): Promise<{ j
   return { job: mapJob(out.job) };
 }
 
-export async function continueMetaApiImport(input: { jobId: string }): Promise<{ job: ImportJob; chunk?: { fetched: number; upserted: number } }> {
-  const out = await invokeBrokerImport<{ job: any; chunk?: { fetched: number; upserted: number } }>('import_continue', input);
-  return { job: mapJob(out.job), chunk: out.chunk };
+export type ContinueMetaApiImportResult =
+  | { status: 'ok'; job: ImportJob; chunk?: { fetched: number; upserted: number } }
+  | { status: 'rate_limited'; retryAt: string; message: string; job: ImportJob };
+
+export async function continueMetaApiImport(input: { jobId: string }): Promise<ContinueMetaApiImportResult> {
+  const out = await invokeBrokerImport<any>('import_continue', input);
+  const job = mapJob(out.job);
+
+  if (out?.status === 'rate_limited') {
+    return {
+      status: 'rate_limited',
+      retryAt: typeof out.retryAt === 'string' ? out.retryAt : '',
+      message: typeof out.message === 'string' ? out.message : 'Rate limited, retrying soon',
+      job,
+    };
+  }
+
+  return { status: 'ok', job, chunk: out.chunk };
 }
 
 export async function getMetaApiImportJob(input: { jobId: string }): Promise<{ job: ImportJob }> {

@@ -215,34 +215,43 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
       setJob(started.job);
       toast.success('Quick import started.');
 
-      const run = async (jobId: string) => {
-        try {
-          const res = await continueMetaApiImport({ jobId });
-          setJob(res.job);
+	      const run = async (jobId: string) => {
+	        try {
+	          const res = await continueMetaApiImport({ jobId });
+	          setJob(res.job);
 
-          if (res.job.status === 'succeeded') {
-            toast.success('Import complete.');
-            setLastQuickImport({ connectionId, from: fromIso });
-            setImporting(false);
-            await refresh();
-            onImportComplete?.();
-            return;
-          }
+	          if (res.job.status === 'succeeded') {
+	            toast.success('Import complete.');
+	            setLastQuickImport({ connectionId, from: fromIso });
+	            setImporting(false);
+	            await refresh();
+	            onImportComplete?.();
+	            return;
+	          }
 
-          if (res.job.status === 'failed') {
-            toast.error('Import failed. Please try again.');
-            setImporting(false);
-            await refresh();
-            return;
-          }
+	          if (res.job.status === 'failed') {
+	            toast.error('Import failed. Please try again.');
+	            setImporting(false);
+	            await refresh();
+	            return;
+	          }
 
-          continueTimerRef.current = window.setTimeout(() => void run(jobId), 250);
-        } catch (e) {
-          console.error('[broker] import continue failed', e);
-          toast.error(e instanceof Error ? e.message : 'Import failed.');
-          setImporting(false);
-        }
-      };
+	          if (res.status === 'rate_limited') {
+	            const retryAtMs = Date.parse(res.retryAt);
+	            const delay = Number.isFinite(retryAtMs)
+	              ? Math.min(15000, Math.max(250, retryAtMs - Date.now() + 250))
+	              : 1000;
+	            continueTimerRef.current = window.setTimeout(() => void run(jobId), delay);
+	            return;
+	          }
+
+	          continueTimerRef.current = window.setTimeout(() => void run(jobId), 250);
+	        } catch (e) {
+	          console.error('[broker] import continue failed', e);
+	          toast.error(e instanceof Error ? e.message : 'Import failed.');
+	          setImporting(false);
+	        }
+	      };
 
       void run(started.job.id);
     } catch (e) {

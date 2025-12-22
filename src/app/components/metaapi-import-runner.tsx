@@ -50,27 +50,36 @@ export function MetaApiImportRunner() {
     void (async () => {
       try {
         while (!cancelledRef.current) {
-          try {
-            const res = await continueMetaApiImport({ jobId: active.jobId });
-            window.dispatchEvent(new CustomEvent(METAAPI_IMPORT_JOB_UPDATED_EVENT, { detail: res }));
+	          try {
+	            const res = await continueMetaApiImport({ jobId: active.jobId });
+	            window.dispatchEvent(new CustomEvent(METAAPI_IMPORT_JOB_UPDATED_EVENT, { detail: res }));
 
-            if (res.job.status === 'succeeded') {
-              writeMetaApiBackgroundImport(null);
-              toast.success('Full history import complete.');
-              return;
-            }
+	            if (res.job.status === 'succeeded') {
+	              writeMetaApiBackgroundImport(null);
+	              toast.success('Full history import complete.');
+	              return;
+	            }
 
-            if (res.job.status === 'failed') {
-              writeMetaApiBackgroundImport(null);
-              toast.error('Full history import failed. Please try again.');
-              return;
-            }
+	            if (res.job.status === 'failed') {
+	              writeMetaApiBackgroundImport(null);
+	              toast.error('Full history import failed. Please try again.');
+	              return;
+	            }
 
-            failures = 0;
-            await sleep(350);
-          } catch (e) {
-            failures += 1;
-            console.error('[broker] background import continue failed', e);
+	            failures = 0;
+	            if (res.status === 'rate_limited') {
+	              const retryAtMs = Date.parse(res.retryAt);
+	              const delay = Number.isFinite(retryAtMs)
+	                ? Math.min(15000, Math.max(250, retryAtMs - Date.now() + 250))
+	                : 1000;
+	              await sleep(delay);
+	              continue;
+	            }
+
+	            await sleep(350);
+	          } catch (e) {
+	            failures += 1;
+	            console.error('[broker] background import continue failed', e);
 
             if (e instanceof Error && e.message === 'You must be logged in.') {
               writeMetaApiBackgroundImport(null);
@@ -99,4 +108,3 @@ export function MetaApiImportRunner() {
 
   return null;
 }
-
