@@ -152,7 +152,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
             return;
           }
 
-          continueTimerRef.current = window.setTimeout(() => void run(jobId), 700);
+          continueTimerRef.current = window.setTimeout(() => void run(jobId), 250);
         } catch (e) {
           console.error('[broker] import continue failed', e);
           toast.error(e instanceof Error ? e.message : 'Import failed.');
@@ -299,7 +299,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
             {job ? (
               <div className="rounded-md border p-3 text-sm space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Job</span>
+                  <span className="text-muted-foreground">Importing trades</span>
                   <Badge variant={job.status === 'failed' ? 'destructive' : job.status === 'succeeded' ? 'default' : 'secondary'}>
                     {job.status}
                   </Badge>

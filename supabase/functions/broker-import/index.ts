@@ -41,7 +41,11 @@ type MetaApiDeal = {
 type TradeType = "long" | "short";
 
 const PROVIDER = "metaapi" as const;
-const IMPORT_WINDOW_DAYS = 30;
+// Larger window reduces MetaApi round-trips while keeping each chunk bounded for serverless time limits.
+const IMPORT_WINDOW_DAYS = 60;
+const IMPORT_CONTINUE_MAX_CHUNKS = 2;
+const IMPORT_CONTINUE_CONCURRENCY = 2;
+const IMPORT_UPSERT_CHUNK_SIZE = 500;
 
 const app = new Hono();
 
@@ -293,6 +297,8 @@ type ImportJobState = {
   windowDays: number;
   fetchedTotal: number;
   upsertedTotal: number;
+  metaapiAccountId?: string;
+  accountLogin?: string;
   lastChunk?: { from: string; to: string; fetched: number; upserted: number };
   error?: string;
 };
@@ -309,6 +315,10 @@ function parseJobState(message: string | null | undefined): ImportJobState | nul
     const upsertedTotal = toNumber(parsed.upsertedTotal) ?? 0;
     if (!from || !to) return null;
     const out: ImportJobState = { from, to, windowDays, fetchedTotal, upsertedTotal };
+    const metaapiAccountId = toString(parsed.metaapiAccountId);
+    if (metaapiAccountId) out.metaapiAccountId = metaapiAccountId;
+    const accountLogin = toString(parsed.accountLogin);
+    if (accountLogin) out.accountLogin = accountLogin;
     if (isRecord(parsed.lastChunk)) {
       const lcFrom = toString(parsed.lastChunk.from);
       const lcTo = toString(parsed.lastChunk.to);
@@ -333,6 +343,42 @@ function computeTotalChunks(from: Date, to: Date, windowDays: number): number {
   const chunkMs = windowDays * 24 * 60 * 60 * 1000;
   if (!Number.isFinite(spanMs) || spanMs <= 0 || !Number.isFinite(chunkMs) || chunkMs <= 0) return 1;
   return Math.max(1, Math.ceil(spanMs / chunkMs));
+}
+
+async function runPromisePool<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const limit = Math.max(1, Math.floor(concurrency));
+  const results: R[] = new Array(items.length);
+  let next = 0;
+
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const idx = next;
+      next += 1;
+      if (idx >= items.length) break;
+      results[idx] = await worker(items[idx], idx);
+    }
+  });
+
+  await Promise.all(runners);
+  return results;
+}
+
+async function upsertMetaApiTrades(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  rows: any[],
+): Promise<number> {
+  let upserted = 0;
+  for (let i = 0; i < rows.length; i += IMPORT_UPSERT_CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + IMPORT_UPSERT_CHUNK_SIZE);
+    const { data: affected, error: rpcError } = await supabase.rpc("upsert_metaapi_trades", { p_trades: chunk });
+    if (rpcError) throw new Error(rpcError.message);
+    upserted += typeof affected === "number" ? affected : chunk.length;
+  }
+  return upserted;
 }
 
 async function metaApiFetchDealsByTimeRange(accountId: string, fromIso: string, toIso: string): Promise<MetaApiDeal[]> {
@@ -610,6 +656,8 @@ async function handleImport(c: any, body: Record<string, unknown>): Promise<Resp
       windowDays: IMPORT_WINDOW_DAYS,
       fetchedTotal: 0,
       upsertedTotal: 0,
+      metaapiAccountId: accountId,
+      accountLogin,
     };
 
     const { data: job, error: jobErr } = await supabase
@@ -745,149 +793,213 @@ async function handleImportJob(c: any, body?: Record<string, unknown>): Promise<
 }
 
 async function handleImportContinue(c: any, body: Record<string, unknown>): Promise<Response> {
-  const userId = await requireUserId(c.req.raw);
   const jobId = toString(body.jobId);
   if (!jobId) return fail(c, 400, "Missing jobId.", "bad_request");
 
   const supabase = getSupabaseAdmin();
-  const { data: job, error } = await supabase
-    .from("import_jobs")
-    .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
-    .eq("id", jobId)
-    .eq("user_id", userId)
-    .single<ImportJobRow>();
-  if (error) return fail(c, 500, error.message);
+  let userId: string | null = null;
+  let job: ImportJobRow | null = null;
+  let state: ImportJobState | null = null;
 
-  if (job.status === "succeeded" || job.status === "failed") {
-    return ok(c, { job });
-  }
-
-  const state = parseJobState(job.message) ?? {
-    from: new Date("2000-01-01T00:00:00.000Z").toISOString(),
-    to: new Date().toISOString(),
-    windowDays: IMPORT_WINDOW_DAYS,
-    fetchedTotal: 0,
-    upsertedTotal: 0,
-  };
-
-  const from = new Date(state.from);
-  const to = new Date(state.to);
-  const windowDays = Math.max(1, Math.min(180, Math.floor(state.windowDays || IMPORT_WINDOW_DAYS)));
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
-    return fail(c, 500, "Import job has an invalid date range.", "job_invalid");
-  }
-
-  const chunkIndex = job.progress;
-  if (chunkIndex >= job.total) {
-    const { data: updated } = await supabase
+  try {
+    userId = await requireUserId(c.req.raw);
+    const { data: loaded, error } = await supabase
       .from("import_jobs")
-      .update({ status: "succeeded" })
+      .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
       .eq("id", jobId)
       .eq("user_id", userId)
-      .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
       .single<ImportJobRow>();
-    return ok(c, { job: updated ?? { ...job, status: "succeeded" } });
-  }
+    if (error) return fail(c, 500, error.message);
+    job = loaded;
 
-  const windowStart = addDays(from, chunkIndex * windowDays);
-  if (windowStart >= to) {
-    const { data: updated } = await supabase
-      .from("import_jobs")
-      .update({ status: "succeeded", progress: job.total })
-      .eq("id", jobId)
-      .eq("user_id", userId)
-      .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
-      .single<ImportJobRow>();
-    return ok(c, { job: updated ?? { ...job, status: "succeeded" } });
-  }
-
-  const windowEnd = addDays(windowStart, windowDays) < to ? addDays(windowStart, windowDays) : to;
-
-  const { data: connection, error: connErr } = await supabase
-    .from("broker_connections")
-    .select("id,metaapi_account_id,login,status,user_id")
-    .eq("id", job.connection_id)
-    .eq("user_id", userId)
-    .eq("provider", PROVIDER)
-    .maybeSingle();
-
-  if (connErr) return fail(c, 500, connErr.message);
-  if (!connection) return fail(c, 404, "Connection not found for this job.", "not_found");
-
-  const accountId = toString((connection as any).metaapi_account_id);
-  const accountLogin = toString((connection as any).login);
-  if (!accountId || !accountLogin) return fail(c, 500, "Connection missing MetaApi account id/login.");
-
-  await supabase.from("import_jobs").update({ status: "running" }).eq("id", jobId).eq("user_id", userId);
-
-  console.log("[broker-import] import chunk", {
-    userId,
-    jobId,
-    connectionId: connection.id,
-    chunkIndex,
-    window: { from: windowStart.toISOString(), to: windowEnd.toISOString() },
-  });
-
-  const deals = await metaApiFetchDealsByTimeRange(accountId, toMetaApiTimeString(windowStart), toMetaApiTimeString(windowEnd));
-  const rows = await buildTradeRowsFromDeals({ deals, userId, accountLogin });
-
-  let upserted = 0;
-  if (rows.length) {
-    const chunkSize = 500;
-    for (let i = 0; i < rows.length; i += chunkSize) {
-      const chunk = rows.slice(i, i + chunkSize);
-      const { data: affected, error: rpcError } = await supabase.rpc("upsert_metaapi_trades", { p_trades: chunk });
-      if (rpcError) throw new Error(rpcError.message);
-      upserted += typeof affected === "number" ? affected : chunk.length;
+    if (job.status === "succeeded" || job.status === "failed") {
+      return ok(c, { job });
     }
+
+    state = parseJobState(job.message) ?? {
+      from: new Date("2000-01-01T00:00:00.000Z").toISOString(),
+      to: new Date().toISOString(),
+      windowDays: IMPORT_WINDOW_DAYS,
+      fetchedTotal: 0,
+      upsertedTotal: 0,
+    };
+
+    const from = new Date(state.from);
+    const to = new Date(state.to);
+    const windowDays = Math.max(1, Math.min(180, Math.floor(state.windowDays || IMPORT_WINDOW_DAYS)));
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
+      return fail(c, 500, "Import job has an invalid date range.", "job_invalid");
+    }
+
+    const chunkIndex = job.progress;
+    if (chunkIndex >= job.total) {
+      const { data: updated } = await supabase
+        .from("import_jobs")
+        .update({ status: "succeeded" })
+        .eq("id", jobId)
+        .eq("user_id", userId)
+        .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+        .single<ImportJobRow>();
+      return ok(c, { job: updated ?? { ...job, status: "succeeded" } });
+    }
+
+    const connectionId = job.connection_id;
+    let accountId = toString(state.metaapiAccountId);
+    let accountLogin = toString(state.accountLogin);
+
+    if (!accountId || !accountLogin) {
+      const { data: connection, error: connErr } = await supabase
+        .from("broker_connections")
+        .select("metaapi_account_id,login")
+        .eq("id", connectionId)
+        .eq("user_id", userId)
+        .eq("provider", PROVIDER)
+        .maybeSingle();
+
+      if (connErr) return fail(c, 500, connErr.message);
+      if (!connection) return fail(c, 404, "Connection not found for this job.", "not_found");
+
+      accountId = toString((connection as any).metaapi_account_id);
+      accountLogin = toString((connection as any).login);
+      if (accountId) state.metaapiAccountId = accountId;
+      if (accountLogin) state.accountLogin = accountLogin;
+    }
+
+    if (!accountId || !accountLogin) return fail(c, 500, "Connection missing MetaApi account id/login.");
+
+    await supabase.from("import_jobs").update({ status: "running" }).eq("id", jobId).eq("user_id", userId);
+
+    const work: Array<{ index: number; start: Date; end: Date }> = [];
+    for (let i = 0; i < IMPORT_CONTINUE_MAX_CHUNKS; i++) {
+      const idx = chunkIndex + i;
+      if (idx >= job.total) break;
+      const start = addDays(from, idx * windowDays);
+      if (start >= to) break;
+      const end = addDays(start, windowDays) < to ? addDays(start, windowDays) : to;
+      work.push({ index: idx, start, end });
+    }
+
+    if (!work.length) {
+      const { data: updated } = await supabase
+        .from("import_jobs")
+        .update({ status: "succeeded", progress: job.total })
+        .eq("id", jobId)
+        .eq("user_id", userId)
+        .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+        .single<ImportJobRow>();
+      return ok(c, { job: updated ?? { ...job, status: "succeeded", progress: job.total } });
+    }
+
+    const results = await runPromisePool(work, IMPORT_CONTINUE_CONCURRENCY, async (chunk) => {
+      console.log("[broker-import] import chunk", {
+        userId,
+        jobId,
+        connectionId,
+        chunkIndex: chunk.index,
+        window: { from: chunk.start.toISOString(), to: chunk.end.toISOString() },
+      });
+
+      const deals = await metaApiFetchDealsByTimeRange(
+        accountId,
+        toMetaApiTimeString(chunk.start),
+        toMetaApiTimeString(chunk.end),
+      );
+      const rows = await buildTradeRowsFromDeals({ deals, userId, accountLogin });
+      const upserted = rows.length ? await upsertMetaApiTrades(supabase, rows) : 0;
+
+      console.log("[broker-import] import chunk done", {
+        userId,
+        jobId,
+        chunkIndex: chunk.index,
+        fetched: deals.length,
+        upserted,
+      });
+
+      return { index: chunk.index, start: chunk.start, end: chunk.end, fetched: deals.length, upserted };
+    });
+
+    results.sort((a, b) => a.index - b.index);
+
+    let fetched = 0;
+    let upserted = 0;
+    for (const r of results) {
+      fetched += r.fetched;
+      upserted += r.upserted;
+    }
+
+    state.fetchedTotal += fetched;
+    state.upsertedTotal += upserted;
+
+    const last = results[results.length - 1];
+    state.lastChunk = {
+      from: last.start.toISOString(),
+      to: last.end.toISOString(),
+      fetched: last.fetched,
+      upserted: last.upserted,
+    };
+    if (state.error) delete state.error;
+
+    const nextProgress = chunkIndex + results.length;
+    const done = nextProgress >= job.total || last.end >= to;
+    const nextStatus: ImportJobStatus = done ? "succeeded" : "running";
+
+    const { data: updatedJob, error: updateErr } = await supabase
+      .from("import_jobs")
+      .update({
+        status: nextStatus,
+        progress: done ? job.total : nextProgress,
+        message: stringifyJobState(state),
+      })
+      .eq("id", jobId)
+      .eq("user_id", userId)
+      .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+      .single<ImportJobRow>();
+
+    if (updateErr) return fail(c, 500, updateErr.message);
+
+    if (done) {
+      const now = new Date().toISOString();
+      await supabase
+        .from("broker_connections")
+        .update({ last_import_at: now, status: "imported" })
+        .eq("id", connectionId)
+        .eq("user_id", userId);
+    }
+
+    return ok(c, { job: updatedJob, chunk: { fetched, upserted } });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Import failed.";
+    const status = (e as any)?.status;
+    console.error("[broker-import] import continue error", e);
+
+    if (userId && job) {
+      const nextState =
+        state ??
+        parseJobState(job.message) ?? {
+          from: new Date("2000-01-01T00:00:00.000Z").toISOString(),
+          to: new Date().toISOString(),
+          windowDays: IMPORT_WINDOW_DAYS,
+          fetchedTotal: 0,
+          upsertedTotal: 0,
+        };
+      nextState.error = message;
+
+      const { data: failedJob } = await supabase
+        .from("import_jobs")
+        .update({ status: "failed", message: stringifyJobState(nextState) })
+        .eq("id", jobId)
+        .eq("user_id", userId)
+        .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
+        .single<ImportJobRow>();
+
+      return ok(c, { job: failedJob ?? { ...job, status: "failed", message: stringifyJobState(nextState) } });
+    }
+
+    if (message.toLowerCase().includes("authorization")) return fail(c, 401, "Unauthorized.", "unauthorized");
+    return fail(c, Number.isFinite(status) ? status : 500, message, "import_continue_error", {
+      meta: (e as any)?.meta,
+    });
   }
-
-  state.fetchedTotal += deals.length;
-  state.upsertedTotal += upserted;
-  state.lastChunk = {
-    from: windowStart.toISOString(),
-    to: windowEnd.toISOString(),
-    fetched: deals.length,
-    upserted,
-  };
-
-  const nextProgress = chunkIndex + 1;
-  const done = nextProgress >= job.total || windowEnd >= to;
-  const nextStatus: ImportJobStatus = done ? "succeeded" : "running";
-
-  const { data: updatedJob, error: updateErr } = await supabase
-    .from("import_jobs")
-    .update({
-      status: nextStatus,
-      progress: done ? job.total : nextProgress,
-      message: stringifyJobState(state),
-    })
-    .eq("id", jobId)
-    .eq("user_id", userId)
-    .select("id,user_id,connection_id,status,progress,total,message,created_at,updated_at")
-    .single<ImportJobRow>();
-
-  if (updateErr) return fail(c, 500, updateErr.message);
-
-  if (done) {
-    const now = new Date().toISOString();
-    await supabase
-      .from("broker_connections")
-      .update({ last_import_at: now, status: "imported" })
-      .eq("id", connection.id)
-      .eq("user_id", userId);
-  }
-
-  console.log("[broker-import] import chunk done", {
-    userId,
-    jobId,
-    chunkIndex,
-    fetched: deals.length,
-    upserted,
-    status: nextStatus,
-  });
-
-  return ok(c, { job: updatedJob, chunk: { fetched: deals.length, upserted } });
 }
 
 async function handleAction(c: any): Promise<Response> {
