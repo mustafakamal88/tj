@@ -449,6 +449,37 @@ export function Dashboard() {
             </div>
           </div>
 
+          {/* Weekly Summary (mobile-only) */}
+          <div className="mt-4 sm:hidden">
+            <h3 className="text-sm font-medium mb-2">Weekly Summary</h3>
+            <div className="space-y-2">
+              {weeks.map((week, weekIndex) => {
+                const weekData = getWeekData(week);
+                return (
+                  <div key={weekIndex} className="rounded-lg border bg-muted/10 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Week {weekIndex + 1}</span>
+                      {weekData.days > 0 ? (
+                        <span
+                          className={`text-sm font-medium tabular-nums ${
+                            weekData.pnl >= 0 ? 'text-green-600' : 'text-red-600'
+                          }`}
+                        >
+                          {formatCurrency(weekData.pnl).replace('.00', '')}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-muted-foreground tabular-nums">—</span>
+                      )}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {weekData.days} {weekData.days === 1 ? 'day' : 'days'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Legend */}
           <div className="flex items-center justify-center gap-6 mt-6 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
