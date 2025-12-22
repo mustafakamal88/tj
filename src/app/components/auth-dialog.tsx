@@ -23,7 +23,6 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -94,7 +93,6 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
           data: {
             first_name: fn,
             last_name: ln,
-            phone: phone.trim() || null,
             full_name: fullName,
           },
         },
@@ -195,17 +193,6 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
-                <Input
-                  id="phone"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+1 555 000 0000"
-                  autoComplete="tel"
-                />
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="signup_password">Password</Label>
                 <Input
                   id="signup_password"
@@ -234,7 +221,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                 {submitting ? 'Creating account…' : 'Sign Up'}
               </Button>
               <p className="text-xs text-muted-foreground">
-                By signing up you agree to keep your credentials private. Your phone number is stored on your profile and is not verified.
+                By signing up you agree to keep your credentials private.
               </p>
             </TabsContent>
           </Tabs>

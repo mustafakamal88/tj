@@ -59,8 +59,6 @@ export async function ensureProfile(user: User): Promise<boolean> {
     typeof user.user_metadata?.first_name === 'string' ? (user.user_metadata.first_name as string).trim() : null;
   const lastName =
     typeof user.user_metadata?.last_name === 'string' ? (user.user_metadata.last_name as string).trim() : null;
-  const phone =
-    typeof user.user_metadata?.phone === 'string' ? (user.user_metadata.phone as string).trim() : null;
   const fullName =
     typeof user.user_metadata?.full_name === 'string' ? (user.user_metadata.full_name as string) : null;
 
@@ -71,7 +69,6 @@ export async function ensureProfile(user: User): Promise<boolean> {
       full_name: fullName,
       first_name: firstName,
       last_name: lastName,
-      phone,
     },
     { onConflict: 'id' },
   );

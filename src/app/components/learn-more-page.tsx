@@ -161,12 +161,13 @@ export function LearnMorePage() {
         </div>
 
         {/* CTA Section */}
-        <Card className="p-8 text-center bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-950/20 dark:to-blue-950/20">
+        {/* Mobile: add breathing room and prevent badge overflow without changing desktop layout. */}
+        <Card className="p-6 sm:p-8 text-center bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-950/20 dark:to-blue-950/20">
           <h2 className="text-2xl mb-4">Ready to Improve Your Trading?</h2>
           <p className="text-muted-foreground mb-6">
             Start journaling your trades today and see the difference it makes in your performance
           </p>
-          <div className="flex justify-center gap-4">
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-3 sm:gap-4">
             <Badge variant="secondary" className="px-4 py-2">
               ✓ Free to start
             </Badge>

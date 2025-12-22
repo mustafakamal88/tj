@@ -117,29 +117,30 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* IMPORTANT: stretch dialog on desktop, keep mobile clean */}
+      {/* Mobile: reduce cramped padding and use max-height + inner scrolling for smoother UX. */}
       <DialogContent
         className="
           w-[95vw]
           max-w-none
-          h-[90vh]
-          overflow-y-auto
+          max-h-[90dvh]
+          md:max-h-[90vh]
+          overflow-hidden
           p-0
         "
       >
-        {/* Real container inside dialog */}
-        <div className="mx-auto w-full max-w-7xl px-6 py-8">
+        {/* Scroll container (keeps the close button accessible). */}
+        <div className="mx-auto w-full max-w-7xl max-h-[90dvh] md:max-h-[90vh] overflow-y-auto overscroll-contain px-4 sm:px-6 py-6 sm:py-8">
           <DialogHeader className="space-y-3">
-            <DialogTitle className="text-4xl text-center font-bold">
+            <DialogTitle className="text-3xl sm:text-4xl text-center font-bold">
               Choose Your Plan
             </DialogTitle>
-            <DialogDescription className="text-center text-base">
+            <DialogDescription className="text-center text-sm sm:text-base">
               Select the plan that best fits your trading needs. Cancel anytime.
             </DialogDescription>
           </DialogHeader>
 
           {/* Plans Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mt-10 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8 mt-8 sm:mt-10 mb-5 sm:mb-6">
             {plans.map((plan) => {
               const isCurrent = currentPlan === plan.key;
 
@@ -154,7 +155,7 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
                 >
                   {/* Header Section */}
                   <div
-                    className={`p-8 pb-6 text-center ${plan.popular ? 'pt-14' : ''} ${
+                    className={`p-6 sm:p-8 pb-4 sm:pb-6 text-center ${plan.popular ? 'pt-12 sm:pt-14' : ''} ${
                       plan.highlighted
                         ? 'bg-gradient-to-br from-[#34a85a]/10 to-[#34a85a]/5'
                         : 'bg-muted/30'
@@ -168,23 +169,23 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
 
                   {/* Icon */}
                   <div
-                    className={`inline-flex items-center justify-center w-24 h-24 rounded-2xl mb-4 ${
+                    className={`inline-flex items-center justify-center w-20 h-20 sm:w-24 sm:h-24 rounded-2xl mb-3 sm:mb-4 ${
                       plan.highlighted ? 'bg-[#34a85a]' : 'bg-muted'
                     }`}
                   >
-                    <span className="text-5xl">{plan.icon}</span>
+                    <span className="text-4xl sm:text-5xl">{plan.icon}</span>
                   </div>
 
                   {/* Plan Name */}
                   <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
-                  <p className="text-sm text-muted-foreground mb-6 min-h-[40px]">
+                  <p className="text-sm text-muted-foreground mb-5 sm:mb-6 sm:min-h-[40px]">
                     {plan.description}
                   </p>
 
                   {/* Price */}
                   <div className="mb-3">
                     <div className="flex items-baseline justify-center gap-2">
-                      <span className="font-bold tracking-tight whitespace-nowrap tabular-nums text-5xl md:text-4xl lg:text-5xl">
+                      <span className="font-bold tracking-tight whitespace-nowrap tabular-nums text-4xl sm:text-5xl md:text-4xl lg:text-5xl">
                         {plan.price}
                       </span>
                     </div>
@@ -195,7 +196,7 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
                 </div>
 
                 {/* Features Section */}
-                <div className="p-6 flex-1 flex flex-col">
+                <div className="p-5 pt-4 sm:p-6 sm:pt-6 flex-1 flex flex-col">
                   <ul className="space-y-3 mb-6 flex-1">
                     {plan.features.map((feature, index) => (
                       <li key={index} className="flex items-start gap-3">
@@ -249,7 +250,7 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
           {/* Footer Info */}
           <div className="mt-6 pt-6 border-t">
             <div className="text-center space-y-3">
-              <div className="flex flex-wrap justify-center gap-6 text-sm">
+              <div className="flex flex-wrap justify-center gap-4 sm:gap-6 text-sm">
                 <span className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#34a85a]" />
                   30-day money-back guarantee

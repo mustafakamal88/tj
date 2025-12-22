@@ -17,9 +17,10 @@ export function SiteFooter({ onGetStarted, onLearnMore }: SiteFooterProps) {
 
   return (
     <footer className="border-t bg-card/30">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
-          <div className="md:col-span-2 space-y-4">
+      <div className="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8 py-12">
+        {/* Mobile: make stacking feel intentional without changing md+ layout. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 sm:gap-10">
+          <div className="sm:col-span-2 md:col-span-2 space-y-4">
             <div className="flex items-center gap-2.5">
               <svg
                 className="size-10 shrink-0 text-[#34a85a] block -translate-y-px"
@@ -63,7 +64,7 @@ export function SiteFooter({ onGetStarted, onLearnMore }: SiteFooterProps) {
                 <Button
                   type="button"
                   variant="link"
-                  className="px-0 text-muted-foreground hover:text-foreground"
+                  className="w-full sm:w-auto justify-start px-0 text-muted-foreground hover:text-foreground"
                   onClick={() => scrollToSection('features')}
                 >
                   Features
@@ -73,7 +74,7 @@ export function SiteFooter({ onGetStarted, onLearnMore }: SiteFooterProps) {
                 <Button
                   type="button"
                   variant="link"
-                  className="px-0 text-muted-foreground hover:text-foreground"
+                  className="w-full sm:w-auto justify-start px-0 text-muted-foreground hover:text-foreground"
                   onClick={() => scrollToSection('workflow')}
                 >
                   How it works
@@ -83,7 +84,7 @@ export function SiteFooter({ onGetStarted, onLearnMore }: SiteFooterProps) {
                 <Button
                   type="button"
                   variant="link"
-                  className="px-0 text-muted-foreground hover:text-foreground"
+                  className="w-full sm:w-auto justify-start px-0 text-muted-foreground hover:text-foreground"
                   onClick={() => scrollToSection('pricing')}
                 >
                   Pricing
@@ -99,7 +100,7 @@ export function SiteFooter({ onGetStarted, onLearnMore }: SiteFooterProps) {
                 <Button
                   type="button"
                   variant="link"
-                  className="px-0 text-muted-foreground hover:text-foreground"
+                  className="w-full sm:w-auto justify-start px-0 text-muted-foreground hover:text-foreground"
                   onClick={onLearnMore}
                 >
                   Guides & FAQs
@@ -109,7 +110,7 @@ export function SiteFooter({ onGetStarted, onLearnMore }: SiteFooterProps) {
                 <Button
                   type="button"
                   variant="link"
-                  className="px-0 text-muted-foreground hover:text-foreground"
+                  className="w-full sm:w-auto justify-start px-0 text-muted-foreground hover:text-foreground"
                   onClick={() => window.dispatchEvent(new Event('open-subscription-dialog'))}
                 >
                   Compare plans
@@ -119,7 +120,7 @@ export function SiteFooter({ onGetStarted, onLearnMore }: SiteFooterProps) {
           </div>
         </div>
 
-        <Separator className="my-10" />
+        <Separator className="my-8 sm:my-10" />
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-muted-foreground">
           <span>© {year} Trade Journal. All rights reserved.</span>
