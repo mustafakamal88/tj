@@ -19,6 +19,10 @@ type CalendarCell =
   | { kind: 'no-trade'; day: number }
   | { kind: 'trade'; day: number; pnl: number; trades: 1 | 2 | 3 };
 
+const BRAND_GREEN_TEXT = 'text-[#34a85a]';
+const BRAND_GREEN_BG_LIGHT = 'bg-[#34a85a]/10';
+const BRAND_GREEN_BG_DARK = 'bg-[#34a85a]/12';
+
 const tradesByDay: Record<number, TradeDay> = {
   1: { pnl: 180, trades: 2 },
   2: { pnl: -65, trades: 1 },
@@ -115,22 +119,14 @@ function buildWeekSummaries(): WeekSummary[] {
   return summaries;
 }
 
-function CalendarPreviewCard({ isDark }: { isDark: boolean }) {
-  const cells = useMemo(() => buildCells(), []);
-  const weekSummaries = useMemo(() => buildWeekSummaries(), []);
-  const summary = useMemo(() => {
-    const entries = Object.values(tradesByDay);
-    const tradedDays = entries.length;
-    const winningDays = entries.filter((t) => t.pnl > 0).length;
-    const totalTrades = entries.reduce((sum, t) => sum + t.trades, 0);
-    const net = entries.reduce((sum, t) => sum + t.pnl, 0);
+function buildWeeks(): CalendarCell[][] {
+  const cells = buildCells();
+  return Array.from({ length: 5 }, (_, weekIndex) => cells.slice(weekIndex * 7, weekIndex * 7 + 7));
+}
 
-    return {
-      winRate: tradedDays ? Math.round((winningDays / tradedDays) * 100) : 0,
-      net,
-      totalTrades,
-    };
-  }, []);
+function CalendarPreviewCard({ isDark }: { isDark: boolean }) {
+  const weeks = useMemo(() => buildWeeks(), []);
+  const weekSummaries = useMemo(() => buildWeekSummaries(), []);
 
   const frame = cn(
     'relative overflow-hidden rounded-3xl border shadow-xl',
@@ -142,10 +138,7 @@ function CalendarPreviewCard({ isDark }: { isDark: boolean }) {
   const muted = isDark ? 'text-slate-300/70' : 'text-slate-500';
   const divider = isDark ? 'border-white/10' : 'border-slate-200/70';
   const dayHeader = isDark ? 'text-slate-300/80' : 'text-slate-500';
-  const tileBase = cn(
-    'h-[86px] rounded-2xl border p-2.5 flex flex-col gap-1 overflow-hidden',
-    isDark ? 'border-white/10' : 'border-slate-200/70',
-  );
+  const tileBorder = isDark ? 'border-white/10' : 'border-slate-200/70';
 
   return (
     <div className={frame}>
@@ -158,8 +151,10 @@ function CalendarPreviewCard({ isDark }: { isDark: boolean }) {
 
       <div
         className={cn(
-          'pointer-events-none absolute inset-y-0 right-0 w-[34%]',
-          isDark ? 'bg-gradient-to-l from-white/8 via-white/0 to-transparent' : 'bg-gradient-to-l from-slate-50 via-white/0 to-transparent',
+          'pointer-events-none absolute inset-y-0 right-0 w-[30%]',
+          isDark
+            ? 'bg-gradient-to-l from-white/8 via-white/0 to-transparent'
+            : 'bg-gradient-to-l from-slate-50 via-white/0 to-transparent',
         )}
       />
 
@@ -181,149 +176,125 @@ function CalendarPreviewCard({ isDark }: { isDark: boolean }) {
 
         <div className={cn('mt-5 border-t', divider)} />
 
-        <div className="mt-5 grid grid-cols-[1fr_148px] gap-4">
-          <div>
-            <div className={cn('grid grid-cols-7 gap-2 text-[11px] font-medium', dayHeader)}>
-              <span>Mon</span>
-              <span>Tue</span>
-              <span>Wed</span>
-              <span>Thu</span>
-              <span>Fri</span>
-              <span>Sat</span>
-              <span>Sun</span>
-            </div>
-
-            <div className="mt-2 grid grid-cols-7 gap-2">
-              {cells.map((cell, idx) => {
-                const isTrade = cell.kind === 'trade';
-                const isClosed = cell.kind === 'closed';
-                const isEmpty = cell.kind === 'empty';
-                const isNoTrade = cell.kind === 'no-trade';
-
-                const pnl = isTrade ? cell.pnl : 0;
-                const isProfit = pnl >= 0;
-
-                const tileBg = isTrade
-                  ? isProfit
-                    ? isDark
-                      ? 'bg-emerald-400/12'
-                      : 'bg-emerald-500/10'
-                    : isDark
-                      ? 'bg-rose-400/12'
-                      : 'bg-rose-500/10'
-                  : isClosed
-                    ? isDark
-                      ? 'bg-white/4'
-                      : 'bg-slate-50'
-                    : isNoTrade
-                      ? isDark
-                        ? 'bg-white/3'
-                        : 'bg-white'
-                      : isDark
-                        ? 'bg-white/2'
-                        : 'bg-white';
-
-                const pnlColor = isDark
-                  ? isProfit
-                    ? 'text-emerald-300'
-                    : 'text-rose-300'
-                  : isProfit
-                    ? 'text-emerald-600'
-                    : 'text-rose-600';
-
-                return (
-                  <div key={idx} className={cn(tileBase, tileBg)}>
-                    <p className={cn('text-[11px] font-semibold', isEmpty ? muted : '')}>{cell.day ?? ''}</p>
-
-                    {isTrade && (
-                      <div className="mt-auto">
-                        <p className={cn('text-xs font-semibold tabular-nums', pnlColor)}>{formatPnl(cell.pnl)}</p>
-                        <p className={cn('mt-0.5 text-[10px]', muted)}>{tradeLabel(cell.trades)}</p>
-                      </div>
-                    )}
-
-                    {isClosed && (
-                      <div className="mt-auto">
-                        <p className={cn('text-[11px] font-medium', muted)}>Closed</p>
-                      </div>
-                    )}
-
-                    {(isNoTrade || isEmpty) && (
-                      <div className="mt-auto">
-                        <p className={cn('text-[11px] font-medium', muted)}>—</p>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+        <div className="mt-5">
+          <div
+            className={cn('grid grid-cols-8 gap-2 text-[11px] font-medium', dayHeader)}
+            style={{ gridTemplateColumns: 'repeat(7,minmax(0,1fr)) 148px' }}
+          >
+            <span className="text-center">Mon</span>
+            <span className="text-center">Tue</span>
+            <span className="text-center">Wed</span>
+            <span className="text-center">Thu</span>
+            <span className="text-center">Fri</span>
+            <span className="text-center">Sat</span>
+            <span className="text-center">Sun</span>
+            <span className="text-center">Week</span>
           </div>
 
-          <div className="relative">
-            <div className="flex items-center justify-between">
-              <p className={cn('text-[11px] font-semibold uppercase tracking-wide', muted)}>Weeks</p>
-              <p className={cn('text-[11px]', muted)}>Totals</p>
-            </div>
+          <div className="mt-2 space-y-2">
+            {weeks.map((week, weekIndex) => {
+              const weekSummary = weekSummaries[weekIndex];
+              const weekPositive = weekSummary.total >= 0;
+              const weekTotalColor = weekPositive
+                ? BRAND_GREEN_TEXT
+                : isDark
+                  ? 'text-red-400'
+                  : 'text-red-600';
 
-            <div className="mt-2 space-y-2">
-              {weekSummaries.map((week) => {
-                const positive = week.total >= 0;
-                const totalColor = isDark
-                  ? positive
-                    ? 'text-emerald-300'
-                    : 'text-rose-300'
-                  : positive
-                    ? 'text-emerald-600'
-                    : 'text-rose-600';
+              return (
+                <div
+                  key={weekSummary.label}
+                  className="grid grid-cols-8 gap-2"
+                  style={{ gridTemplateColumns: 'repeat(7,minmax(0,1fr)) 148px' }}
+                >
+                  {week.map((cell, idx) => {
+                    const isTrade = cell.kind === 'trade';
+                    const isClosed = cell.kind === 'closed';
+                    const isEmpty = cell.kind === 'empty';
+                    const isNoTrade = cell.kind === 'no-trade';
 
-                return (
+                    const pnl = isTrade ? cell.pnl : 0;
+                    const isProfit = pnl >= 0;
+
+                    const tileBg = isTrade
+                      ? isProfit
+                        ? isDark
+                          ? BRAND_GREEN_BG_DARK
+                          : BRAND_GREEN_BG_LIGHT
+                        : isDark
+                          ? 'bg-red-500/12'
+                          : 'bg-red-500/10'
+                      : isClosed
+                        ? isDark
+                          ? 'bg-white/4'
+                          : 'bg-muted/30'
+                        : isNoTrade
+                          ? isDark
+                            ? 'bg-white/3'
+                            : 'bg-white'
+                          : 'bg-transparent';
+
+                    const pnlColor = isTrade
+                      ? isProfit
+                        ? BRAND_GREEN_TEXT
+                        : isDark
+                          ? 'text-red-400'
+                          : 'text-red-600'
+                      : muted;
+
+                    return (
+                      <div
+                        key={`${weekIndex}-${idx}`}
+                        className={cn(
+                          'h-[88px] rounded-2xl border px-2.5 py-2 flex flex-col min-w-0 overflow-hidden',
+                          tileBorder,
+                          tileBg,
+                          isEmpty ? 'opacity-0' : '',
+                        )}
+                      >
+                        <div className={cn('text-[10px] font-medium leading-none', muted)}>{cell.day ?? ''}</div>
+
+                        <div className="flex-1 min-h-0 flex items-center justify-center">
+                          {isTrade ? (
+                            <span className={cn('text-[13px] font-medium tabular-nums leading-none', pnlColor)}>
+                              {formatPnl(cell.pnl).replace('.00', '')}
+                            </span>
+                          ) : (
+                            <span className={cn('text-sm leading-none', muted)}>—</span>
+                          )}
+                        </div>
+
+                        <div className={cn('text-[10px] leading-none text-center truncate', muted)}>
+                          {isTrade ? tradeLabel(cell.trades) : isClosed ? 'Closed' : '—'}
+                        </div>
+                      </div>
+                    );
+                  })}
+
                   <div
-                    key={week.label}
                     className={cn(
-                      'h-[86px] rounded-2xl border px-3 py-2 flex flex-col justify-between',
-                      isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200/70',
+                      'h-[88px] rounded-2xl border px-3 py-2 flex flex-col items-center justify-center text-center',
+                      tileBorder,
+                      isDark ? 'bg-white/5' : 'bg-muted/30',
                     )}
                   >
-                    <p className="text-xs font-semibold">{week.label}</p>
-                    <div>
-                      <p className={cn('text-sm font-semibold tabular-nums', totalColor)}>{formatPnl(week.total)}</p>
-                      <p className={cn('mt-0.5 text-[10px]', muted)}>
-                        {week.tradedDays} {week.tradedDays === 1 ? 'day' : 'days'}
-                      </p>
-                    </div>
+                    <div className={cn('text-[10px] font-medium leading-none', muted)}>{weekSummary.label}</div>
+                    {weekSummary.tradedDays > 0 ? (
+                      <>
+                        <div className={cn('mt-1 text-[13px] font-medium tabular-nums leading-none', weekTotalColor)}>
+                          {formatPnl(weekSummary.total).replace('.00', '')}
+                        </div>
+                        <div className={cn('mt-1 text-[10px] leading-none', muted)}>
+                          {weekSummary.tradedDays} {weekSummary.tradedDays === 1 ? 'day' : 'days'}
+                        </div>
+                      </>
+                    ) : (
+                      <span className={cn('mt-1 text-sm leading-none', muted)}>—</span>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className={cn('mt-6 border-t', divider)} />
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          <div className={cn('rounded-2xl border px-4 py-3', isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200/70')}>
-            <p className={cn('text-[10px] font-medium uppercase tracking-wide', muted)}>Win rate</p>
-            <p className="mt-1 text-sm font-semibold tabular-nums">{summary.winRate}%</p>
-          </div>
-          <div className={cn('rounded-2xl border px-4 py-3', isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200/70')}>
-            <p className={cn('text-[10px] font-medium uppercase tracking-wide', muted)}>Net P/L</p>
-            <p
-              className={cn(
-                'mt-1 text-sm font-semibold tabular-nums',
-                summary.net >= 0
-                  ? isDark
-                    ? 'text-emerald-300'
-                    : 'text-emerald-600'
-                  : isDark
-                    ? 'text-rose-300'
-                    : 'text-rose-600',
-              )}
-            >
-              {formatPnl(summary.net)}
-            </p>
-          </div>
-          <div className={cn('rounded-2xl border px-4 py-3', isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200/70')}>
-            <p className={cn('text-[10px] font-medium uppercase tracking-wide', muted)}>Trades</p>
-            <p className="mt-1 text-sm font-semibold tabular-nums">{summary.totalTrades}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -337,7 +308,10 @@ export function HeroCalendarPreview() {
   const isDark = resolvedTheme === 'dark';
 
   return (
-    <div aria-hidden="true" className="relative mx-auto w-full max-w-[560px] lg:ml-auto select-none">
+    <div
+      aria-hidden="true"
+      className="relative mx-auto w-full max-w-[560px] lg:ml-auto lg:-translate-x-10 xl:-translate-x-14 select-none"
+    >
       <div className="absolute -inset-6 -z-10 rounded-3xl bg-gradient-to-tr from-[#34a85a]/20 via-transparent to-sky-500/20 blur-2xl" />
 
       <div className="relative max-h-[440px] overflow-hidden">
@@ -346,8 +320,7 @@ export function HeroCalendarPreview() {
         <div
           className={cn(
             'pointer-events-none absolute inset-0 z-20',
-            'bg-gradient-to-r from-background via-background/50 to-transparent',
-            'via-25% to-[70%]',
+            'bg-gradient-to-r from-background/95 via-background/70 via-40% to-transparent',
           )}
         />
       </div>
