@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -21,6 +21,27 @@ const SCREENSHOTS_BUCKET = 'trade-screenshots';
 const MAX_SCREENSHOTS_PER_TRADE = 3;
 const FREE_SCREENSHOT_STORAGE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
 const PRO_SCREENSHOT_STORAGE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB
+
+type ScreenshotMeta = { name: string; size: number };
+
+type DraftPayloadV1 = {
+  v: 1;
+  savedAt: string;
+  form: {
+    date: string;
+    symbol: string;
+    type: TradeType;
+    market: TradeMarket;
+    entry: string;
+    exit: string;
+    quantity: string;
+    notes: string;
+    emotions: string;
+    setup: string;
+    mistakes: string;
+  };
+  screenshots: ScreenshotMeta[];
+};
 
 function isMissingColumnOrSchemaCacheError(error: unknown): boolean {
   const message = typeof (error as any)?.message === 'string' ? String((error as any).message) : '';
@@ -56,11 +77,82 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+function serializeDraft(input: {
+  formData: DraftPayloadV1['form'];
+  screenshotsMeta: ScreenshotMeta[];
+}): DraftPayloadV1 {
+  return {
+    v: 1,
+    savedAt: new Date().toISOString(),
+    form: { ...input.formData },
+    screenshots: input.screenshotsMeta.map((s) => ({ name: s.name, size: s.size })),
+  };
+}
+
+function deserializeDraft(value: unknown): DraftPayloadV1 | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = (value as any).v;
+  if (v !== 1) return null;
+  const form = (value as any).form;
+  if (!form || typeof form !== 'object') return null;
+  const screenshots = Array.isArray((value as any).screenshots) ? (value as any).screenshots : [];
+
+  const requiredStrings = ['date', 'symbol', 'entry', 'exit', 'quantity', 'notes', 'emotions', 'setup', 'mistakes'] as const;
+  for (const k of requiredStrings) {
+    if (typeof (form as any)[k] !== 'string') return null;
+  }
+  if ((form as any).type !== 'long' && (form as any).type !== 'short') return null;
+  if ((form as any).market !== 'forex_cfd' && (form as any).market !== 'futures') return null;
+
+  return {
+    v: 1,
+    savedAt: typeof (value as any).savedAt === 'string' ? (value as any).savedAt : new Date().toISOString(),
+    form: {
+      date: String((form as any).date),
+      symbol: String((form as any).symbol),
+      type: (form as any).type as TradeType,
+      market: (form as any).market as TradeMarket,
+      entry: String((form as any).entry),
+      exit: String((form as any).exit),
+      quantity: String((form as any).quantity),
+      notes: String((form as any).notes),
+      emotions: String((form as any).emotions),
+      setup: String((form as any).setup),
+      mistakes: String((form as any).mistakes),
+    },
+    screenshots: screenshots
+      .map((s: any) => ({ name: typeof s?.name === 'string' ? s.name : '', size: typeof s?.size === 'number' ? s.size : Number(s?.size) }))
+      .filter((s: ScreenshotMeta) => Boolean(s.name) && Number.isFinite(s.size) && s.size >= 0),
+  };
+}
+
+function isAuthStatus(status: unknown): boolean {
+  return status === 401 || status === '401';
+}
+
+function isPermissionStatus(status: unknown): boolean {
+  return status === 403 || status === '403';
+}
+
+function looksLikeAuthErrorMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes('jwt') || m.includes('token') || m.includes('expired') || m.includes('not_authenticated');
+}
+
+function looksLikeRlsErrorMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes('row-level security') || m.includes('permission denied') || m.includes('not allowed');
+}
+
 export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [screenshots, setScreenshots] = useState<File[]>([]);
+  const [restoredScreenshotMeta, setRestoredScreenshotMeta] = useState<ScreenshotMeta[]>([]);
   const [authReady, setAuthReady] = useState(false);
+  const [draftKey, setDraftKey] = useState<string>('tj:add-trade:draft:anon');
+  const [draftRestored, setDraftRestored] = useState(false);
+  const draftSaveTimerRef = useRef<number | null>(null);
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     symbol: '',
@@ -75,6 +167,12 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     mistakes: '',
   });
 
+  const screenshotsMeta: ScreenshotMeta[] = useMemo(() => {
+    const current = screenshots.map((f) => ({ name: f.name, size: f.size }));
+    // When restoring from draft, we can't restore raw Files. Keep metadata visible.
+    return current.length ? current : restoredScreenshotMeta;
+  }, [screenshots, restoredScreenshotMeta]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -85,6 +183,52 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       try {
         const supabase = requireSupabaseClient();
         await supabase.auth.getSession();
+
+        // Determine draft key from the current authenticated user.
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData.user?.id;
+
+        const anonKey = 'tj:add-trade:draft:anon';
+        const userKey = `tj:add-trade:draft:${userId ?? 'anon'}`;
+        const key = userId ? userKey : anonKey;
+
+        if (active) {
+          setDraftKey(key);
+        }
+
+        // Restore draft (prefer user draft; fallback to anon draft).
+        if (typeof window !== 'undefined') {
+          const tryRead = (k: string): DraftPayloadV1 | null => {
+            try {
+              const raw = window.localStorage.getItem(k);
+              if (!raw) return null;
+              const parsed = JSON.parse(raw);
+              return deserializeDraft(parsed);
+            } catch {
+              return null;
+            }
+          };
+
+          const draft = userId ? tryRead(userKey) ?? tryRead(anonKey) : tryRead(anonKey);
+          if (draft && active) {
+            setFormData(draft.form);
+            setRestoredScreenshotMeta(draft.screenshots);
+            setScreenshots([]);
+            setDraftRestored(true);
+
+            // If we loaded anon draft for an authenticated user, migrate it to the user key.
+            if (userId && !tryRead(userKey) && tryRead(anonKey)) {
+              try {
+                window.localStorage.setItem(userKey, JSON.stringify(draft));
+                window.localStorage.removeItem(anonKey);
+              } catch {
+                // ignore
+              }
+            }
+          } else if (active) {
+            setDraftRestored(false);
+          }
+        }
       } catch {
         // Ignore; authReady will still allow the UI to proceed.
       } finally {
@@ -97,8 +241,32 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     };
   }, [open]);
 
+  // Persist draft (debounced) while the modal is open.
+  useEffect(() => {
+    if (!open) return;
+    if (typeof window === 'undefined') return;
+
+    if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = window.setTimeout(() => {
+      try {
+        const payload = serializeDraft({ formData, screenshotsMeta });
+        window.localStorage.setItem(draftKey, JSON.stringify(payload));
+      } catch {
+        // ignore
+      }
+    }, 400);
+
+    return () => {
+      if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current);
+      draftSaveTimerRef.current = null;
+    };
+  }, [open, draftKey, formData, screenshotsMeta]);
+
   const handleAddScreenshots = (files: FileList | null) => {
     if (!files || files.length === 0) return;
+
+    // The user is selecting new files; clear any restored (metadata-only) placeholders.
+    if (restoredScreenshotMeta.length) setRestoredScreenshotMeta([]);
 
     const next = [...screenshots, ...Array.from(files)];
     if (next.length > MAX_SCREENSHOTS_PER_TRADE) {
@@ -135,13 +303,17 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     // Ensure we have a valid, current user token before hitting RLS-protected tables.
     const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError) {
-      toast.error('Session expired, please login again.');
-      return { ok: false };
+    let user = userData.user;
+    if ((userError || !user) && authReady) {
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        // ignore
+      }
+      const retry = await supabase.auth.getUser();
+      user = retry.data.user;
     }
-    const user = userData.user;
-    if (!user) {
-      toast.error('Please login to upload screenshots.');
+    if (userError || !user) {
       return { ok: false };
     }
 
@@ -150,11 +322,23 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     const fallback = (warning: string, warningDetail?: string) =>
       ({ ok: true, profilePlan: 'free', storageUsedBytes: 0, warning, warningDetail } as const);
 
-    const { data: profileRow, error: profileError, status: profileStatus } = await supabase
-      .from('profiles')
-      .select('subscription_plan,storage_used_bytes')
-      .eq('id', user.id)
-      .maybeSingle<{ subscription_plan: string; storage_used_bytes: number | null }>();
+    const runProfileSelect = () =>
+      supabase
+        .from('profiles')
+        .select('subscription_plan,storage_used_bytes')
+        .eq('id', user.id)
+        .maybeSingle<{ subscription_plan: string; storage_used_bytes: number | null }>();
+
+    let { data: profileRow, error: profileError, status: profileStatus } = await runProfileSelect();
+
+    if (profileError && isAuthStatus(profileStatus)) {
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        // ignore
+      }
+      ({ data: profileRow, error: profileError, status: profileStatus } = await runProfileSelect());
+    }
 
     if (profileError) {
       // PostgREST schema cache can lag immediately after migrations; retry with a narrower select.
@@ -215,6 +399,15 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       toast.error('Please wait a moment for your session to load.');
       return;
     }
+
+    const clearDraft = () => {
+      if (typeof window === 'undefined') return;
+      try {
+        window.localStorage.removeItem(draftKey);
+      } catch {
+        // ignore
+      }
+    };
 
     // Validation
     if (!formData.symbol || !formData.entry || !formData.exit || !formData.quantity) {
@@ -300,12 +493,29 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     setIsSubmitting(true);
     try {
-      // Re-check auth at submit time to avoid stale session checks.
       const supabase = requireSupabaseClient();
-      const { data: userData, error: userError } = await supabase.auth.getUser();
+      // Must-have: verify session, attempt refresh once, and keep draft if still missing.
+      const firstSession = await supabase.auth.getSession();
+      let session = firstSession.data.session;
+      if (!session) {
+        try {
+          await supabase.auth.refreshSession();
+        } catch {
+          // ignore
+        }
+        const secondSession = await supabase.auth.getSession();
+        session = secondSession.data.session;
+      }
+      if (!session) {
+        toast.error('Session expired, please login again.');
+        return;
+      }
+
+      // Re-check user at submit time to avoid stale session checks.
+      const { data: userData } = await supabase.auth.getUser();
       const user = userData.user;
-      if (userError || !user) {
-        toast.error('Please login to add trades.');
+      if (!user) {
+        toast.error('Session expired, please login again.');
         return;
       }
 
@@ -324,10 +534,9 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
       if (!result.ok) {
         const msg = (result.message ?? '').trim();
-        const lower = msg.toLowerCase();
-        if (result.reason === 'not_authenticated' || lower.includes('jwt') || lower.includes('token')) {
+        if (result.reason === 'not_authenticated' || looksLikeAuthErrorMessage(msg)) {
           toast.error('Session expired, please login again.');
-        } else if (lower.includes('row-level security') || lower.includes('permission denied') || lower.includes('not allowed')) {
+        } else if (looksLikeRlsErrorMessage(msg)) {
           toast.error('Permission denied saving trade.');
         } else {
           toast.error(msg || 'Failed to save trade.');
@@ -343,13 +552,18 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       const tradeId = result.tradeId;
       if (screenshots.length > 0 && tradeId) {
         const supabase = requireSupabaseClient();
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) {
-          toast.error('Unable to verify session. Please try again.');
-          return;
-        }
 
-        const user = sessionData.session?.user;
+        // Ensure session is present for storage operations.
+        const sessionData = await supabase.auth.getSession();
+        if (!sessionData.data.session) {
+          try {
+            await supabase.auth.refreshSession();
+          } catch {
+            // ignore
+          }
+        }
+        const { data: userData } = await supabase.auth.getUser();
+        const user = userData.user;
         if (!user) {
           toast.error('Session expired, please login again.');
           return;
@@ -361,10 +575,22 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
           const unique = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
           const path = `${user.id}/trades/${tradeId}/${unique}-${safeName}`;
 
-          const { error: uploadError } = await supabase.storage.from(SCREENSHOTS_BUCKET).upload(path, file, {
-            upsert: false,
-            contentType: file.type,
-          });
+          const uploadOnce = () =>
+            supabase.storage.from(SCREENSHOTS_BUCKET).upload(path, file, {
+              upsert: false,
+              contentType: file.type,
+            });
+
+          let { error: uploadError } = await uploadOnce();
+          const uploadStatus = (uploadError as { statusCode?: number })?.statusCode;
+          if (uploadError && isAuthStatus(uploadStatus)) {
+            try {
+              await supabase.auth.refreshSession();
+            } catch {
+              // ignore
+            }
+            ({ error: uploadError } = await uploadOnce());
+          }
           if (uploadError) {
             const statusCode = (uploadError as { statusCode?: number }).statusCode;
             if (statusCode === 401) {
@@ -381,30 +607,62 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
         }
 
         if (uploaded.length > 0) {
-          const { error: metaError } = await supabase.from('trade_screenshots').insert(
-            uploaded.map((s) => ({
-              trade_id: tradeId,
-              path: s.path,
-              size_bytes: s.sizeBytes,
-            })),
-          );
+          const metaInsertOnce = () =>
+            supabase.from('trade_screenshots').insert(
+              uploaded.map((s) => ({
+                trade_id: tradeId,
+                path: s.path,
+                size_bytes: s.sizeBytes,
+              })),
+            );
+
+          let { error: metaError, status: metaStatus } = await metaInsertOnce();
+          if (metaError && isAuthStatus(metaStatus)) {
+            try {
+              await supabase.auth.refreshSession();
+            } catch {
+              // ignore
+            }
+            ({ error: metaError, status: metaStatus } = await metaInsertOnce());
+          }
           if (metaError) {
+            if (isPermissionStatus(metaStatus) || looksLikeRlsErrorMessage(metaError.message ?? '')) {
+              toast.error('Permission denied saving screenshots.');
+            } else {
             toast.error(`Screenshot tracking failed: ${metaError.message}`);
+            }
             return;
           }
 
-          const { error: updateError } = await supabase
-            .from('trades')
-            .update({ screenshots: uploaded.map((s) => s.path) })
-            .eq('id', tradeId);
+          const updateOnce = () =>
+            supabase
+              .from('trades')
+              .update({ screenshots: uploaded.map((s) => s.path) })
+              .eq('id', tradeId);
+
+          let { error: updateError, status: updateStatus } = await updateOnce();
+          if (updateError && isAuthStatus(updateStatus)) {
+            try {
+              await supabase.auth.refreshSession();
+            } catch {
+              // ignore
+            }
+            ({ error: updateError, status: updateStatus } = await updateOnce());
+          }
           if (updateError) {
+            if (isPermissionStatus(updateStatus) || looksLikeRlsErrorMessage(updateError.message ?? '')) {
+              toast.error('Permission denied saving trade.');
+            } else {
             toast.error(`Failed to attach screenshots: ${updateError.message}`);
+            }
             return;
           }
         }
       }
 
       toast.success('Trade added successfully!');
+
+      clearDraft();
 	    
       // Reset form
       setFormData({
@@ -421,6 +679,8 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
         mistakes: '',
       });
       setScreenshots([]);
+      setRestoredScreenshotMeta([]);
+      setDraftRestored(false);
 
       onTradeAdded();
       onOpenChange(false);
@@ -435,6 +695,8 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
         <DialogHeader>
           <DialogTitle>Add New Trade</DialogTitle>
         </DialogHeader>
+
+        {draftRestored ? <p className="text-xs text-muted-foreground">Draft restored.</p> : null}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Basic Info */}
@@ -608,6 +870,22 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 	            <p className="text-xs text-muted-foreground">
 	              Max {MAX_SCREENSHOTS_PER_TRADE} screenshots per trade. Storage limit applies by plan.
 	            </p>
+              {restoredScreenshotMeta.length > 0 && screenshots.length === 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Previously selected screenshots (reselect to upload):</p>
+                  {restoredScreenshotMeta.map((s, index) => (
+                    <div key={`${s.name}-${index}`} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{s.name}</p>
+                        <p className="text-xs text-muted-foreground">{(s.size / (1024 * 1024)).toFixed(2)} MB</p>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setRestoredScreenshotMeta((prev) => prev.filter((_, i) => i !== index))}>
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
 	            {screenshots.length > 0 ? (
 	              <div className="space-y-2">
 	                {screenshots.map((file, index) => (
@@ -632,7 +910,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 	            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || !authReady}>
+	            <Button type="submit" disabled={isSubmitting || !authReady}>
               {isSubmitting ? 'Adding…' : 'Add Trade'}
             </Button>
           </div>
