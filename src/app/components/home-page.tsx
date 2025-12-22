@@ -4,7 +4,7 @@ import { Card } from './ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { SiteFooter } from './site-footer';
 import { BarChart3, BookOpen, Calendar, Check, Shield, Target, TrendingUp } from 'lucide-react';
-import { HeroDashboardPreview } from './home/HeroDashboardPreview';
+import { HeroCalendarPreview } from '../../components/home/HeroCalendarPreview';
 
 interface HomePageProps {
   onGetStarted: () => void;
@@ -175,7 +175,7 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
               </div>
 
 	              {/* Preview */}
-	              <HeroDashboardPreview />
+	              <HeroCalendarPreview />
 	            </div>
 	          </div>
 	        </section>
