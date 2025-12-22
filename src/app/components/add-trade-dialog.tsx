@@ -153,6 +153,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
   const [draftKey, setDraftKey] = useState<string>('tj:add-trade:draft:anon');
   const [draftRestored, setDraftRestored] = useState(false);
   const draftSaveTimerRef = useRef<number | null>(null);
+  const storageWarningShownRef = useRef(false);
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     symbol: '',
@@ -241,6 +242,11 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    storageWarningShownRef.current = false;
+  }, [open]);
+
   // Persist draft (debounced) while the modal is open.
   useEffect(() => {
     if (!open) return;
@@ -273,24 +279,36 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       toast.error('Max 3 screenshots per trade.');
     }
     setScreenshots(next.slice(0, MAX_SCREENSHOTS_PER_TRADE));
+
+    // Only show storage warning when the user explicitly interacts with screenshots.
+    void (async () => {
+      const check = await canUploadScreenshots(next.slice(0, MAX_SCREENSHOTS_PER_TRADE));
+      if (check.ok && check.warning && !storageWarningShownRef.current) {
+        storageWarningShownRef.current = true;
+        toast.info(check.warning);
+      }
+    })();
   };
 
   const removeScreenshot = (index: number) => {
     setScreenshots((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const canUploadScreenshots = async (): Promise<
+  const canUploadScreenshots = async (
+    filesOverride?: File[],
+  ): Promise<
     | { ok: true; profilePlan: string; storageUsedBytes: number; warning?: string; warningDetail?: string }
-    | { ok: false }
+    | { ok: false; reason: 'not_authenticated' | 'limit' | 'unknown' }
   > => {
-    if (screenshots.length === 0) return { ok: true, profilePlan: 'free', storageUsedBytes: 0 };
+    const files = filesOverride ?? screenshots;
+    if (files.length === 0) return { ok: true, profilePlan: 'free', storageUsedBytes: 0 };
 
     let supabase: ReturnType<typeof requireSupabaseClient>;
     try {
       supabase = requireSupabaseClient();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Supabase is not configured.');
-      return { ok: false };
+      return { ok: false, reason: 'unknown' };
     }
 
     // Ensure auth is initialized before hitting RLS-protected tables.
@@ -314,10 +332,10 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       user = retry.data.user;
     }
     if (userError || !user) {
-      return { ok: false };
+      return { ok: false, reason: 'not_authenticated' };
     }
 
-    const totalUploadBytes = screenshots.reduce((sum, file) => sum + file.size, 0);
+    const totalUploadBytes = files.reduce((sum, file) => sum + file.size, 0);
     const FALLBACK_WARNING = 'Storage check unavailable. Upload may fail if you exceed your plan limit.';
     const fallback = (warning: string, warningDetail?: string) =>
       ({ ok: true, profilePlan: 'free', storageUsedBytes: 0, warning, warningDetail } as const);
@@ -384,7 +402,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     if (storageUsedBytes + totalUploadBytes > limitBytes) {
       toast.error(`Storage limit reached (${getStorageLimitLabel(plan)}). Upgrade to upload more screenshots.`);
-      return { ok: false };
+      return { ok: false, reason: 'limit' };
     }
 
     return { ok: true, profilePlan: plan, storageUsedBytes };
@@ -459,16 +477,41 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       return;
     }
 
-    const storageCheck = await canUploadScreenshots();
-    if (!storageCheck.ok) return;
-    if (storageCheck.warning) {
-      toast.info(storageCheck.warning);
-      if (
-        storageCheck.warningDetail === 'Session expired, please login again.' ||
-        storageCheck.warningDetail === 'No permission to check storage limits.'
-      ) {
-        toast.error(storageCheck.warningDetail);
+    // Must-have: verify session before any RLS/storage checks.
+    let supabase: ReturnType<typeof requireSupabaseClient>;
+    try {
+      supabase = requireSupabaseClient();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Supabase is not configured.');
+      return;
+    }
+
+    const firstSession = await supabase.auth.getSession();
+    let session = firstSession.data.session;
+    if (!session) {
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        // ignore
       }
+      const secondSession = await supabase.auth.getSession();
+      session = secondSession.data.session;
+    }
+    if (!session) {
+      toast.error('Session expired, please login again.');
+      return;
+    }
+
+    const storageCheck = await canUploadScreenshots();
+    if (!storageCheck.ok) {
+      if (storageCheck.reason === 'not_authenticated') {
+        toast.error('Session expired, please login again.');
+      }
+      return;
+    }
+    if (storageCheck.warning && screenshots.length > 0 && !storageWarningShownRef.current) {
+      storageWarningShownRef.current = true;
+      toast.info(storageCheck.warning);
     }
 
     const trade = {
@@ -493,7 +536,6 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     setIsSubmitting(true);
     try {
-      const supabase = requireSupabaseClient();
       // Must-have: verify session, attempt refresh once, and keep draft if still missing.
       const firstSession = await supabase.auth.getSession();
       let session = firstSession.data.session;
