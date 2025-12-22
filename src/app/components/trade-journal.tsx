@@ -85,7 +85,7 @@ export function TradeJournal() {
           <div className="flex gap-2">
             <Button
               variant="outline"
-              disabled={profileLoading}
+              disabled={profileLoading || !profile}
               onClick={() => void (async () => {
                 if (profileLoading) return;
                 const latest = await refreshProfile();

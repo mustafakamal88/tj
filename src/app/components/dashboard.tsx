@@ -230,7 +230,7 @@ export function Dashboard() {
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              disabled={profileLoading}
+              disabled={profileLoading || !profile}
               onClick={() => void (async () => {
                 if (profileLoading) return;
                 const latest = await refreshProfile();
@@ -249,7 +249,7 @@ export function Dashboard() {
             </Button>
             <Button
               variant="outline"
-              disabled={profileLoading}
+              disabled={profileLoading || !profile}
               onClick={() => void (async () => {
                 if (profileLoading) return;
                 const latest = await refreshProfile();

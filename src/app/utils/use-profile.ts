@@ -4,6 +4,7 @@ import type { SubscriptionPlan } from './data-limit';
 import { getSupabaseClient } from './supabase';
 
 const DEBUG_PROFILE = (import.meta.env.VITE_DEBUG_PROFILE as string | undefined) === 'true';
+const PROFILE_ONBOARDING_UNAVAILABLE = '__unavailable__';
 
 export type Profile = {
   id: string;
@@ -27,14 +28,27 @@ type ProfileRow = {
   current_period_end: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
-  primary_challenge: string | null;
-  onboarding_completed_at: string | null;
+  primary_challenge?: string | null;
+  onboarding_completed_at?: string | null;
 };
+
+const PROFILE_SELECT_BASE =
+  'id,email,is_admin,subscription_plan,subscription_status,current_period_end,stripe_customer_id,stripe_subscription_id';
+const PROFILE_SELECT_WITH_ONBOARDING = `${PROFILE_SELECT_BASE},primary_challenge,onboarding_completed_at`;
 
 function normalizePlan(value: unknown): SubscriptionPlan {
   const plan = typeof value === 'string' ? value.toLowerCase().trim() : '';
   if (plan === 'pro' || plan === 'premium') return plan;
   return 'free';
+}
+
+function isMissingProfilesColumnError(error: unknown): boolean {
+  const message = typeof (error as any)?.message === 'string' ? ((error as any).message as string) : '';
+  const details = typeof (error as any)?.details === 'string' ? ((error as any).details as string) : '';
+  const hint = typeof (error as any)?.hint === 'string' ? ((error as any).hint as string) : '';
+  const code = typeof (error as any)?.code === 'string' ? ((error as any).code as string) : '';
+  const text = `${message} ${details} ${hint} ${code}`.toLowerCase();
+  return text.includes('schema cache') || (text.includes('column') && text.includes('does not exist'));
 }
 
 type ProfileContextValue = {
@@ -100,13 +114,34 @@ function useProfileState(): ProfileContextValue {
         nextProfile = null;
       }
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(
-          'id,email,is_admin,subscription_plan,subscription_status,current_period_end,stripe_customer_id,stripe_subscription_id,primary_challenge,onboarding_completed_at',
-        )
-        .eq('id', user.id)
-        .maybeSingle<ProfileRow>();
+      const selectProfileRow = async (): Promise<{ data: ProfileRow | null; error: unknown }> => {
+        let select = PROFILE_SELECT_WITH_ONBOARDING;
+        let result = await supabase
+          .from('profiles')
+          .select(select)
+          .eq('id', user.id)
+          .maybeSingle<ProfileRow>();
+
+        if (result.error && isMissingProfilesColumnError(result.error)) {
+          if (import.meta.env.DEV) {
+            console.warn('[useProfile] profiles select missing columns; falling back to base fields', result.error);
+          }
+          select = PROFILE_SELECT_BASE;
+          result = await supabase
+            .from('profiles')
+            .select(select)
+            .eq('id', user.id)
+            .maybeSingle<ProfileRow>();
+        }
+
+        if (import.meta.env.DEV && result.error) {
+          console.error('[useProfile] profiles query failed', { userId: user.id, select, error: result.error });
+        }
+
+        return { data: result.data ?? null, error: result.error };
+      };
+
+      let { data, error } = await selectProfileRow();
 
       if (DEBUG_PROFILE) {
         console.log('[useProfile] profiles query', { data, error });
@@ -118,8 +153,33 @@ function useProfileState(): ProfileContextValue {
       }
 
       if (!data) {
-        return nextProfile;
+        if (import.meta.env.DEV) {
+          console.warn('[useProfile] profile row missing; attempting to create it', { userId: user.id });
+        }
+
+        if (typeof user.email === 'string' && user.email.trim()) {
+          const { error: upsertError } = await supabase
+            .from('profiles')
+            .upsert({ id: user.id, email: user.email.trim() }, { onConflict: 'id' });
+          if (upsertError) {
+            console.error('[useProfile] failed to create profile row', upsertError);
+            return nextProfile;
+          }
+        } else {
+          console.error('[useProfile] cannot create profile row: missing user email', { userId: user.id });
+          return nextProfile;
+        }
+
+        ({ data, error } = await selectProfileRow());
+        if (error) {
+          console.error('[useProfile] profiles select failed after create', error);
+          return nextProfile;
+        }
+        if (!data) return nextProfile;
       }
+
+      const hasOnboardingColumns =
+        typeof data.primary_challenge !== 'undefined' || typeof data.onboarding_completed_at !== 'undefined';
 
       nextProfile = {
         id: data.id,
@@ -130,8 +190,13 @@ function useProfileState(): ProfileContextValue {
         currentPeriodEnd: data.current_period_end ? String(data.current_period_end) : null,
         stripeCustomerId: data.stripe_customer_id ? String(data.stripe_customer_id) : null,
         stripeSubscriptionId: data.stripe_subscription_id ? String(data.stripe_subscription_id) : null,
-        primaryChallenge: data.primary_challenge ? String(data.primary_challenge) : null,
-        onboardingCompletedAt: data.onboarding_completed_at ? String(data.onboarding_completed_at) : null,
+        primaryChallenge: hasOnboardingColumns && data.primary_challenge ? String(data.primary_challenge) : null,
+        onboardingCompletedAt:
+          hasOnboardingColumns
+            ? data.onboarding_completed_at
+              ? String(data.onboarding_completed_at)
+              : null
+            : PROFILE_ONBOARDING_UNAVAILABLE,
       };
 
       if (DEBUG_PROFILE) {
