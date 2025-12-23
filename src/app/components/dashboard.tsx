@@ -24,6 +24,7 @@ import {
 import { AddTradeDialog } from './add-trade-dialog';
 import { MTImportDialog } from './mt-import-dialog';
 import { BrokerConnectionDialog } from './broker-connection-dialog';
+import { DayViewDrawer } from './day-view-drawer';
 
 type CalendarDayData = {
   count: number;
@@ -44,6 +45,7 @@ type DashboardCalendarCardProps = {
   isToday: (day: Date) => boolean;
   onPrevMonth?: () => void;
   onNextMonth?: () => void;
+  onDayClick?: (day: Date) => void;
   preview?: boolean;
 };
 
@@ -55,6 +57,7 @@ export function DashboardCalendarCard({
   isToday,
   onPrevMonth,
   onNextMonth,
+  onDayClick,
   preview = false,
 }: DashboardCalendarCardProps) {
   return (
@@ -110,17 +113,35 @@ export function DashboardCalendarCard({
                     {week.map((day, dayIndex) => {
                       const dayData = getDayData(day);
                       const isEmpty = day.getTime() === 0;
-                      const interactive =
-                        !preview && dayData && !dayData.isClosed ? 'hover:bg-accent cursor-pointer' : '';
+                      const isClickable = !preview && !isEmpty && onDayClick;
+                      const interactive = isClickable ? 'hover:bg-accent cursor-pointer' : '';
+
+                      const handleDayClick = () => {
+                        if (isClickable) {
+                          onDayClick(day);
+                        }
+                      };
+
+                      const handleKeyDown = (e: React.KeyboardEvent) => {
+                        if (isClickable && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          onDayClick(day);
+                        }
+                      };
 
                       return (
-                        <div
+                        <button
                           key={dayIndex}
+                          onClick={handleDayClick}
+                          onKeyDown={handleKeyDown}
+                          disabled={!isClickable}
                           className={`
                             border-b border-r p-1 sm:p-4 aspect-square sm:aspect-auto sm:min-h-[100px] flex flex-col min-w-0 overflow-hidden
                             ${isEmpty ? 'bg-muted/20' : ''}
                             ${isToday(day) ? 'bg-blue-50 dark:bg-blue-950/20' : ''}
                             ${interactive}
+                            ${isClickable ? 'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset' : ''}
+                            disabled:cursor-default
                           `}
                         >
                           {!isEmpty && (
@@ -157,7 +178,7 @@ export function DashboardCalendarCard({
                               </div>
                             </>
                           )}
-                        </div>
+                        </button>
                       );
                     })}
 
@@ -221,6 +242,8 @@ export function Dashboard() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isBrokerDialogOpen, setIsBrokerDialogOpen] = useState(false);
+  const [isDayViewOpen, setIsDayViewOpen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const { profile, loading: profileLoading, refresh: refreshProfile } = useProfile();
   const effectivePlan = getEffectivePlan(profile);
   const paidActiveRef = useRef(false);
@@ -230,6 +253,39 @@ export function Dashboard() {
   useEffect(() => {
     paidActiveRef.current = hasPaidEntitlement(profile);
   }, [profile]);
+
+  // Handle URL query params for day view
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dayParam = params.get('day');
+    if (dayParam && /^\d{4}-\d{2}-\d{2}$/.test(dayParam)) {
+      setSelectedDay(dayParam);
+      setIsDayViewOpen(true);
+    }
+  }, []);
+
+  const handleDayClick = (day: Date) => {
+    const dayString = format(day, 'yyyy-MM-dd');
+    setSelectedDay(dayString);
+    setIsDayViewOpen(true);
+
+    // Update URL with query param
+    const url = new URL(window.location.href);
+    url.searchParams.set('day', dayString);
+    window.history.pushState({}, '', url.toString());
+  };
+
+  const handleDayViewClose = (open: boolean) => {
+    setIsDayViewOpen(open);
+    if (!open) {
+      setSelectedDay(null);
+      
+      // Remove query param from URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete('day');
+      window.history.pushState({}, '', url.toString());
+    }
+  };
 
   const refreshTrades = async () => {
     const start = startOfMonth(currentMonth);
@@ -514,6 +570,7 @@ export function Dashboard() {
           isToday={isToday}
           onPrevMonth={() => setCurrentMonth(subMonths(currentMonth, 1))}
           onNextMonth={() => setCurrentMonth(addMonths(currentMonth, 1))}
+          onDayClick={handleDayClick}
         />
 
         {/* Empty State */}
@@ -544,6 +601,12 @@ export function Dashboard() {
         open={isBrokerDialogOpen}
         onOpenChange={setIsBrokerDialogOpen}
         onImportComplete={refreshTrades}
+      />
+
+      <DayViewDrawer
+        open={isDayViewOpen}
+        onOpenChange={handleDayViewClose}
+        selectedDay={selectedDay}
       />
     </div>
   );
