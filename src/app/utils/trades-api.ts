@@ -3,14 +3,25 @@ import {
   FREE_TRADE_LIMIT,
   getFreePlanAddTradeBlockMessage,
   getFreePlanAddTradeBlockReason,
+  type SubscriptionPlan,
 } from './data-limit';
-import { getMyProfile } from './profile';
 import { requireSupabaseClient } from './supabase';
 import { hasPaidEntitlement } from './entitlements';
 
 export type AddTradeResult =
-  | { ok: true; tradeId?: string }
-  | { ok: false; reason: 'trade_limit' | 'trial_expired' | 'not_authenticated' | 'upgrade_required' | 'unknown'; message: string };
+  | { ok: true; tradeId?: string; status?: number }
+  | {
+      ok: false;
+      status?: number;
+      reason:
+        | 'not_authenticated'
+        | 'forbidden'
+        | 'upgrade_required'
+        | 'trade_limit'
+        | 'trial_expired'
+        | 'unknown';
+      message?: string;
+    };
 
 export type TradeInput = {
   id?: string;
@@ -195,7 +206,7 @@ function toLocalIsoDate(date: Date): string {
 }
 
 async function fetchTradesPage<T extends TradeRow>(
-  builder: (range: { from: number; to: number }) => Promise<{ data: T[] | null; error: any }>,
+  builder: (range: { from: number; to: number }) => PromiseLike<{ data: T[] | null; error: any }>,
 ): Promise<T[]> {
   const out: T[] = [];
   const pageSize = 1000;
@@ -284,45 +295,64 @@ export async function fetchTradesForCalendarMonth(monthStart: Date, monthEndExcl
 }
 
 async function canAddTrades(tradeCountToAdd: number): Promise<AddTradeResult> {
-  let profile: Awaited<ReturnType<typeof getMyProfile>> = null;
   try {
-    profile = await getMyProfile();
-  } catch (error) {
-    console.error('[trades-api] getMyProfile exception', error);
-    return {
-      ok: false,
-      reason: 'unknown',
-      message: `Failed to read profile: ${errorMessage(error)}`,
-    };
-  }
-  if (!profile) {
-    return { ok: false, reason: 'not_authenticated', message: 'Please login to add trades.' };
-  }
+    const supabase = requireSupabaseClient();
 
-  if (hasPaidEntitlement(profile)) return { ok: true };
+    // Read the caller's own profile row via RLS; do not infer auth from message strings.
+    const { data: profileRow, error: profileError, status: profileStatus } = await supabase
+      .from('profiles')
+      .select('subscription_plan,subscription_status,trial_start_at')
+      .maybeSingle<{ subscription_plan: SubscriptionPlan; subscription_status: string | null; trial_start_at: string }>();
+
+    if (profileError) {
+      if (profileStatus === 401) {
+        return { ok: false, status: profileStatus, reason: 'not_authenticated', message: 'Please login to add trades.' };
+      }
+      if (profileStatus === 403) {
+        return { ok: false, status: profileStatus, reason: 'forbidden', message: 'No permission to read profile.' };
+      }
+      console.error('[trades-api] profiles select failed', profileError);
+      return { ok: false, status: profileStatus, reason: 'unknown', message: profileError.message };
+    }
+
+    if (!profileRow) {
+      return { ok: false, reason: 'unknown', message: 'Unable to load profile.' };
+    }
+
+    const profile = {
+      subscriptionPlan: profileRow.subscription_plan,
+      subscriptionStatus: profileRow.subscription_status,
+      trialStartAt: profileRow.trial_start_at,
+    };
+
+    if (hasPaidEntitlement(profile)) return { ok: true };
 
   // MVP rule: imports (bulk adds) require Pro/Premium even during the trial.
   if (tradeCountToAdd > 1) {
     return { ok: false, reason: 'upgrade_required', message: 'Imports require Pro or Premium.' };
   }
 
-  const existingCount = await getMyTradeCount();
-  const now = new Date();
-  const reason = getFreePlanAddTradeBlockReason(existingCount, now, profile.trialStartAt);
-  if (reason) {
-    return { ok: false, reason, message: getFreePlanAddTradeBlockMessage(reason) };
-  }
+    const existingCount = await getMyTradeCount();
+    const now = new Date();
+    const reason = getFreePlanAddTradeBlockReason(existingCount, now, profile.trialStartAt);
+    if (reason) {
+      return { ok: false, reason, message: getFreePlanAddTradeBlockMessage(reason) };
+    }
 
-  if (existingCount + tradeCountToAdd > FREE_TRADE_LIMIT) {
-    const remaining = Math.max(0, FREE_TRADE_LIMIT - existingCount);
-    return {
-      ok: false,
-      reason: 'trade_limit',
-      message: `Free plan can only save ${FREE_TRADE_LIMIT} trades. You can add ${remaining} more; upgrade to add all.`,
-    };
-  }
+    if (existingCount + tradeCountToAdd > FREE_TRADE_LIMIT) {
+      const remaining = Math.max(0, FREE_TRADE_LIMIT - existingCount);
+      return {
+        ok: false,
+        reason: 'trade_limit',
+        message: `Free plan can only save ${FREE_TRADE_LIMIT} trades. You can add ${remaining} more; upgrade to add all.`,
+      };
+    }
 
-  return { ok: true };
+    return { ok: true };
+  } catch (error) {
+    console.error('[trades-api] canAddTrades exception', error);
+    return { ok: false, reason: 'unknown', message: errorMessage(error) };
+  }
 }
 
 export async function createTrade(trade: TradeInput): Promise<AddTradeResult> {
@@ -331,7 +361,7 @@ export async function createTrade(trade: TradeInput): Promise<AddTradeResult> {
     const allowed = await canAddTrades(1);
     if (!allowed.ok) return allowed;
 
-    const { data, error } = await supabase
+    const { data, error, status } = await supabase
       .from('trades')
       .insert({
         id: trade.id,
@@ -358,10 +388,12 @@ export async function createTrade(trade: TradeInput): Promise<AddTradeResult> {
       .single<{ id: string }>();
 
     if (error) {
-      return { ok: false, reason: 'unknown', message: error.message };
+      if (status === 401) return { ok: false, status, reason: 'not_authenticated', message: error.message };
+      if (status === 403) return { ok: false, status, reason: 'forbidden', message: error.message };
+      return { ok: false, status, reason: 'unknown', message: error.message };
     }
 
-    return { ok: true, tradeId: data?.id };
+    return { ok: true, status, tradeId: data?.id };
   } catch (error) {
     return { ok: false, reason: 'unknown', message: errorMessage(error) };
   }
@@ -409,9 +441,11 @@ export async function createTradesWithProgress(
 
     for (let i = 0; i < rows.length; i += chunkSize) {
       const chunk = rows.slice(i, i + chunkSize);
-      const { error } = await supabase.from('trades').insert(chunk);
+      const { error, status } = await supabase.from('trades').insert(chunk);
       if (error) {
-        return { ok: false, reason: 'unknown', message: error.message };
+        if (status === 401) return { ok: false, status, reason: 'not_authenticated', message: error.message };
+        if (status === 403) return { ok: false, status, reason: 'forbidden', message: error.message };
+        return { ok: false, status, reason: 'unknown', message: error.message };
       }
       inserted += chunk.length;
       options?.onProgress?.({ inserted, total: rows.length });
