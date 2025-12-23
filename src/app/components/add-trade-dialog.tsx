@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import { createTrade } from '../utils/trades-api';
 import type { Session } from '@supabase/supabase-js';
@@ -36,8 +37,11 @@ type DraftPayloadV1 = {
     type: TradeType;
     market: TradeMarket;
     entry: string;
+    stopLoss: string;
+    takeProfit: string;
     exit: string;
     quantity: string;
+    advanced: boolean;
     notes: string;
     emotions: string;
     setup: string;
@@ -107,6 +111,13 @@ function deserializeDraft(value: unknown): DraftPayloadV1 | null {
   if ((form as any).type !== 'long' && (form as any).type !== 'short') return null;
   if ((form as any).market !== 'forex_cfd' && (form as any).market !== 'futures') return null;
 
+  const stopLoss = typeof (form as any).stopLoss === 'string' ? String((form as any).stopLoss) : '';
+  const takeProfit = typeof (form as any).takeProfit === 'string' ? String((form as any).takeProfit) : '';
+  const advanced =
+    typeof (form as any).advanced === 'boolean'
+      ? Boolean((form as any).advanced)
+      : Boolean(stopLoss.trim() || takeProfit.trim());
+
   return {
     v: 1,
     savedAt: typeof (value as any).savedAt === 'string' ? (value as any).savedAt : new Date().toISOString(),
@@ -116,8 +127,11 @@ function deserializeDraft(value: unknown): DraftPayloadV1 | null {
       type: (form as any).type as TradeType,
       market: (form as any).market as TradeMarket,
       entry: String((form as any).entry),
+      stopLoss,
+      takeProfit,
       exit: String((form as any).exit),
       quantity: String((form as any).quantity),
+      advanced,
       notes: String((form as any).notes),
       emotions: String((form as any).emotions),
       setup: String((form as any).setup),
@@ -189,8 +203,11 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     type: 'long' as TradeType,
     market: 'futures' as TradeMarket,
     entry: '',
+    stopLoss: '',
+    takeProfit: '',
     exit: '',
     quantity: '',
+    advanced: false,
     notes: '',
     emotions: '',
     setup: '',
@@ -248,7 +265,12 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
           const draft = userId ? tryRead(userKey) ?? tryRead(anonKey) : tryRead(anonKey);
           if (draft && active) {
-            setFormData(draft.form);
+            setFormData({
+              ...draft.form,
+              stopLoss: draft.form.stopLoss ?? '',
+              takeProfit: draft.form.takeProfit ?? '',
+              advanced: Boolean(draft.form.advanced),
+            });
             setRestoredScreenshotMeta(draft.screenshots);
             setScreenshots([]);
             setDraftRestored(true);
@@ -464,9 +486,38 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     const exit = parseFloat(formData.exit);
     const size = parseFloat(formData.quantity);
 
+    const stopLossRaw = formData.stopLoss?.trim() ?? '';
+    const takeProfitRaw = formData.takeProfit?.trim() ?? '';
+    const stopLoss = stopLossRaw ? parseFloat(stopLossRaw) : null;
+    const takeProfit = takeProfitRaw ? parseFloat(takeProfitRaw) : null;
+
     if (isNaN(entry) || isNaN(exit) || isNaN(size)) {
       toast.error('Please enter valid numbers');
       return;
+    }
+
+    if (stopLossRaw && (stopLoss === null || Number.isNaN(stopLoss))) {
+      toast.error('Stop loss must be a valid number');
+      setFieldErrors({ stopLoss: 'Invalid number' });
+      setFormData((prev) => ({ ...prev, advanced: true }));
+      return;
+    }
+    if (takeProfitRaw && (takeProfit === null || Number.isNaN(takeProfit))) {
+      toast.error('Take profit must be a valid number');
+      setFieldErrors({ takeProfit: 'Invalid number' });
+      setFormData((prev) => ({ ...prev, advanced: true }));
+      return;
+    }
+
+    if (stopLoss !== null && takeProfit !== null) {
+      const isLong = formData.type === 'long';
+      const ok = isLong ? stopLoss < entry && entry < takeProfit : takeProfit < entry && entry < stopLoss;
+      if (!ok) {
+        toast.error('Stop loss / take profit must bracket entry');
+        setFieldErrors({ stopLoss: 'Check values', takeProfit: 'Check values' });
+        setFormData((prev) => ({ ...prev, advanced: true }));
+        return;
+      }
     }
 
     if (formData.market === 'forex_cfd') {
@@ -536,6 +587,8 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       symbol: formData.symbol.toUpperCase(),
       type: formData.type,
       entry,
+      stopLoss: stopLoss ?? undefined,
+      takeProfit: takeProfit ?? undefined,
       exit,
       quantity: size,
       market: formData.market,
@@ -700,8 +753,11 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
         type: 'long',
         market: 'futures',
         entry: '',
+        stopLoss: '',
+        takeProfit: '',
         exit: '',
         quantity: '',
+        advanced: false,
         notes: '',
         emotions: '',
         setup: '',
@@ -837,6 +893,50 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
               {fieldErrors.exit ? <p className="text-xs text-destructive">{fieldErrors.exit}</p> : null}
             </div>
           </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p>Advanced fields</p>
+              <p className="text-xs text-muted-foreground">Optional stop loss and take profit.</p>
+            </div>
+            <Switch
+              checked={formData.advanced}
+              onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, advanced: checked }))}
+              aria-label="Toggle advanced fields"
+            />
+          </div>
+
+          {formData.advanced ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="stopLoss">Stop Loss</Label>
+                <Input
+                  id="stopLoss"
+                  type="number"
+                  step="any"
+                  placeholder={formData.type === 'long' ? 'Below entry' : 'Above entry'}
+                  value={formData.stopLoss}
+                  onChange={(e) => setFormData({ ...formData, stopLoss: e.target.value })}
+                />
+                {fieldErrors.stopLoss ? <p className="text-xs text-destructive">{fieldErrors.stopLoss}</p> : null}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="takeProfit">Take Profit</Label>
+                <Input
+                  id="takeProfit"
+                  type="number"
+                  step="any"
+                  placeholder={formData.type === 'long' ? 'Above entry' : 'Below entry'}
+                  value={formData.takeProfit}
+                  onChange={(e) => setFormData({ ...formData, takeProfit: e.target.value })}
+                />
+                {fieldErrors.takeProfit ? (
+                  <p className="text-xs text-destructive">{fieldErrors.takeProfit}</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {/* Journal Entries */}
           <div className="space-y-2">

@@ -16,6 +16,8 @@ export interface Trade {
   symbol: string;
   type: TradeType;
   entry: number;
+  stopLoss?: number;
+  takeProfit?: number;
   exit: number;
   quantity: number;
   market?: TradeMarket;
@@ -38,6 +40,8 @@ export interface TradeFormData {
   symbol: string;
   type: TradeType;
   entry: string;
+  stopLoss?: string;
+  takeProfit?: string;
   exit: string;
   quantity: string;
   market?: TradeMarket;
