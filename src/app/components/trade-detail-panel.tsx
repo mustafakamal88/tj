@@ -19,7 +19,12 @@ import {
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import type { TradeWithDetails } from '../utils/day-journal-api';
-import { upsertTradeNotes, addTradeMedia, deleteTradeMedia } from '../utils/day-journal-api';
+import {
+  TRADE_SCREENSHOTS_BUCKET,
+  upsertTradeNotes,
+  addTradeScreenshot,
+  deleteTradeScreenshot,
+} from '../utils/day-journal-api';
 import { formatCurrency } from '../utils/trade-calculations';
 import { toast } from 'sonner';
 import { ScreenshotGallery } from './screenshot-gallery';
@@ -59,19 +64,39 @@ export function TradeDetailPanel({ trade, onClose, onTradeUpdated }: TradeDetail
 
     setUploadingMedia(true);
     try {
-      const uploadPromises = Array.from(files).map((file) => addTradeMedia(trade.id, file));
+      const uploadPromises = Array.from(files).map((file) => addTradeScreenshot(trade.id, file));
       const results = await Promise.all(uploadPromises);
 
-      const successCount = results.filter((r) => r !== null).length;
+      const successCount = results.filter((r) => r.ok).length;
       if (successCount > 0) {
         toast.success(`Uploaded ${successCount} screenshot(s)`);
         onTradeUpdated();
       } else {
-        toast.error('Failed to upload screenshots');
+        const firstFailure = results.find((r) => !r.ok);
+        if (firstFailure && !firstFailure.ok) {
+          if (firstFailure.kind === 'bucket_missing') {
+            toast.error(
+              `Storage bucket missing (${TRADE_SCREENSHOTS_BUCKET}). See docs/day-journal-feature.md`,
+            );
+          } else if (firstFailure.kind === 'storage_policy' || firstFailure.kind === 'db_policy') {
+            toast.error(
+              `Permission denied uploading screenshots. Check Supabase policies (bucket: ${TRADE_SCREENSHOTS_BUCKET}).`,
+            );
+          } else {
+            toast.error(
+              `Screenshot upload failed (bucket: ${TRADE_SCREENSHOTS_BUCKET}). See console for details.`,
+            );
+          }
+          console.error('[TradeDetailPanel] upload failed', firstFailure);
+        } else {
+          toast.error(
+            `Screenshot upload failed (bucket: ${TRADE_SCREENSHOTS_BUCKET}). See console for details.`,
+          );
+        }
       }
     } catch (error) {
       console.error('Failed to upload screenshots', error);
-      toast.error('Failed to upload screenshots');
+      toast.error(`Failed to upload screenshots (bucket: ${TRADE_SCREENSHOTS_BUCKET})`);
     } finally {
       setUploadingMedia(false);
       e.target.value = '';
@@ -82,12 +107,12 @@ export function TradeDetailPanel({ trade, onClose, onTradeUpdated }: TradeDetail
     if (!confirm('Delete this screenshot?')) return;
 
     try {
-      const success = await deleteTradeMedia(mediaId);
+      const success = await deleteTradeScreenshot(mediaId);
       if (success) {
         toast.success('Screenshot deleted');
         onTradeUpdated();
       } else {
-        toast.error('Failed to delete screenshot');
+        toast.error(`Failed to delete screenshot (bucket: ${TRADE_SCREENSHOTS_BUCKET})`);
       }
     } catch (error) {
       console.error('Failed to delete screenshot', error);
@@ -246,7 +271,7 @@ export function TradeDetailPanel({ trade, onClose, onTradeUpdated }: TradeDetail
                 </Button>
               </label>
             </div>
-            <ScreenshotGallery media={trade.media} onDelete={handleDeleteMedia} />
+            <ScreenshotGallery media={trade.screenshots} onDelete={handleDeleteMedia} />
           </div>
 
           {/* Original Trade Notes (from trades table) */}

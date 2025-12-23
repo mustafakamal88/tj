@@ -653,7 +653,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
         const userId = session.user.id;
 
-        const uploaded: Array<{ path: string; sizeBytes: number }> = [];
+        const uploaded: Array<{ path: string; sizeBytes: number; mimeType: string }> = [];
         for (const file of screenshots) {
           const safeName = sanitizeFileName(file.name || 'screenshot.png');
           const unique = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
@@ -685,11 +685,21 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
             return;
           }
 
-          uploaded.push({ path, sizeBytes: file.size });
+          uploaded.push({ path, sizeBytes: file.size, mimeType: file.type });
         }
 
         if (uploaded.length > 0) {
-          const metaInsertOnce = () =>
+          const metaInsertWithMime = () =>
+            supabase.from('trade_screenshots').insert(
+              uploaded.map((s) => ({
+                trade_id: tradeId,
+                path: s.path,
+                size_bytes: s.sizeBytes,
+                mime_type: s.mimeType || null,
+              })),
+            );
+
+          const metaInsertWithoutMime = () =>
             supabase.from('trade_screenshots').insert(
               uploaded.map((s) => ({
                 trade_id: tradeId,
@@ -698,14 +708,20 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
               })),
             );
 
-          let { error: metaError, status: metaStatus } = await metaInsertOnce();
+          let { error: metaError, status: metaStatus } = await metaInsertWithMime();
+          if (metaError && isMissingColumnOrSchemaCacheError(metaError)) {
+            ({ error: metaError, status: metaStatus } = await metaInsertWithoutMime());
+          }
           if (metaError && isAuthStatus(metaStatus)) {
             try {
               await supabase.auth.refreshSession();
             } catch {
               // ignore
             }
-            ({ error: metaError, status: metaStatus } = await metaInsertOnce());
+            ({ error: metaError, status: metaStatus } = await metaInsertWithMime());
+            if (metaError && isMissingColumnOrSchemaCacheError(metaError)) {
+              ({ error: metaError, status: metaStatus } = await metaInsertWithoutMime());
+            }
           }
           if (metaError) {
             toastByStatus({

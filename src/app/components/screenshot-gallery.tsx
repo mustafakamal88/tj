@@ -1,18 +1,49 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent } from './ui/dialog';
 import { X, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
-import type { TradeMedia } from '../utils/day-journal-api';
+import type { TradeScreenshot } from '../utils/day-journal-api';
+import { createTradeScreenshotSignedUrl } from '../utils/day-journal-api';
 
 type ScreenshotGalleryProps = {
-  media: TradeMedia[];
+  media: TradeScreenshot[];
   onDelete: (mediaId: string) => void;
 };
 
 export function ScreenshotGallery({ media, onDelete }: ScreenshotGalleryProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [signedUrls, setSignedUrls] = useState<Record<string, { url: string; expiresAtMs: number }>>({});
+
+  useEffect(() => {
+    if (!media || media.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const now = Date.now();
+      for (const item of media) {
+        const cached = signedUrls[item.id];
+        if (cached && cached.expiresAtMs - now > 30_000) continue;
+
+        const result = await createTradeScreenshotSignedUrl(item.path, 3600);
+        if (cancelled) return;
+        if (!result?.signedUrl) continue;
+
+        setSignedUrls((prev) => ({
+          ...prev,
+          [item.id]: { url: result.signedUrl, expiresAtMs: result.expiresAtMs },
+        }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // signedUrls intentionally omitted to avoid infinite loops; we refresh opportunistically.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [media]);
 
   if (!media || media.length === 0) {
     return (
@@ -43,6 +74,7 @@ export function ScreenshotGallery({ media, onDelete }: ScreenshotGalleryProps) {
   };
 
   const currentMedia = media[currentIndex];
+  const currentUrl = currentMedia ? signedUrls[currentMedia.id]?.url : null;
 
   return (
     <>
@@ -54,11 +86,15 @@ export function ScreenshotGallery({ media, onDelete }: ScreenshotGalleryProps) {
               className="overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary transition-all aspect-video"
               onClick={() => handleThumbnailClick(index)}
             >
-              <img
-                src={item.url}
-                alt={`Screenshot ${index + 1}`}
-                className="w-full h-full object-cover"
-              />
+              {signedUrls[item.id]?.url ? (
+                <img
+                  src={signedUrls[item.id].url}
+                  alt={`Screenshot ${index + 1}`}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-muted/30" />
+              )}
             </Card>
             <Button
               size="icon"
@@ -134,11 +170,15 @@ export function ScreenshotGallery({ media, onDelete }: ScreenshotGalleryProps) {
             )}
 
             {/* Image */}
-            <img
-              src={currentMedia.url}
-              alt={`Screenshot ${currentIndex + 1}`}
-              className="max-w-full max-h-full object-contain"
-            />
+            {currentUrl ? (
+              <img
+                src={currentUrl}
+                alt={`Screenshot ${currentIndex + 1}`}
+                className="max-w-full max-h-full object-contain"
+              />
+            ) : (
+              <div className="text-white/70 text-sm">Loading…</div>
+            )}
 
             {/* Counter */}
             {media.length > 1 && (

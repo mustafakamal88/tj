@@ -5,7 +5,6 @@ import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Card } from './ui/card';
 import { Skeleton } from './ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { X, Save, Plus, TrendingUp, TrendingDown, FileText, Image as ImageIcon, ChevronRight } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import type { Trade } from '../types/trade';
@@ -131,7 +130,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
         className="w-full sm:max-w-[640px] lg:max-w-[900px] p-0 flex flex-col"
       >
         {/* Header */}
-        <SheetHeader className="px-6 py-4 border-b bg-muted/30">
+        <SheetHeader className="p-4 border-b bg-muted/30">
           <div className="flex items-start justify-between">
             <div>
               <SheetTitle className="text-2xl mb-2">{dayTitle}</SheetTitle>
@@ -146,6 +145,16 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                 )}
               </div>
             </div>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onOpenChange(false)}
+              className="-mt-1"
+              aria-label="Close day view"
+            >
+              <X className="w-5 h-5" />
+            </Button>
           </div>
         </SheetHeader>
 
@@ -164,35 +173,19 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
               onTradeUpdated={handleTradeUpdated}
             />
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-0">
-              {/* Main notebook column */}
-              <div className="lg:col-span-2 p-6 space-y-6 border-r">
-                {/* Day Notes Section */}
-                <Card className="p-4 bg-card/50 border-muted">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <FileText className="w-4 h-4" />
-                      Day Notes
-                    </h3>
-                    <Button
-                      size="sm"
-                      onClick={handleSaveJournal}
-                      disabled={savingJournal}
-                      className="gap-2"
-                    >
-                      <Save className="w-3 h-3" />
-                      {savingJournal ? 'Saving...' : 'Save'}
-                    </Button>
-                  </div>
-                  <Textarea
-                    value={journalNotes}
-                    onChange={(e) => setJournalNotes(e.target.value)}
-                    placeholder="Reflect on the day...&#10;&#10;• Why I entered these trades&#10;• What was my plan?&#10;• Mistakes made&#10;• What I'll do differently next time"
-                    className="min-h-[200px] resize-y font-mono text-sm bg-background/50"
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4 p-4">
+              {/* Main column */}
+              <div className="space-y-4">
+                {/* Big Chart */}
+                <div>
+                  <h3 className="font-semibold mb-3 text-sm">Chart</h3>
+                  <TradingViewChart
+                    symbol={trades.length > 0 ? trades[0].symbol : 'XAUUSD'}
+                    heightClassName="h-[380px] lg:h-[420px]"
                   />
-                </Card>
+                </div>
 
-                {/* Trades Taken Section */}
+                {/* Trades Taken */}
                 <div>
                   <h3 className="font-semibold mb-3 flex items-center gap-2">
                     <TrendingUp className="w-4 h-4" />
@@ -234,9 +227,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                                 </span>
                                 <span>Entry: {trade.entry}</span>
                                 <span>Exit: {trade.exit}</span>
-                                {trade.notes && (
-                                  <FileText className="w-3 h-3 text-blue-500" />
-                                )}
+                                {trade.notes && <FileText className="w-3 h-3 text-blue-500" />}
                                 {trade.screenshots && trade.screenshots.length > 0 && (
                                   <ImageIcon className="w-3 h-3 text-purple-500" />
                                 )}
@@ -266,15 +257,32 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                 </div>
               </div>
 
-              {/* Right sidebar - Insights */}
-              <div className="p-6 space-y-6 bg-muted/20">
-                {/* Chart */}
-                <div>
-                  <h3 className="font-semibold mb-3 text-sm">Chart</h3>
-                  <TradingViewChart
-                    symbol={trades.length > 0 ? trades[0].symbol : 'XAUUSD'}
+              {/* Sidebar */}
+              <div className="space-y-4">
+                {/* Notes (compact) */}
+                <Card className="p-4 bg-card/50 border-muted">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold flex items-center gap-2 text-sm">
+                      <FileText className="w-4 h-4" />
+                      Day Notes
+                    </h3>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveJournal}
+                      disabled={savingJournal}
+                      className="gap-2"
+                    >
+                      <Save className="w-3 h-3" />
+                      {savingJournal ? 'Saving...' : 'Save'}
+                    </Button>
+                  </div>
+                  <Textarea
+                    value={journalNotes}
+                    onChange={(e) => setJournalNotes(e.target.value)}
+                    placeholder="Quick notes…"
+                    className="min-h-[120px] resize-y font-mono text-sm bg-background/50"
                   />
-                </div>
+                </Card>
 
                 {/* News */}
                 <div>

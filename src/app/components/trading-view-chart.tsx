@@ -1,13 +1,19 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Card } from './ui/card';
 
 type TradingViewChartProps = {
   symbol: string;
+  heightClassName?: string;
 };
 
-export function TradingViewChart({ symbol }: TradingViewChartProps) {
+export function TradingViewChart({ symbol, heightClassName = 'h-[200px]' }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scriptLoadedRef = useRef(false);
+
+  const containerId = useMemo(() => {
+    const safe = String(symbol || 'chart').replace(/[^a-zA-Z0-9_-]/g, '-');
+    return `tradingview-widget-${safe}`;
+  }, [symbol]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -40,7 +46,7 @@ export function TradingViewChart({ symbol }: TradingViewChartProps) {
       if (!containerRef.current || typeof (window as any).TradingView === 'undefined') return;
 
       new (window as any).TradingView.widget({
-        container_id: containerRef.current.id,
+        container_id: containerId,
         autosize: true,
         symbol: formattedSymbol,
         interval: '60',
@@ -48,7 +54,6 @@ export function TradingViewChart({ symbol }: TradingViewChartProps) {
         theme: 'dark',
         style: '1',
         locale: 'en',
-        toolbar_bg: '#1a1a1a',
         enable_publishing: false,
         hide_side_toolbar: true,
         allow_symbol_change: false,
@@ -61,14 +66,14 @@ export function TradingViewChart({ symbol }: TradingViewChartProps) {
         studies: [],
       });
     }
-  }, [symbol]);
+  }, [symbol, containerId]);
 
   return (
     <Card className="overflow-hidden bg-background">
       <div
-        id={`tradingview-widget-${symbol}`}
+        id={containerId}
         ref={containerRef}
-        className="w-full h-[200px]"
+        className={`w-full ${heightClassName}`}
       />
     </Card>
   );
