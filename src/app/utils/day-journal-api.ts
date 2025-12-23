@@ -15,8 +15,20 @@ export type TradeNote = {
   tradeId: string;
   userId: string;
   notes: string;
+  meta?: unknown;
   createdAt: string;
   updatedAt: string;
+};
+
+export type TradeNoteMeta = {
+  emotions?: {
+    chips?: string[];
+    text?: string;
+  };
+  mistakes?: {
+    checks?: string[];
+    text?: string;
+  };
 };
 
 export type TradeScreenshot = {
@@ -377,6 +389,7 @@ export async function getTradeDetail(tradeId: string): Promise<TradeWithDetails 
           tradeId: noteData.trade_id,
           userId: noteData.user_id,
           notes: noteData.notes || '',
+          meta: (noteData as any).meta ?? undefined,
           createdAt: noteData.created_at,
           updatedAt: noteData.updated_at,
         }
@@ -414,21 +427,35 @@ export async function upsertTradeNotes(tradeId: string, notes: string): Promise<
     const { data: authData } = await supabase.auth.getUser();
     if (!authData.user) return false;
 
-    const { error } = await supabase
-      .from('trade_notes')
-      .upsert(
-        {
-          trade_id: tradeId,
-          user_id: authData.user.id,
-          notes,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: 'trade_id',
-        }
-      );
+    const payload: any = {
+      trade_id: tradeId,
+      user_id: authData.user.id,
+      notes,
+      updated_at: new Date().toISOString(),
+    };
 
+    const attempt = async (withMeta: boolean, meta?: unknown) =>
+      supabase
+        .from('trade_notes')
+        .upsert(
+          withMeta ? { ...payload, meta } : payload,
+          {
+            onConflict: 'trade_id',
+          }
+        );
+
+    // Backwards-compatible: if meta column doesn't exist yet, fall back to notes-only.
+    const metaArg = arguments.length >= 3 ? (arguments as any)[2] : undefined;
+    const { error } = await attempt(metaArg !== undefined, metaArg);
     if (error) {
+      if (metaArg !== undefined && isMissingColumnOrSchemaCacheError(error)) {
+        const { error: retryError } = await attempt(false);
+        if (retryError) {
+          console.error('[day-journal-api] upsertTradeNotes failed (retry without meta)', retryError);
+          return false;
+        }
+        return true;
+      }
       console.error('[day-journal-api] upsertTradeNotes failed', error);
       return false;
     }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -22,6 +22,7 @@ import {
   deleteTradeScreenshot,
   TRADE_SCREENSHOTS_BUCKET,
   upsertTradeNotes,
+  type TradeNoteMeta,
 } from '../utils/day-journal-api';
 import { formatCurrency } from '../utils/trade-calculations';
 import { DayNewsBlock } from './day-news-block';
@@ -43,107 +44,24 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const [savingJournal, setSavingJournal] = useState(false);
   const [journalNotes, setJournalNotes] = useState('');
   const [dayNotes, setDayNotes] = useState('');
-  const [emotionsSelected, setEmotionsSelected] = useState<string[]>([]);
-  const [emotionsFreeText, setEmotionsFreeText] = useState('');
-  const [mistakesSelected, setMistakesSelected] = useState<string[]>([]);
-  const [mistakesFreeText, setMistakesFreeText] = useState('');
-  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
+  const [dayExtrasMarkdown, setDayExtrasMarkdown] = useState('');
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [selectedTradeDetail, setSelectedTradeDetail] = useState<TradeWithDetails | null>(null);
   const [savingTradeNotes, setSavingTradeNotes] = useState(false);
   const [tradeNotes, setTradeNotes] = useState('');
+  const [tradeMeta, setTradeMeta] = useState<TradeNoteMeta>({});
   const [uploadingTradeShot, setUploadingTradeShot] = useState(false);
   const [tradeShotError, setTradeShotError] = useState<string | null>(null);
   const tradeNotesDebounceRef = useRef<number | null>(null);
 
-  const EMOTIONS = ['Calm', 'Fear', 'FOMO', 'Revenge', 'Overconfident'] as const;
-  const MISTAKES = ['Entered early', 'No SL', 'Overleveraged', "Didn’t follow plan", 'Overtraded'] as const;
+  const TRADE_EMOTIONS = ['Calm', 'Fear', 'FOMO', 'Revenge', 'Overconfident', 'Hesitation'] as const;
+  const TRADE_MISTAKES = ['Entered early', 'No SL', 'Oversized', 'Moved SL', 'Overtraded', "Didn’t follow plan"] as const;
 
-  function splitDayJournal(raw: string): {
-    dayNotes: string;
-    emotionsSelected: string[];
-    emotionsFreeText: string;
-    mistakesSelected: string[];
-    mistakesFreeText: string;
-  } {
+  function splitDayNotesPreserveExtras(raw: string): { main: string; extras: string } {
     const text = raw || '';
-
-    const emotionsMatch = text.match(/\n## Emotions\n([\s\S]*?)(?=\n## Mistakes\n|$)/);
-    const mistakesMatch = text.match(/\n## Mistakes\n([\s\S]*?)$/);
-
-    const emotionsBlock = emotionsMatch ? emotionsMatch[1] : '';
-    const mistakesBlock = mistakesMatch ? mistakesMatch[1] : '';
-
-    const cleanMain = text
-      .replace(/\n## Emotions\n[\s\S]*?(?=\n## Mistakes\n|$)/, '')
-      .replace(/\n## Mistakes\n[\s\S]*$/, '')
-      .trim();
-
-    const parseChipLine = (block: string) => {
-      const line = block.split('\n').find((l) => l.toLowerCase().startsWith('- chips:'));
-      if (!line) return [];
-      const rawList = line.split(':').slice(1).join(':').trim();
-      return rawList
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-    };
-
-    const parseFree = (block: string) => {
-      const idx = block.toLowerCase().indexOf('- free:');
-      if (idx === -1) return '';
-      return block
-        .slice(idx)
-        .split(':')
-        .slice(1)
-        .join(':')
-        .trim();
-    };
-
-    const parseChecklist = (block: string) => {
-      const selected: string[] = [];
-      for (const line of block.split('\n')) {
-        const m = line.match(/^- \[x\] (.+)$/i);
-        if (m?.[1]) selected.push(m[1].trim());
-      }
-      return selected;
-    };
-
-    return {
-      dayNotes: cleanMain,
-      emotionsSelected: parseChipLine(emotionsBlock),
-      emotionsFreeText: parseFree(emotionsBlock),
-      mistakesSelected: parseChecklist(mistakesBlock),
-      mistakesFreeText: parseFree(mistakesBlock),
-    };
-  }
-
-  function composeDayJournal(input: {
-    dayNotes: string;
-    emotionsSelected: string[];
-    emotionsFreeText: string;
-    mistakesSelected: string[];
-    mistakesFreeText: string;
-  }): string {
-    const base = (input.dayNotes || '').trim();
-    const emotionsLine = input.emotionsSelected.length ? `- chips: ${input.emotionsSelected.join(', ')}` : '- chips:';
-    const emotionsFree = `- free: ${(input.emotionsFreeText || '').trim()}`;
-    const mistakesLines = input.mistakesSelected.length
-      ? input.mistakesSelected.map((m) => `- [x] ${m}`).join('\n')
-      : '- [ ]';
-    const mistakesFree = `- free: ${(input.mistakesFreeText || '').trim()}`;
-
-    return [
-      base,
-      '## Emotions',
-      emotionsLine,
-      emotionsFree,
-      '## Mistakes',
-      mistakesLines,
-      mistakesFree,
-    ]
-      .filter((s) => typeof s === 'string')
-      .join('\n')
-      .trim();
+    const idx = text.indexOf('\n## Emotions\n');
+    if (idx === -1) return { main: text, extras: '' };
+    return { main: text.slice(0, idx).trim(), extras: text.slice(idx).trim() };
   }
 
   const loadDayData = useCallback(async () => {
@@ -161,12 +79,9 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       setJournal(dayJournal);
       const rawNotes = dayJournal?.notes || '';
       setJournalNotes(rawNotes);
-      const parsed = splitDayJournal(rawNotes);
-      setDayNotes(parsed.dayNotes);
-      setEmotionsSelected(parsed.emotionsSelected);
-      setEmotionsFreeText(parsed.emotionsFreeText);
-      setMistakesSelected(parsed.mistakesSelected);
-      setMistakesFreeText(parsed.mistakesFreeText);
+      const split = splitDayNotesPreserveExtras(rawNotes);
+      setDayNotes(split.main);
+      setDayExtrasMarkdown(split.extras);
       setNews(dayNews);
     } catch (error) {
       console.error('Failed to load day data', error);
@@ -179,9 +94,10 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   useEffect(() => {
     if (open && selectedDay) {
       loadDayData();
-      setSelectedTrade(null);
+      setSelectedTradeId(null);
       setSelectedTradeDetail(null);
       setTradeNotes('');
+      setTradeMeta({});
       setTradeShotError(null);
     }
   }, [open, selectedDay, loadDayData]);
@@ -191,14 +107,8 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
 
     setSavingJournal(true);
     try {
-      const composed = composeDayJournal({
-        dayNotes,
-        emotionsSelected,
-        emotionsFreeText,
-        mistakesSelected,
-        mistakesFreeText,
-      });
-      const success = await upsertDayJournal(selectedDay, composed);
+      const nextNotes = [dayNotes?.trim() || '', dayExtrasMarkdown?.trim() || ''].filter(Boolean).join('\n\n');
+      const success = await upsertDayJournal(selectedDay, nextNotes);
       if (success) {
         toast.success('Journal saved');
         await loadDayData();
@@ -214,13 +124,14 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   };
 
   const handleTradeClick = async (trade: Trade) => {
-    setSelectedTrade(trade);
+    setSelectedTradeId(trade.id);
     setTradeShotError(null);
     
     try {
       const detail = await getTradeDetail(trade.id);
       setSelectedTradeDetail(detail);
       setTradeNotes(detail?.note?.notes || '');
+      setTradeMeta((detail?.note?.meta as TradeNoteMeta) || {});
     } catch (error) {
       console.error('Failed to load trade detail', error);
       toast.error('Failed to load trade details');
@@ -229,44 +140,19 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
 
   const handleTradeUpdated = async () => {
     await loadDayData();
-    if (selectedTrade) {
-      const detail = await getTradeDetail(selectedTrade.id);
+    if (selectedTradeId) {
+      const detail = await getTradeDetail(selectedTradeId);
       setSelectedTradeDetail(detail);
       setTradeNotes(detail?.note?.notes || tradeNotes);
+      setTradeMeta((detail?.note?.meta as TradeNoteMeta) || tradeMeta);
     }
   };
-
-  const selectedTradeId = selectedTrade?.id ?? null;
-
-  const selectedTradeMetrics = useMemo(() => {
-    if (!selectedTradeDetail) return null;
-    const entry = selectedTradeDetail.entry;
-    const exit = selectedTradeDetail.exit;
-    const sl = typeof selectedTradeDetail.stopLoss === 'number' ? selectedTradeDetail.stopLoss : null;
-    const tp = typeof selectedTradeDetail.takeProfit === 'number' ? selectedTradeDetail.takeProfit : null;
-    const isLong = selectedTradeDetail.type === 'long';
-
-    const risk = sl === null ? null : isLong ? entry - sl : sl - entry;
-    const reward = tp === null ? null : isLong ? tp - entry : entry - tp;
-
-    const riskOk = risk !== null && Number.isFinite(risk) && risk > 0;
-    const rewardOk = reward !== null && Number.isFinite(reward) && reward > 0;
-    const rr = riskOk && rewardOk ? reward! / risk! : null;
-
-    return {
-      entry,
-      exit,
-      sl,
-      tp,
-      rr: rr && Number.isFinite(rr) ? rr : null,
-    };
-  }, [selectedTradeDetail]);
 
   const handleSaveTradeNotes = async () => {
     if (!selectedTradeDetail) return;
     setSavingTradeNotes(true);
     try {
-      const success = await upsertTradeNotes(selectedTradeDetail.id, tradeNotes);
+      const success = await upsertTradeNotes(selectedTradeDetail.id, tradeNotes, tradeMeta);
       if (success) {
         toast.success('Trade notes saved');
         await handleTradeUpdated();
@@ -301,7 +187,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tradeNotes, selectedTradeDetail?.id]);
+  }, [tradeNotes, tradeMeta, selectedTradeDetail?.id]);
 
   const handleTradeScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -401,16 +287,16 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
             </div>
           ) : (
             <div className="px-4 pb-6 space-y-4">
-              {/* 1) Chart */}
+              {/* 1) Chart (large card) */}
               <div className="pt-4">
                 <h3 className="font-semibold mb-3 text-sm">Chart</h3>
                 <TradingViewChart
                   symbol={selectedTradeDetail?.symbol || (trades.length > 0 ? trades[0].symbol : 'XAUUSD')}
-                  heightClassName="h-[340px] sm:h-[380px] lg:h-[420px]"
+                  heightClassName="h-[280px] sm:h-[320px] lg:h-[400px] xl:h-[440px]"
                 />
               </div>
 
-              {/* 2) Trades Taken */}
+              {/* 2) Trades Taken (card) */}
               <div>
                 <h3 className="font-semibold mb-3 flex items-center gap-2">
                   <TrendingUp className="w-4 h-4" />
@@ -421,130 +307,95 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                     <p>No trades on this day</p>
                   </Card>
                 ) : (
-                  <div className="space-y-2">
-                    {trades.map((trade) => {
-                      const isSelected = selectedTradeId === trade.id;
-                      return (
-                        <Card
-                          key={trade.id}
-                          className={`p-4 transition-colors cursor-pointer ${
-                            isSelected ? 'ring-2 ring-primary bg-accent' : 'hover:bg-accent'
-                          }`}
-                          onClick={() => handleTradeClick(trade)}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                <span className="font-semibold">{trade.symbol}</span>
-                                <Badge
-                                  variant={trade.type === 'long' ? 'default' : 'secondary'}
-                                  className="text-xs"
-                                >
-                                  {trade.type.toUpperCase()}
-                                </Badge>
-                                {trade.openTime ? (
-                                  <span className="text-xs text-muted-foreground">
-                                    {format(parseISO(trade.openTime), 'HH:mm')}
-                                  </span>
-                                ) : null}
-                              </div>
-                              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                {trade.notes ? <FileText className="w-3 h-3 text-blue-500" /> : null}
-                                {trade.screenshots && trade.screenshots.length > 0 ? (
-                                  <ImageIcon className="w-3 h-3 text-purple-500" />
-                                ) : null}
-                              </div>
-                            </div>
-                            <div className="text-right flex items-center gap-3">
-                              <div>
-                                <div
-                                  className={`font-semibold ${
-                                    trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'
-                                  }`}
-                                >
-                                  {formatCurrency(trade.pnl)}
+                  <Card className="p-0 overflow-hidden">
+                    <div className="divide-y divide-border">
+                      {trades.map((trade) => {
+                        const isSelected = selectedTradeId === trade.id;
+                        return (
+                          <button
+                            key={trade.id}
+                            type="button"
+                            className={`w-full text-left p-4 transition-colors ${
+                              isSelected ? 'bg-accent' : 'hover:bg-accent'
+                            }`}
+                            onClick={() => handleTradeClick(trade)}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  <span className="font-semibold">{trade.symbol}</span>
+                                  <Badge
+                                    variant={trade.type === 'long' ? 'default' : 'secondary'}
+                                    className="text-xs"
+                                  >
+                                    {trade.type.toUpperCase()}
+                                  </Badge>
+                                  {trade.openTime ? (
+                                    <span className="text-xs text-muted-foreground">
+                                      {format(parseISO(trade.openTime), 'HH:mm')}
+                                    </span>
+                                  ) : null}
                                 </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {trade.pnlPercentage >= 0 ? '+' : ''}
-                                  {trade.pnlPercentage.toFixed(2)}%
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  {trade.notes ? <FileText className="w-3 h-3 text-blue-500" /> : null}
+                                  {trade.screenshots && trade.screenshots.length > 0 ? (
+                                    <ImageIcon className="w-3 h-3 text-purple-500" />
+                                  ) : null}
                                 </div>
                               </div>
-                              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                              <div className="text-right flex items-center gap-3">
+                                <div>
+                                  <div
+                                    className={`font-semibold ${
+                                      trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'
+                                    }`}
+                                  >
+                                    {formatCurrency(trade.pnl)}
+                                  </div>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                              </div>
                             </div>
-                          </div>
-                        </Card>
-                      );
-                    })}
-                  </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Card>
                 )}
               </div>
 
-              {/* 3) Selected Trade Details */}
+              {/* Selected Trade (shows directly under Trades Taken) */}
               {selectedTradeDetail ? (
                 <Card className="p-4 bg-card/50 border-muted space-y-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-base">{selectedTradeDetail.symbol}</h3>
+                        <h3 className="font-semibold text-base">Selected Trade</h3>
                         <Badge variant={selectedTradeDetail.type === 'long' ? 'default' : 'secondary'}>
                           {selectedTradeDetail.type.toUpperCase()}
                         </Badge>
-                        {selectedTradeDetail.setup ? (
-                          <Badge variant="outline" className="text-xs">
-                            {selectedTradeDetail.setup}
-                          </Badge>
-                        ) : null}
+                        <span className="text-sm font-medium">{selectedTradeDetail.symbol}</span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
                         {selectedTradeDetail.openTime ? format(parseISO(selectedTradeDetail.openTime), 'MMM d, HH:mm') : selectedTradeDetail.date}
                       </p>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedTradeDetail(null)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedTradeId(null);
+                        setSelectedTradeDetail(null);
+                        setTradeNotes('');
+                        setTradeMeta({});
+                        setTradeShotError(null);
+                      }}
+                    >
                       Clear
                     </Button>
                   </div>
 
-                  {/* Levels */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                    <div>
-                      <div className="text-xs text-muted-foreground">Entry</div>
-                      <div className="font-mono font-semibold">{selectedTradeMetrics?.entry}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Exit</div>
-                      <div className="font-mono font-semibold">{selectedTradeMetrics?.exit}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">SL</div>
-                      <div className="font-mono">{selectedTradeMetrics?.sl ?? '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">TP</div>
-                      <div className="font-mono">{selectedTradeMetrics?.tp ?? '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">RR</div>
-                      <div className="font-mono">{selectedTradeMetrics?.rr === null ? '—' : selectedTradeMetrics?.rr.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Market</div>
-                      <div>{selectedTradeDetail.market ?? '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Size</div>
-                      <div>
-                        {selectedTradeDetail.size && selectedTradeDetail.sizeUnit
-                          ? `${selectedTradeDetail.size} ${selectedTradeDetail.sizeUnit}`
-                          : selectedTradeDetail.quantity}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Account</div>
-                      <div>{selectedTradeDetail.accountLogin ?? '—'}</div>
-                    </div>
-                  </div>
-
-                  {/* Trade Notes */}
+                  {/* A) Trade Notes */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-semibold text-sm">Trade Notes</h4>
@@ -566,7 +417,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                     ) : null}
                   </div>
 
-                  {/* Trade Screenshots */}
+                  {/* B) Screenshots (always visible) */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-semibold text-sm">Screenshots</h4>
@@ -597,10 +448,103 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                       onDelete={handleTradeScreenshotDelete}
                     />
                   </div>
+
+                  {/* C) Emotions */}
+                  <div>
+                    <h4 className="font-semibold text-sm mb-2">Emotions</h4>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {TRADE_EMOTIONS.map((label) => {
+                        const active = (tradeMeta.emotions?.chips || []).includes(label);
+                        return (
+                          <Button
+                            key={label}
+                            type="button"
+                            size="sm"
+                            variant={active ? 'default' : 'outline'}
+                            onClick={() => {
+                              const prev = tradeMeta.emotions?.chips || [];
+                              const next = prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label];
+                              setTradeMeta((m) => ({
+                                ...m,
+                                emotions: {
+                                  chips: next,
+                                  text: m.emotions?.text || '',
+                                },
+                              }));
+                            }}
+                          >
+                            {label}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    <Textarea
+                      value={tradeMeta.emotions?.text || ''}
+                      onChange={(e) =>
+                        setTradeMeta((m) => ({
+                          ...m,
+                          emotions: {
+                            chips: m.emotions?.chips || [],
+                            text: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="Optional…"
+                      className="min-h-[100px] resize-y font-mono text-sm bg-background/50"
+                    />
+                  </div>
+
+                  {/* D) Mistakes */}
+                  <div>
+                    <h4 className="font-semibold text-sm mb-2">Mistakes</h4>
+                    <div className="space-y-2 mb-3">
+                      {TRADE_MISTAKES.map((label) => {
+                        const checked = (tradeMeta.mistakes?.checks || []).includes(label);
+                        return (
+                          <label key={label} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const prev = tradeMeta.mistakes?.checks || [];
+                                const next = e.target.checked
+                                  ? prev.includes(label)
+                                    ? prev
+                                    : [...prev, label]
+                                  : prev.filter((x) => x !== label);
+                                setTradeMeta((m) => ({
+                                  ...m,
+                                  mistakes: {
+                                    checks: next,
+                                    text: m.mistakes?.text || '',
+                                  },
+                                }));
+                              }}
+                            />
+                            <span>{label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <Textarea
+                      value={tradeMeta.mistakes?.text || ''}
+                      onChange={(e) =>
+                        setTradeMeta((m) => ({
+                          ...m,
+                          mistakes: {
+                            checks: m.mistakes?.checks || [],
+                            text: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="Optional…"
+                      className="min-h-[100px] resize-y font-mono text-sm bg-background/50"
+                    />
+                  </div>
                 </Card>
               ) : null}
 
-              {/* 4) Day Notes */}
+              {/* 3) Day Notes (small card) */}
               <Card className="p-4 bg-card/50 border-muted">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold flex items-center gap-2 text-sm">
@@ -621,81 +565,17 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                   value={dayNotes}
                   onChange={(e) => setDayNotes(e.target.value)}
                   placeholder="Quick notes…"
-                  className="min-h-[120px] resize-y font-mono text-sm bg-background/50"
+                  className="min-h-[120px] max-h-[160px] resize-y font-mono text-sm bg-background/50"
                 />
               </Card>
 
-              {/* 5) Emotions & Mistakes */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Card className="p-4 bg-card/50 border-muted">
-                  <h3 className="font-semibold text-sm mb-3">Emotions</h3>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {EMOTIONS.map((label) => {
-                      const active = emotionsSelected.includes(label);
-                      return (
-                        <Button
-                          key={label}
-                          type="button"
-                          size="sm"
-                          variant={active ? 'default' : 'outline'}
-                          onClick={() => {
-                            setEmotionsSelected((prev) =>
-                              prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label],
-                            );
-                          }}
-                        >
-                          {label}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                  <Textarea
-                    value={emotionsFreeText}
-                    onChange={(e) => setEmotionsFreeText(e.target.value)}
-                    placeholder="Free text…"
-                    className="min-h-[120px] resize-y font-mono text-sm bg-background/50"
-                  />
-                </Card>
-
-                <Card className="p-4 bg-card/50 border-muted">
-                  <h3 className="font-semibold text-sm mb-3">Mistakes</h3>
-                  <div className="space-y-2 mb-3">
-                    {MISTAKES.map((label) => {
-                      const checked = mistakesSelected.includes(label);
-                      return (
-                        <label key={label} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => {
-                              const nextChecked = e.target.checked;
-                              setMistakesSelected((prev) => {
-                                if (nextChecked) return prev.includes(label) ? prev : [...prev, label];
-                                return prev.filter((x) => x !== label);
-                              });
-                            }}
-                          />
-                          <span>{label}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <Textarea
-                    value={mistakesFreeText}
-                    onChange={(e) => setMistakesFreeText(e.target.value)}
-                    placeholder="Free text…"
-                    className="min-h-[120px] resize-y font-mono text-sm bg-background/50"
-                  />
-                </Card>
-              </div>
-
-              {/* 6) News */}
+              {/* 4) News (small card) */}
               <div>
                 <h3 className="font-semibold mb-3 text-sm">News</h3>
                 <DayNewsBlock news={news} />
               </div>
 
-              {/* 7) Day Insights */}
+              {/* 5) Day Insights (small card) */}
               <div>
                 <h3 className="font-semibold mb-3 text-sm">Day Insights</h3>
                 <Card className="p-4 bg-card/50 border-muted space-y-2 text-xs">
@@ -703,15 +583,11 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                     <>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Biggest Win:</span>
-                        <span className="text-green-600 font-medium">
-                          {formatCurrency(metrics.biggestWin)}
-                        </span>
+                        <span className="text-green-600 font-medium">{formatCurrency(metrics.biggestWin)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Biggest Loss:</span>
-                        <span className="text-red-600 font-medium">
-                          {formatCurrency(metrics.biggestLoss)}
-                        </span>
+                        <span className="text-red-600 font-medium">{formatCurrency(metrics.biggestLoss)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Win / Loss:</span>
@@ -720,10 +596,16 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                           <span className="text-red-600">{metrics.lossCount}</span>
                         </span>
                       </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Win Rate:</span>
+                        <span>{metrics.winRate.toFixed(0)}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Avg RR:</span>
+                        <span>{metrics.avgRR.toFixed(2)}</span>
+                      </div>
                       {metrics.tradeCount > 5 ? (
-                        <div className="pt-2 border-t text-amber-600">
-                          ⚠️ Overtrading warning: {metrics.tradeCount} trades
-                        </div>
+                        <div className="pt-2 border-t text-amber-600">⚠️ Overtrading warning: {metrics.tradeCount} trades</div>
                       ) : null}
                     </>
                   ) : (
