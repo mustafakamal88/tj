@@ -29,6 +29,8 @@ export type TradeInput = {
   symbol: string;
   type: TradeType;
   entry: number;
+  stopLoss?: number;
+  takeProfit?: number;
   exit: number;
   quantity: number;
   market?: TradeMarket;
@@ -58,6 +60,8 @@ type TradeRow = {
   symbol: string;
   type: TradeType;
   entry: number | string;
+  stop_loss?: number | string | null;
+  take_profit?: number | string | null;
   exit: number | string;
   quantity: number | string;
   market?: string | null;
@@ -101,11 +105,23 @@ function isMissingColumnOrSchemaCacheError(error: unknown): boolean {
   return text.includes('schema cache') || (text.includes('column') && text.includes('does not exist'));
 }
 
-const TRADES_SELECT_FULL =
+const TRADES_SELECT_FULL_LEGACY =
   'id,date,close_time,open_time,account_login,ticket,position_id,commission,swap,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
 
-const TRADES_SELECT_BASE =
+const TRADES_SELECT_BASE_LEGACY =
   'id,date,symbol,type,entry,exit,quantity,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+
+const TRADES_SELECT_FULL =
+  'id,date,close_time,open_time,account_login,ticket,position_id,commission,swap,symbol,type,entry,stop_loss,take_profit,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+
+const TRADES_SELECT_BASE =
+  'id,date,symbol,type,entry,stop_loss,take_profit,exit,quantity,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+
+const TRADES_SELECT_LIST_LEGACY =
+  'id,date,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
+
+const TRADES_SELECT_LIST =
+  'id,date,symbol,type,entry,stop_loss,take_profit,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
 
 function mapTrade(row: TradeRow): Trade {
   const market: TradeMarket | undefined =
@@ -126,6 +142,8 @@ function mapTrade(row: TradeRow): Trade {
     symbol: row.symbol,
     type: row.type,
     entry: toNumber(row.entry),
+    stopLoss: toOptionalNumber(row.stop_loss),
+    takeProfit: toOptionalNumber(row.take_profit),
     exit: toNumber(row.exit),
     quantity: toNumber(row.quantity),
     market,
@@ -150,19 +168,16 @@ export async function fetchTrades(): Promise<Trade[]> {
     const { data: authData } = await supabase.auth.getUser();
     if (!authData.user) return [];
 
-    const select =
-      'id,date,symbol,type,entry,exit,quantity,market,size,size_unit,outcome,pnl,pnl_percentage,notes,emotions,setup,mistakes,screenshots,tags,created_at';
-
     let { data, error } = await supabase
       .from('trades')
-      .select(select)
+      .select(TRADES_SELECT_LIST)
       .order('date', { ascending: false })
       .returns<TradeRow[]>();
 
     if (error && isMissingColumnOrSchemaCacheError(error)) {
       ({ data, error } = await supabase
         .from('trades')
-        .select(TRADES_SELECT_BASE)
+        .select(TRADES_SELECT_LIST_LEGACY)
         .order('date', { ascending: false })
         .returns<TradeRow[]>());
     }
@@ -279,7 +294,7 @@ export async function fetchTradesForCalendarMonth(monthStart: Date, monthEndExcl
       const withDateOnly = await fetchTradesPage<TradeRow>(({ from, to }) =>
         supabase
           .from('trades')
-          .select(TRADES_SELECT_BASE)
+          .select(TRADES_SELECT_BASE_LEGACY)
           .gte('date', startDate)
           .lt('date', endDate)
           .order('date', { ascending: false })
@@ -369,6 +384,8 @@ export async function createTrade(trade: TradeInput): Promise<AddTradeResult> {
 	      symbol: trade.symbol,
 	      type: trade.type,
 	      entry: trade.entry,
+        stop_loss: trade.stopLoss ?? null,
+        take_profit: trade.takeProfit ?? null,
 	      exit: trade.exit,
 	      quantity: trade.quantity,
         market: trade.market ?? null,
@@ -420,6 +437,8 @@ export async function createTradesWithProgress(
       symbol: trade.symbol,
       type: trade.type,
       entry: trade.entry,
+      stop_loss: trade.stopLoss ?? null,
+      take_profit: trade.takeProfit ?? null,
       exit: trade.exit,
       quantity: trade.quantity,
       market: trade.market ?? null,

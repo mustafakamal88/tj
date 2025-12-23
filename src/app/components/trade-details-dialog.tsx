@@ -1,9 +1,14 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import type { Trade } from '../types/trade';
 import { format } from 'date-fns';
 import { formatCurrency, formatPercentage } from '../utils/trade-calculations';
+import { requireSupabaseClient } from '../utils/supabase';
+
+const SCREENSHOTS_BUCKET = 'trade-screenshots';
 
 interface TradeDetailsDialogProps {
   trade: Trade;
@@ -12,6 +17,85 @@ interface TradeDetailsDialogProps {
 }
 
 export function TradeDetailsDialog({ trade, open, onOpenChange }: TradeDetailsDialogProps) {
+  const screenshots = Array.isArray(trade.screenshots) ? trade.screenshots.filter(Boolean) : [];
+  const [signedUrls, setSignedUrls] = useState<Record<string, { url: string; expiresAtMs: number }>>({});
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  const metrics = useMemo(() => {
+    const entry = trade.entry;
+    const stopLoss = typeof trade.stopLoss === 'number' ? trade.stopLoss : null;
+    const takeProfit = typeof trade.takeProfit === 'number' ? trade.takeProfit : null;
+    const quantity = trade.quantity;
+
+    const isLong = trade.type === 'long';
+
+    const riskDistance =
+      stopLoss === null ? null : isLong ? entry - stopLoss : stopLoss - entry;
+    const rewardDistance =
+      takeProfit === null ? null : isLong ? takeProfit - entry : entry - takeProfit;
+
+    const riskDistanceOk = riskDistance !== null && Number.isFinite(riskDistance) && riskDistance > 0;
+    const rewardDistanceOk = rewardDistance !== null && Number.isFinite(rewardDistance) && rewardDistance > 0;
+
+    const plannedRR = riskDistanceOk && rewardDistanceOk ? rewardDistance! / riskDistance! : null;
+
+    const riskAmount = riskDistanceOk ? riskDistance! * quantity : null;
+    const rMultiple = riskAmount && riskAmount > 0 ? trade.pnl / riskAmount : null;
+
+    return {
+      riskDistance: riskDistanceOk ? riskDistance! : null,
+      rewardDistance: rewardDistanceOk ? rewardDistance! : null,
+      plannedRR: plannedRR && Number.isFinite(plannedRR) ? plannedRR : null,
+      riskAmount: riskAmount && Number.isFinite(riskAmount) ? riskAmount : null,
+      rMultiple: rMultiple && Number.isFinite(rMultiple) ? rMultiple : null,
+    };
+  }, [trade]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!screenshots.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      let supabase: ReturnType<typeof requireSupabaseClient>;
+      try {
+        supabase = requireSupabaseClient();
+      } catch {
+        return;
+      }
+
+      const now = Date.now();
+      for (const path of screenshots) {
+        const existing = signedUrls[path];
+        if (existing && existing.expiresAtMs - now > 30_000) continue;
+
+        const { data, error } = await supabase.storage
+          .from(SCREENSHOTS_BUCKET)
+          .createSignedUrl(path, 3600);
+
+        if (cancelled) return;
+        if (error || !data?.signedUrl) continue;
+
+        setSignedUrls((prev) => ({
+          ...prev,
+          [path]: { url: data.signedUrl, expiresAtMs: Date.now() + 3600_000 },
+        }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, screenshots, signedUrls]);
+
+  useEffect(() => {
+    if (!open) setActiveIndex(null);
+  }, [open]);
+
+  const activePath = activeIndex === null ? null : screenshots[activeIndex] ?? null;
+  const activeUrl = activePath ? signedUrls[activePath]?.url : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -44,6 +128,31 @@ export function TradeDetailsDialog({ trade, open, onOpenChange }: TradeDetailsDi
 
           <Separator />
 
+          {/* Key Stats */}
+          <div>
+            <h3 className="mb-3">Key Stats</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <span className="text-sm text-muted-foreground">P&L</span>
+                <p className={`font-medium ${trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(trade.pnl)}</p>
+              </div>
+              <div>
+                <span className="text-sm text-muted-foreground">P&L %</span>
+                <p className={`font-medium ${trade.pnlPercentage >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatPercentage(trade.pnlPercentage)}</p>
+              </div>
+              <div>
+                <span className="text-sm text-muted-foreground">Planned RR</span>
+                <p className="font-medium">{metrics.plannedRR === null ? '—' : metrics.plannedRR.toFixed(2)}</p>
+              </div>
+              <div>
+                <span className="text-sm text-muted-foreground">R Multiple</span>
+                <p className="font-medium">{metrics.rMultiple === null ? '—' : metrics.rMultiple.toFixed(2)}</p>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
           {/* Trade Details */}
           <div>
             <h3 className="mb-3">Trade Details</h3>
@@ -53,8 +162,20 @@ export function TradeDetailsDialog({ trade, open, onOpenChange }: TradeDetailsDi
                 <p className="font-medium">${trade.entry.toFixed(2)}</p>
               </div>
               <div>
+                <span className="text-sm text-muted-foreground">Stop Loss</span>
+                <p className="font-medium">
+                  {typeof trade.stopLoss === 'number' ? `$${trade.stopLoss.toFixed(2)}` : '—'}
+                </p>
+              </div>
+              <div>
                 <span className="text-sm text-muted-foreground">Exit Price</span>
                 <p className="font-medium">${trade.exit.toFixed(2)}</p>
+              </div>
+              <div>
+                <span className="text-sm text-muted-foreground">Take Profit</span>
+                <p className="font-medium">
+                  {typeof trade.takeProfit === 'number' ? `$${trade.takeProfit.toFixed(2)}` : '—'}
+                </p>
               </div>
               <div>
                 <span className="text-sm text-muted-foreground">Quantity</span>
@@ -66,6 +187,29 @@ export function TradeDetailsDialog({ trade, open, onOpenChange }: TradeDetailsDi
               </div>
             </div>
           </div>
+
+          {(typeof trade.stopLoss === 'number' || typeof trade.takeProfit === 'number') ? (
+            <>
+              <Separator />
+              <div>
+                <h3 className="mb-3">SL / TP</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div>
+                    <span className="text-sm text-muted-foreground">Risk Distance</span>
+                    <p className="font-medium">{metrics.riskDistance === null ? '—' : metrics.riskDistance.toFixed(4)}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm text-muted-foreground">Reward Distance</span>
+                    <p className="font-medium">{metrics.rewardDistance === null ? '—' : metrics.rewardDistance.toFixed(4)}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm text-muted-foreground">Risk Amount</span>
+                    <p className="font-medium">{metrics.riskAmount === null ? '—' : metrics.riskAmount.toFixed(2)}</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : null}
 
           <Separator />
 
@@ -135,6 +279,75 @@ export function TradeDetailsDialog({ trade, open, onOpenChange }: TradeDetailsDi
               </div>
             </>
           )}
+
+          {screenshots.length > 0 ? (
+            <>
+              <Separator />
+              <div>
+                <h3 className="mb-3">Screenshots</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  {screenshots.map((path, idx) => {
+                    const url = signedUrls[path]?.url;
+                    return (
+                      <button
+                        type="button"
+                        key={path}
+                        onClick={() => setActiveIndex(idx)}
+                        className="aspect-square overflow-hidden rounded-md border bg-muted"
+                        aria-label={`Open screenshot ${idx + 1}`}
+                      >
+                        {url ? (
+                          <img src={url} alt={`Screenshot ${idx + 1}`} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <Dialog open={activeIndex !== null} onOpenChange={(o) => setActiveIndex(o ? activeIndex : null)}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
+                  <div className="flex items-center justify-between gap-2">
+                    <DialogTitle>Screenshots</DialogTitle>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={activeIndex === null || screenshots.length < 2}
+                        onClick={() =>
+                          setActiveIndex((prev) =>
+                            prev === null ? null : (prev - 1 + screenshots.length) % screenshots.length,
+                          )
+                        }
+                      >
+                        Prev
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={activeIndex === null || screenshots.length < 2}
+                        onClick={() =>
+                          setActiveIndex((prev) => (prev === null ? null : (prev + 1) % screenshots.length))
+                        }
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-center">
+                    {activeUrl ? (
+                      <img src={activeUrl} alt="Screenshot" className="max-h-[70vh] w-auto object-contain" />
+                    ) : (
+                      <div className="h-[50vh] w-full rounded-md border bg-muted" />
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>
