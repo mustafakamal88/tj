@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigation } from './components/navigation';
 import { HomePage } from './components/home-page';
 import { Dashboard } from './components/dashboard';
@@ -57,6 +57,7 @@ function AppContent() {
   const { user, loading: authLoading, signOut } = useAuth();
   const { profile, loading: profileLoading, refresh: refreshProfile } = useProfile();
   const userEmail = user?.email ?? null;
+  const prevUserEmailRef = useRef<string | null>(null);
 
   const isProtectedPage = (page: Page) => {
     return (
@@ -164,6 +165,20 @@ function AppContent() {
     if (!userEmail) return;
     if (isAuthDialogOpen) setIsAuthDialogOpen(false);
   }, [authLoading, userEmail, isAuthDialogOpen, currentPage]);
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    const prevEmail = prevUserEmailRef.current;
+    if (!prevEmail && userEmail) {
+      // Successful login: ensure the app state + URL are explicitly on dashboard
+      // so the sidebar active pill is correct.
+      if (isAuthDialogOpen) setIsAuthDialogOpen(false);
+      setRoute('dashboard', { replace: true });
+    }
+
+    prevUserEmailRef.current = userEmail;
+  }, [authLoading, userEmail, isAuthDialogOpen]);
 
   useEffect(() => {
     if (authLoading) return;
