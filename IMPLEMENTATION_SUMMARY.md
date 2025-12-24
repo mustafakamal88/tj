@@ -13,6 +13,13 @@ You now have a complete **clickable calendar with notebook-style Day View** that
 7. 📈 **View TradingView charts** for trade symbols
 8. 💡 **Get insights** about trading patterns
 
+## ✅ 2025-12-24 Finalization Notes
+
+- Screenshots are stored in the private `trade-screenshots` bucket and displayed via signed URLs (no public URLs).
+- Storage object paths follow: `<userId>/<tradeId>/<timestamp>-<safeFilename>` (no `/trades/` segment).
+- Screenshot metadata is tracked in `trade_screenshots` (authoritative) and kept in sync with legacy `trades.screenshots` for older UI surfaces.
+- Trade emotions/mistakes persistence uses `trade_notes.meta` JSON.
+
 ## 📁 Files Created
 
 ### Database & API
