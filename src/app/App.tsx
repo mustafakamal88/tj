@@ -13,6 +13,8 @@ import { LoginPage } from './pages/login';
 import { SignupPage } from './pages/signup';
 import { AppShell } from './components/app-shell';
 import { UniversityHomePage } from './pages/university';
+import { UniversityCoursePage } from './pages/university/course';
+import { UniversityLessonPage } from './pages/university/lesson';
 import { ErrorBoundary } from './components/error-boundary';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
@@ -120,6 +122,11 @@ function AppContent() {
   const openUniversityCourse = (courseSlug: string) => {
     setCurrentPage('university');
     setRoutePath(`/university/${courseSlug}`);
+  };
+
+  const openUniversityLesson = (courseSlug: string, lessonSlug: string) => {
+    setCurrentPage('university');
+    setRoutePath(`/university/${courseSlug}/${lessonSlug}`);
   };
 
   useEffect(() => {
@@ -265,19 +272,23 @@ function AppContent() {
               return <UniversityHomePage onOpenCourse={openUniversityCourse} />;
             }
 
+            if (!route.lessonSlug) {
+              return (
+                <UniversityCoursePage
+                  courseSlug={route.courseSlug}
+                  onBackToUniversity={() => setRoutePath('/university')}
+                  onOpenLesson={openUniversityLesson}
+                />
+              );
+            }
+
             return (
-              <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-                <div className="text-sm text-muted-foreground">Course coming soon.</div>
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    className="text-sm hover:underline"
-                    onClick={() => setRoutePath('/university')}
-                  >
-                    Back to University
-                  </button>
-                </div>
-              </div>
+              <UniversityLessonPage
+                courseSlug={route.courseSlug}
+                lessonSlug={route.lessonSlug}
+                onBackToCourse={openUniversityCourse}
+                onOpenLesson={openUniversityLesson}
+              />
             );
           })(),
         );

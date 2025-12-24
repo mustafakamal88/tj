@@ -137,3 +137,19 @@ export const courses: UniversityCourse[] = [
 export function getCourseBySlug(courseSlug: string) {
   return courses.find((c) => c.slug === courseSlug) ?? null;
 }
+
+export function getLessonBySlugs(courseSlug: string, lessonSlug: string) {
+  const course = getCourseBySlug(courseSlug);
+  if (!course) return null;
+  for (const module of course.modules) {
+    const lesson = module.lessons.find((l) => l.slug === lessonSlug);
+    if (lesson) return { course, module, lesson };
+  }
+  return null;
+}
+
+export function getCourseLessonSlugs(courseSlug: string) {
+  const course = getCourseBySlug(courseSlug);
+  if (!course) return [] as string[];
+  return course.modules.flatMap((m) => m.lessons.map((l) => l.slug));
+}
