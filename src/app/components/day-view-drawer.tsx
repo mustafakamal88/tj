@@ -49,6 +49,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const [selectedTradeDetail, setSelectedTradeDetail] = useState<TradeWithDetails | null>(null);
   const [savingTradeNotes, setSavingTradeNotes] = useState(false);
   const [tradeNotes, setTradeNotes] = useState('');
+  const [tradeNotesDirty, setTradeNotesDirty] = useState(false);
   const [tradeMeta, setTradeMeta] = useState<TradeNoteMeta>({});
   const [tradeEmotionsText, setTradeEmotionsText] = useState('');
   const [tradeMistakesText, setTradeMistakesText] = useState('');
@@ -123,6 +124,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       setSelectedTradeId(null);
       setSelectedTradeDetail(null);
       setTradeNotes('');
+      setTradeNotesDirty(false);
       setTradeMeta({});
       setTradeEmotionsText('');
       setTradeMistakesText('');
@@ -159,6 +161,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       const detail = await getTradeDetail(trade.id);
       setSelectedTradeDetail(detail);
       setTradeNotes(detail?.note?.notes || '');
+      setTradeNotesDirty(false);
       const meta = ((detail?.note?.meta as TradeNoteMeta) || {}) as TradeNoteMeta;
       setTradeMeta(meta);
       const parsed = parseExtraNotes(meta.extraNotes);
@@ -181,6 +184,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       const detail = await getTradeDetail(selectedTradeId);
       setSelectedTradeDetail(detail);
       setTradeNotes(detail?.note?.notes || tradeNotes);
+      setTradeNotesDirty(false);
       const meta = ((detail?.note?.meta as TradeNoteMeta) || tradeMeta) as TradeNoteMeta;
       setTradeMeta(meta);
       const parsed = parseExtraNotes(meta.extraNotes);
@@ -189,7 +193,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     }
   };
 
-  const handleSaveTradeNotes = async () => {
+  const handleSaveTradeNotes = async (opts?: { source?: 'manual' | 'autosave' }) => {
     if (!selectedTradeDetail) return;
     setSavingTradeNotes(true);
     try {
@@ -200,30 +204,32 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       };
       const success = await upsertTradeNotes(selectedTradeDetail.id, tradeNotes, meta);
       if (success) {
-        toast.success('Trade notes saved');
+        // Avoid toast spam for autosave.
+        if (opts?.source !== 'autosave') toast.success('Trade notes saved');
+        setTradeNotesDirty(false);
         await handleTradeUpdated();
       } else {
-        toast.error('Failed to save trade notes');
+        if (opts?.source !== 'autosave') toast.error('Failed to save trade notes');
       }
     } catch (error) {
       console.error('Failed to save trade notes', error);
-      toast.error('Failed to save trade notes');
+      if (opts?.source !== 'autosave') toast.error('Failed to save trade notes');
     } finally {
       setSavingTradeNotes(false);
     }
   };
 
-  // Autosave if a note already exists in DB.
+  // Autosave only after user edits (never on initial render or trade selection).
   useEffect(() => {
     if (!selectedTradeDetail) return;
-    if (!selectedTradeDetail.note) return;
+    if (!tradeNotesDirty) return;
 
     if (tradeNotesDebounceRef.current) {
       window.clearTimeout(tradeNotesDebounceRef.current);
     }
 
     tradeNotesDebounceRef.current = window.setTimeout(() => {
-      void handleSaveTradeNotes();
+      void handleSaveTradeNotes({ source: 'autosave' });
     }, 800);
 
     return () => {
@@ -233,7 +239,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tradeNotes, tradeMeta, tradeEmotionsText, tradeMistakesText, selectedTradeDetail?.id]);
+  }, [tradeNotes, tradeMeta, tradeEmotionsText, tradeMistakesText, selectedTradeDetail?.id, tradeNotesDirty]);
 
   const handleTradeScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -438,6 +444,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                         setSelectedTradeId(null);
                         setSelectedTradeDetail(null);
                         setTradeNotes('');
+                        setTradeNotesDirty(false);
                         setTradeMeta({});
                         setTradeEmotionsText('');
                         setTradeMistakesText('');
@@ -452,14 +459,22 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-semibold text-sm">Trade Notes</h4>
-                      <Button size="sm" onClick={handleSaveTradeNotes} disabled={savingTradeNotes} className="gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => void handleSaveTradeNotes({ source: 'manual' })}
+                        disabled={savingTradeNotes}
+                        className="gap-2"
+                      >
                         <Save className="w-3 h-3" />
                         {savingTradeNotes ? 'Saving...' : 'Save'}
                       </Button>
                     </div>
                     <Textarea
                       value={tradeNotes}
-                      onChange={(e) => setTradeNotes(e.target.value)}
+                      onChange={(e) => {
+                        setTradeNotes(e.target.value);
+                        setTradeNotesDirty(true);
+                      }}
                       placeholder="Why did I take this trade? What was the plan?"
                       className="min-h-[140px] resize-y font-mono text-sm bg-background/50"
                     />
@@ -518,6 +533,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                               const prev = tradeMeta.emotions || [];
                               const next = prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label];
                               setTradeMeta((m) => ({ ...m, emotions: next }));
+                              setTradeNotesDirty(true);
                             }}
                           >
                             {label}
@@ -527,7 +543,10 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                     </div>
                     <Textarea
                       value={tradeEmotionsText}
-                      onChange={(e) => setTradeEmotionsText(e.target.value)}
+                      onChange={(e) => {
+                        setTradeEmotionsText(e.target.value);
+                        setTradeNotesDirty(true);
+                      }}
                       placeholder="Optional…"
                       className="min-h-[100px] resize-y font-mono text-sm bg-background/50"
                     />
@@ -552,6 +571,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                                     : [...prev, label]
                                   : prev.filter((x) => x !== label);
                                 setTradeMeta((m) => ({ ...m, mistakes: next }));
+                                setTradeNotesDirty(true);
                               }}
                             />
                             <span>{label}</span>
@@ -561,7 +581,10 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                     </div>
                     <Textarea
                       value={tradeMistakesText}
-                      onChange={(e) => setTradeMistakesText(e.target.value)}
+                      onChange={(e) => {
+                        setTradeMistakesText(e.target.value);
+                        setTradeNotesDirty(true);
+                      }}
                       placeholder="Optional…"
                       className="min-h-[100px] resize-y font-mono text-sm bg-background/50"
                     />
