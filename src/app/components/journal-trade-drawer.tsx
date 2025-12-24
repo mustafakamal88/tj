@@ -44,19 +44,22 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
   const [shotError, setShotError] = useState<string | null>(null);
 
   const autosaveRef = useRef<number | null>(null);
-  const lastSavedSnapshotRef = useRef<string>('');
+  const lastSavedKeyRef = useRef<string>('');
+  const pendingKeyRef = useRef<string>('');
 
   const pnl = trade?.pnl ?? null;
   const symbol = trade?.symbol ?? '';
 
-  const currentSnapshot = useMemo(() => {
+  const currentKey = useMemo(() => {
     const normalizedExtraNotes = buildTradeNoteExtras({ emotionsText, mistakesText });
+    const emotions = [...(meta.emotions || [])].sort();
+    const mistakes = [...(meta.mistakes || [])].sort();
     return JSON.stringify({
       notes: notes || '',
       meta: {
-        emotions: meta.emotions || [],
-        mistakes: meta.mistakes || [],
-        extraNotes: normalizedExtraNotes,
+        emotions,
+        mistakes,
+        extraNotes: normalizedExtraNotes || '',
       },
     });
   }, [notes, meta.emotions, meta.mistakes, emotionsText, mistakesText]);
@@ -81,14 +84,17 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
         emotionsText: parsed.emotionsText,
         mistakesText: parsed.mistakesText,
       });
-      lastSavedSnapshotRef.current = JSON.stringify({
+      const emotions = [...(nextMeta.emotions || [])].sort();
+      const mistakes = [...(nextMeta.mistakes || [])].sort();
+      lastSavedKeyRef.current = JSON.stringify({
         notes: serverNotes,
         meta: {
-          emotions: nextMeta.emotions || [],
-          mistakes: nextMeta.mistakes || [],
-          extraNotes: normalizedExtra,
+          emotions,
+          mistakes,
+          extraNotes: normalizedExtra || '',
         },
       });
+      pendingKeyRef.current = '';
     } catch (error) {
       console.error('Failed to load trade detail', error);
       toast.error('Failed to load trade details');
@@ -117,19 +123,30 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
         window.clearTimeout(autosaveRef.current);
         autosaveRef.current = null;
       }
+      lastSavedKeyRef.current = '';
+      pendingKeyRef.current = '';
     }
   }, [open]);
 
   const handleSave = async (opts?: { source?: 'manual' | 'autosave' }) => {
     if (!trade) return;
 
+    const key = currentKey;
+
+    // Only save after user edits.
+    if (!notesDirty) return;
+
     // Guard: never save if unchanged.
-    if (currentSnapshot === lastSavedSnapshotRef.current) {
+    if (key === lastSavedKeyRef.current) {
       setNotesDirty(false);
       return;
     }
 
+    // Guard: avoid duplicate in-flight saves.
+    if (pendingKeyRef.current === key) return;
+
     setSaving(true);
+    pendingKeyRef.current = key;
     try {
       const nextMeta: TradeNoteMeta = {
         emotions: meta.emotions || [],
@@ -140,14 +157,17 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
       const success = await upsertTradeNotes(trade.id, notes, nextMeta);
       if (success) {
         if (opts?.source !== 'autosave') toast.success('Trade notes saved');
-        lastSavedSnapshotRef.current = currentSnapshot;
+        lastSavedKeyRef.current = key;
+        pendingKeyRef.current = '';
         setNotesDirty(false);
         await loadTrade(trade.id);
       } else {
+        pendingKeyRef.current = '';
         if (opts?.source !== 'autosave') toast.error('Failed to save trade notes');
       }
     } catch (error) {
       console.error('Failed to save trade notes', error);
+      pendingKeyRef.current = '';
       if (opts?.source !== 'autosave') toast.error('Failed to save trade notes');
     } finally {
       setSaving(false);
@@ -160,10 +180,12 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
     if (!open) return;
     if (!notesDirty) return;
 
-    if (currentSnapshot === lastSavedSnapshotRef.current) {
+    if (currentKey === lastSavedKeyRef.current) {
       setNotesDirty(false);
       return;
     }
+
+    if (pendingKeyRef.current === currentKey) return;
 
     if (autosaveRef.current) window.clearTimeout(autosaveRef.current);
 
@@ -177,7 +199,7 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
         autosaveRef.current = null;
       }
     };
-  }, [trade?.id, open, notesDirty, currentSnapshot]);
+  }, [trade?.id, open, notesDirty, currentKey]);
 
   const toggleEmotion = (value: (typeof TRADE_EMOTIONS)[number]) => {
     const current = meta.emotions || [];

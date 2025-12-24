@@ -58,7 +58,8 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const [tradeShotError, setTradeShotError] = useState<string | null>(null);
   const tradeNotesDebounceRef = useRef<number | null>(null);
   const selectedTradeSectionRef = useRef<HTMLDivElement | null>(null);
-  const lastSavedTradeNoteSnapshotRef = useRef<string>('');
+  const lastSavedTradeNoteKeyRef = useRef<string>('');
+  const pendingTradeNoteKeyRef = useRef<string>('');
 
   const TRADE_EMOTIONS = ['Calm', 'Fear', 'FOMO', 'Revenge', 'Overconfident', 'Hesitation'] as const;
   const TRADE_MISTAKES = ['Entered early', 'No SL', 'Oversized', 'Moved SL', 'Overtraded', "Didn’t follow plan"] as const;
@@ -99,17 +100,19 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     }
   }, [selectedDay]);
 
-  const currentTradeNoteSnapshot = useMemo(() => {
+  const currentTradeNoteKey = useMemo(() => {
     const normalizedExtraNotes = buildTradeNoteExtras({
       emotionsText: tradeEmotionsText,
       mistakesText: tradeMistakesText,
     });
+    const emotions = [...(tradeMeta.emotions || [])].sort();
+    const mistakes = [...(tradeMeta.mistakes || [])].sort();
     return JSON.stringify({
       notes: tradeNotes || '',
       meta: {
-        emotions: tradeMeta.emotions || [],
-        mistakes: tradeMeta.mistakes || [],
-        extraNotes: normalizedExtraNotes,
+        emotions,
+        mistakes,
+        extraNotes: normalizedExtraNotes || '',
       },
     });
   }, [tradeNotes, tradeMeta.emotions, tradeMeta.mistakes, tradeEmotionsText, tradeMistakesText]);
@@ -125,6 +128,8 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       setTradeEmotionsText('');
       setTradeMistakesText('');
       setTradeShotError(null);
+      lastSavedTradeNoteKeyRef.current = '';
+      pendingTradeNoteKeyRef.current = '';
     }
   }, [open, selectedDay, loadDayData]);
 
@@ -170,14 +175,17 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
         emotionsText: parsed.emotionsText,
         mistakesText: parsed.mistakesText,
       });
-      lastSavedTradeNoteSnapshotRef.current = JSON.stringify({
+      const emotions = [...(meta.emotions || [])].sort();
+      const mistakes = [...(meta.mistakes || [])].sort();
+      lastSavedTradeNoteKeyRef.current = JSON.stringify({
         notes: serverNotes,
         meta: {
-          emotions: meta.emotions || [],
-          mistakes: meta.mistakes || [],
-          extraNotes: normalizedExtra,
+          emotions,
+          mistakes,
+          extraNotes: normalizedExtra || '',
         },
       });
+      pendingTradeNoteKeyRef.current = '';
 
       // Auto-scroll selected trade section into view.
       window.setTimeout(() => {
@@ -207,27 +215,39 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
         emotionsText: parsed.emotionsText,
         mistakesText: parsed.mistakesText,
       });
-      lastSavedTradeNoteSnapshotRef.current = JSON.stringify({
+      const emotions = [...(meta.emotions || [])].sort();
+      const mistakes = [...(meta.mistakes || [])].sort();
+      lastSavedTradeNoteKeyRef.current = JSON.stringify({
         notes: serverNotes,
         meta: {
-          emotions: meta.emotions || [],
-          mistakes: meta.mistakes || [],
-          extraNotes: normalizedExtra,
+          emotions,
+          mistakes,
+          extraNotes: normalizedExtra || '',
         },
       });
+      pendingTradeNoteKeyRef.current = '';
     }
   };
 
   const handleSaveTradeNotes = async (opts?: { source?: 'manual' | 'autosave' }) => {
     if (!selectedTradeDetail) return;
 
+    const key = currentTradeNoteKey;
+
+    // Only save after user edits.
+    if (!tradeNotesDirty) return;
+
     // Guard: never save if unchanged (prevents loops/toast spam).
-    if (currentTradeNoteSnapshot === lastSavedTradeNoteSnapshotRef.current) {
+    if (key === lastSavedTradeNoteKeyRef.current) {
       setTradeNotesDirty(false);
       return;
     }
 
+    // Guard: avoid duplicate in-flight saves.
+    if (pendingTradeNoteKeyRef.current === key) return;
+
     setSavingTradeNotes(true);
+    pendingTradeNoteKeyRef.current = key;
     try {
       const meta: TradeNoteMeta = {
         emotions: tradeMeta.emotions || [],
@@ -238,14 +258,17 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       if (success) {
         // Avoid toast spam for autosave.
         if (opts?.source !== 'autosave') toast.success('Trade notes saved');
-        lastSavedTradeNoteSnapshotRef.current = currentTradeNoteSnapshot;
+        lastSavedTradeNoteKeyRef.current = key;
+        pendingTradeNoteKeyRef.current = '';
         setTradeNotesDirty(false);
         await handleTradeUpdated();
       } else {
+        pendingTradeNoteKeyRef.current = '';
         if (opts?.source !== 'autosave') toast.error('Failed to save trade notes');
       }
     } catch (error) {
       console.error('Failed to save trade notes', error);
+      pendingTradeNoteKeyRef.current = '';
       if (opts?.source !== 'autosave') toast.error('Failed to save trade notes');
     } finally {
       setSavingTradeNotes(false);
@@ -257,10 +280,12 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     if (!selectedTradeDetail) return;
     if (!tradeNotesDirty) return;
 
-    if (currentTradeNoteSnapshot === lastSavedTradeNoteSnapshotRef.current) {
+    if (currentTradeNoteKey === lastSavedTradeNoteKeyRef.current) {
       setTradeNotesDirty(false);
       return;
     }
+
+    if (pendingTradeNoteKeyRef.current === currentTradeNoteKey) return;
 
     if (tradeNotesDebounceRef.current) {
       window.clearTimeout(tradeNotesDebounceRef.current);
@@ -277,7 +302,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTradeNoteSnapshot, selectedTradeDetail?.id, tradeNotesDirty]);
+  }, [currentTradeNoteKey, selectedTradeDetail?.id, tradeNotesDirty]);
 
   const handleTradeScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
