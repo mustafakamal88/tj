@@ -7,6 +7,7 @@ import { Analytics } from './components/analytics';
 import { LearnMorePage } from './components/learn-more-page';
 import { BillingPage } from './components/billing-page';
 import { ErrorBoundary } from './components/error-boundary';
+import { AppShell } from './components/app-shell';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
 import { OnboardingDialog } from './components/onboarding-dialog';
@@ -143,14 +144,48 @@ function AppContent() {
         return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
       case 'dashboard':
         return (
-          <ErrorBoundary title="Dashboard crashed" description="Refresh the page and try opening the day drawer again.">
-            <Dashboard />
-          </ErrorBoundary>
+          <AppShell
+            currentPage={currentPage}
+            onNavigate={handleNavigate}
+            user={userEmail}
+            onAuthClick={openAuthDialog}
+            onLogout={handleLogout}
+            onSubscriptionClick={() => setIsSubscriptionDialogOpen(true)}
+            onBillingClick={() => handleNavigate('billing')}
+          >
+            <ErrorBoundary title="Dashboard crashed" description="Refresh the page and try opening the day drawer again.">
+              <Dashboard />
+            </ErrorBoundary>
+          </AppShell>
         );
       case 'journal':
-        return <JournalPage />;
+        return (
+          <AppShell
+            currentPage={currentPage}
+            onNavigate={handleNavigate}
+            user={userEmail}
+            onAuthClick={openAuthDialog}
+            onLogout={handleLogout}
+            onSubscriptionClick={() => setIsSubscriptionDialogOpen(true)}
+            onBillingClick={() => handleNavigate('billing')}
+          >
+            <JournalPage />
+          </AppShell>
+        );
       case 'analytics':
-        return <Analytics />;
+        return (
+          <AppShell
+            currentPage={currentPage}
+            onNavigate={handleNavigate}
+            user={userEmail}
+            onAuthClick={openAuthDialog}
+            onLogout={handleLogout}
+            onSubscriptionClick={() => setIsSubscriptionDialogOpen(true)}
+            onBillingClick={() => handleNavigate('billing')}
+          >
+            <Analytics />
+          </AppShell>
+        );
       case 'learn':
         return <LearnMorePage />;
       case 'billing':
@@ -172,15 +207,17 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navigation
-        currentPage={currentPage}
-        onNavigate={handleNavigate}
-        user={userEmail}
-        onAuthClick={openAuthDialog}
-        onLogout={handleLogout}
-        onSubscriptionClick={() => setIsSubscriptionDialogOpen(true)}
-        onBillingClick={() => handleNavigate('billing')}
-      />
+      {(currentPage === 'home' || currentPage === 'learn' || currentPage === 'billing') && (
+        <Navigation
+          currentPage={currentPage}
+          onNavigate={handleNavigate}
+          user={userEmail}
+          onAuthClick={openAuthDialog}
+          onLogout={handleLogout}
+          onSubscriptionClick={() => setIsSubscriptionDialogOpen(true)}
+          onBillingClick={() => handleNavigate('billing')}
+        />
+      )}
       {renderPage()}
       <AuthDialog
         open={isAuthDialogOpen}
