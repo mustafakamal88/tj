@@ -535,76 +535,6 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                 )}
               </div>
 
-              {/* Day Insights */}
-              <div>
-                <h3 className="font-semibold mb-3 text-sm">Day Insights</h3>
-                {trades.length === 0 ? (
-                  <Card className="p-6 text-center text-muted-foreground">
-                    <p>No trades yet for insights.</p>
-                  </Card>
-                ) : (
-                  <Card className="p-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <div className="text-xs text-muted-foreground">Total P/L</div>
-                        <div className={metrics.totalPnl >= 0 ? 'text-foreground font-semibold' : 'text-destructive font-semibold'}>
-                          {formatCurrency(metrics.totalPnl)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <div className="text-xs text-muted-foreground">Trades</div>
-                        <div className="font-semibold">{metrics.tradeCount}</div>
-                      </div>
-
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <div className="text-xs text-muted-foreground">Win rate</div>
-                        <div className="font-semibold">{metrics.winRate.toFixed(0)}%</div>
-                      </div>
-
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <div className="text-xs text-muted-foreground">Avg R:R</div>
-                        <div className="font-semibold">{metrics.avgRR > 0 ? metrics.avgRR.toFixed(2) : '—'}</div>
-                      </div>
-
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <div className="text-xs text-muted-foreground">Biggest win</div>
-                        <div className="font-semibold">
-                          {dayInsights.biggestWin ? formatCurrency(dayInsights.biggestWin.pnl) : '—'}
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <div className="text-xs text-muted-foreground">Biggest loss</div>
-                        <div className="font-semibold">
-                          {dayInsights.biggestLoss ? formatCurrency(dayInsights.biggestLoss.pnl) : '—'}
-                        </div>
-                      </div>
-
-                      {dayInsights.netR !== null ? (
-                        <div className="rounded-lg border bg-muted/20 p-3 sm:col-span-2">
-                          <div className="text-xs text-muted-foreground">Net R</div>
-                          <div className="font-semibold">{dayInsights.netR.toFixed(2)}R</div>
-                        </div>
-                      ) : null}
-
-                      {dayInsights.topTags.length ? (
-                        <div className="rounded-lg border bg-muted/20 p-3 sm:col-span-2">
-                          <div className="text-xs text-muted-foreground mb-2">Top tags / strategy</div>
-                          <div className="flex flex-wrap gap-2">
-                            {dayInsights.topTags.map((t) => (
-                              <Badge key={t.label} variant="outline" className="text-xs">
-                                {t.label} ({t.count})
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </Card>
-                )}
-              </div>
-
               {/* Selected Trade (shows directly under Trades Taken) */}
               {selectedTradeDetail ? (
                 <div ref={selectedTradeSectionRef}>
@@ -809,43 +739,80 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                 <DayNewsBlock news={news} />
               </div>
 
-              {/* 5) Day Insights (small card) */}
+              {/* 5) Day Insights (premium grid) */}
               <div>
                 <h3 className="font-semibold mb-3 text-sm">Day Insights</h3>
-                <Card className="p-4 bg-card/50 border-muted space-y-2 text-xs">
-                  {metrics.tradeCount > 0 ? (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Biggest Win:</span>
-                        <span className="text-green-600 font-medium">{formatCurrency(metrics.biggestWin)}</span>
+                {trades.length === 0 ? (
+                  <Card className="p-6 text-center text-muted-foreground">
+                    <p>No trades yet for insights.</p>
+                  </Card>
+                ) : (
+                  <Card className="p-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Total P/L</div>
+                        <div
+                          className={
+                            metrics.totalPnl >= 0
+                              ? 'text-foreground font-semibold'
+                              : 'text-destructive font-semibold'
+                          }
+                        >
+                          {formatCurrency(metrics.totalPnl)}
+                        </div>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Biggest Loss:</span>
-                        <span className="text-red-600 font-medium">{formatCurrency(metrics.biggestLoss)}</span>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Trades</div>
+                        <div className="font-semibold">{metrics.tradeCount}</div>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Win / Loss:</span>
-                        <span>
-                          <span className="text-green-600">{metrics.winCount}</span> /{' '}
-                          <span className="text-red-600">{metrics.lossCount}</span>
-                        </span>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Win rate</div>
+                        <div className="font-semibold">{metrics.winRate.toFixed(0)}%</div>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Win Rate:</span>
-                        <span>{metrics.winRate.toFixed(0)}%</span>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Avg R:R</div>
+                        <div className="font-semibold">{metrics.avgRR > 0 ? metrics.avgRR.toFixed(2) : '—'}</div>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Avg RR:</span>
-                        <span>{metrics.avgRR.toFixed(2)}</span>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Biggest win</div>
+                        <div className="font-semibold">
+                          {dayInsights.biggestWin ? formatCurrency(dayInsights.biggestWin.pnl) : '—'}
+                        </div>
                       </div>
-                      {metrics.tradeCount > 5 ? (
-                        <div className="pt-2 border-t text-amber-600">⚠️ Overtrading warning: {metrics.tradeCount} trades</div>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Biggest loss</div>
+                        <div className="font-semibold">
+                          {dayInsights.biggestLoss ? formatCurrency(dayInsights.biggestLoss.pnl) : '—'}
+                        </div>
+                      </div>
+
+                      {dayInsights.netR !== null ? (
+                        <div className="rounded-lg border bg-muted/20 p-3 sm:col-span-2">
+                          <div className="text-xs text-muted-foreground">Net R</div>
+                          <div className="font-semibold">{dayInsights.netR.toFixed(2)}R</div>
+                        </div>
                       ) : null}
-                    </>
-                  ) : (
-                    <p className="text-muted-foreground text-center py-2">No trades to analyze</p>
-                  )}
-                </Card>
+
+                      {dayInsights.topTags.length ? (
+                        <div className="rounded-lg border bg-muted/20 p-3 sm:col-span-2">
+                          <div className="text-xs text-muted-foreground mb-2">Top tags / strategy</div>
+                          <div className="flex flex-wrap gap-2">
+                            {dayInsights.topTags.map((t) => (
+                              <Badge key={t.label} variant="outline" className="text-xs">
+                                {t.label} ({t.count})
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </Card>
+                )}
               </div>
             </div>
           )}
