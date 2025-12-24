@@ -30,6 +30,9 @@ function AppContent() {
   const { user, loading: authLoading, signOut } = useAuth();
   const { profile, loading: profileLoading, refresh: refreshProfile } = useProfile();
   const userEmail = user?.email ?? null;
+  const showAppShell = Boolean(
+    userEmail && (currentPage === 'dashboard' || currentPage === 'journal' || currentPage === 'analytics'),
+  );
 
   const openAuthDialog = (tab: 'login' | 'signup' = 'login') => {
     setAuthDialogDefaultTab(tab);
@@ -207,7 +210,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-background">
-      {(currentPage === 'home' || currentPage === 'learn' || currentPage === 'billing') && (
+      {!showAppShell && (
         <Navigation
           currentPage={currentPage}
           onNavigate={handleNavigate}

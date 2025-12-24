@@ -38,6 +38,7 @@ export function Navigation({
   onOpenSidebar,
 }: NavigationProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isAppShell = Boolean(appShell);
 
   const navItems = user
     ? [
@@ -157,20 +158,56 @@ export function Navigation({
           {/* Mobile Menu Button */}
           <div className="flex md:hidden items-center gap-2">
             <ThemeToggle />
+            {user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label="Account">
+                    <User className="w-5 h-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>
+                    <div className="flex flex-col">
+                      <span>My Account</span>
+                      <span className="text-xs font-normal text-muted-foreground">{user}</span>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={onSubscriptionClick}>
+                    <CreditCard className="w-4 h-4 mr-2" />
+                    Subscription
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onBillingClick}>
+                    <Receipt className="w-4 h-4 mr-2" />
+                    Billing
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onLogout}>
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-expanded={mobileMenuOpen}
-              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              onClick={() => {
+                if (isAppShell && onOpenSidebar) {
+                  onOpenSidebar();
+                  return;
+                }
+                setMobileMenuOpen(!mobileMenuOpen);
+              }}
+              aria-expanded={isAppShell ? undefined : mobileMenuOpen}
+              aria-label={isAppShell ? 'Open sidebar' : mobileMenuOpen ? 'Close menu' : 'Open menu'}
             >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {isAppShell ? <Menu className="w-5 h-5" /> : mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </Button>
           </div>
         </div>
 
         {/* Mobile Navigation */}
-        {mobileMenuOpen && (
+        {mobileMenuOpen && !isAppShell && (
           <div className="md:hidden py-4 border-t">
             <div className="flex flex-col gap-2">
               {navItems.map((item) => {
