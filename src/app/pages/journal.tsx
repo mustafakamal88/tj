@@ -11,6 +11,7 @@ import { getEffectivePlan } from '../utils/entitlements';
 import { filterTradesForFreeUser } from '../utils/data-limit';
 import { JournalTradeDrawer } from '../components/journal-trade-drawer';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { pnlTextClass, semanticColors } from '../utils/semantic-colors';
 
 type SymbolSummary = {
   symbol: string;
@@ -119,16 +120,30 @@ export function JournalPage() {
   const activeSummary = useMemo(() => {
     const count = activeBaseTrades.length;
     const totalPnl = activeBaseTrades.reduce((sum, t) => sum + (typeof t.pnl === 'number' ? t.pnl : 0), 0);
-    const wins = activeBaseTrades.filter((t) => t.outcome === 'win').length;
-    const losses = activeBaseTrades.filter((t) => t.outcome === 'loss').length;
-    const denom = wins + losses;
-    const winRate = denom > 0 ? (wins / denom) * 100 : null;
+    const wins = activeBaseTrades.filter((t) => t.outcome === 'win');
+    const losses = activeBaseTrades.filter((t) => t.outcome === 'loss');
+    const winsCount = wins.length;
+    const lossesCount = losses.length;
+    const denom = winsCount + lossesCount;
+    const winRate = denom > 0 ? (winsCount / denom) * 100 : null;
+
+    const sumWins = wins.reduce((sum, t) => sum + (typeof t.pnl === 'number' ? t.pnl : 0), 0);
+    const sumLossAbs = losses.reduce((sum, t) => sum + Math.abs(typeof t.pnl === 'number' ? t.pnl : 0), 0);
+
+    const avgWin = winsCount > 0 ? sumWins / winsCount : null;
+    const avgLoss = lossesCount > 0 ? sumLossAbs / lossesCount : null;
+    const profitFactor = sumLossAbs > 0 ? sumWins / sumLossAbs : sumWins > 0 ? Infinity : null;
+    const expectancy = count > 0 ? totalPnl / count : null;
 
     return {
       count,
       totalPnl,
+      winsCount,
       winRate,
-      label: activeSymbol ? `Overall performance for ${activeSymbol}` : 'Overall performance',
+      avgWin,
+      avgLoss,
+      profitFactor,
+      expectancy,
     };
   }, [activeBaseTrades, activeSymbol]);
 
@@ -221,9 +236,7 @@ export function JournalPage() {
                         <div
                           aria-hidden
                           className={`absolute left-0 top-1 bottom-1 w-1 rounded-r-md ${
-                            totalPositive
-                              ? 'bg-green-600/60 dark:bg-green-500/50'
-                              : 'bg-red-600/60 dark:bg-red-500/50'
+                            totalPositive ? semanticColors.profitBar : semanticColors.lossBar
                           }`}
                         />
                         <button
@@ -252,13 +265,7 @@ export function JournalPage() {
                               <Badge variant="outline" className="text-[11px]">{f.tradeCount}</Badge>
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
-                              <span
-                                className={
-                                  totalPositive
-                                    ? 'text-green-600 dark:text-green-500'
-                                    : 'text-red-600 dark:text-red-500'
-                                }
-                              >
+                              <span className={pnlTextClass(f.totalPnl)}>
                                 {formatCurrency(f.totalPnl)}
                               </span>
                             </div>
@@ -337,19 +344,43 @@ export function JournalPage() {
                     ) : null}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="text-muted-foreground">{activeSummary.label}</span>
-                    <span className="text-muted-foreground">•</span>
-                    <span className={activeSummary.totalPnl >= 0 ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}>
+                    <span className="text-muted-foreground">Total:</span>
+                    <span className={`tabular-nums ${pnlTextClass(activeSummary.totalPnl)}`}>
+                      {activeSummary.totalPnl > 0 ? '+' : ''}
                       {formatCurrency(activeSummary.totalPnl)}
                     </span>
-                    <span className="text-muted-foreground">•</span>
-                    <span className="text-muted-foreground tabular-nums">{activeSummary.count} trades</span>
-                    {typeof activeSummary.winRate === 'number' ? (
-                      <>
-                        <span className="text-muted-foreground">•</span>
-                        <span className="text-muted-foreground tabular-nums">WR {activeSummary.winRate.toFixed(0)}%</span>
-                      </>
-                    ) : null}
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">Trades:</span>
+                    <span className="text-muted-foreground tabular-nums">{activeSummary.count}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">WR:</span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {typeof activeSummary.winRate === 'number' ? `${activeSummary.winRate.toFixed(0)}%` : '—'}
+                    </span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">Avg Win:</span>
+                    <span className={`tabular-nums ${semanticColors.profitText}`}>
+                      {typeof activeSummary.avgWin === 'number' ? formatCurrency(activeSummary.avgWin) : '—'}
+                    </span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">Avg Loss:</span>
+                    <span className={`tabular-nums ${semanticColors.lossText}`}>
+                      {typeof activeSummary.avgLoss === 'number' ? formatCurrency(activeSummary.avgLoss) : '—'}
+                    </span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">PF:</span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {activeSummary.profitFactor === Infinity
+                        ? '∞'
+                        : typeof activeSummary.profitFactor === 'number'
+                          ? activeSummary.profitFactor.toFixed(2)
+                          : '—'}
+                    </span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">Exp:</span>
+                    <span className={`tabular-nums ${pnlTextClass(activeSummary.expectancy ?? null)}`}>
+                      {typeof activeSummary.expectancy === 'number' ? formatCurrency(activeSummary.expectancy) : '—'}
+                    </span>
                   </div>
                   <div className="text-xs text-muted-foreground">Click a trade to open the drawer</div>
                 </div>
@@ -420,18 +451,21 @@ export function JournalPage() {
                               <span className="text-sm text-muted-foreground">
                                 {t.openTime ? new Date(t.openTime).toLocaleString() : t.date}
                               </span>
-                              <Badge variant={t.type === 'long' ? 'default' : 'secondary'} className="text-xs">
+                              <Badge
+                                variant="outline"
+                                className={`text-xs ${t.type === 'long' ? semanticColors.longChipClasses : semanticColors.shortChipClasses}`}
+                              >
                                 {t.type.toUpperCase()}
                               </Badge>
                               <Badge
-                                variant={
+                                variant={t.outcome === 'breakeven' ? 'secondary' : 'outline'}
+                                className={`text-xs ${
                                   t.outcome === 'win'
-                                    ? 'default'
+                                    ? semanticColors.winChipClasses
                                     : t.outcome === 'loss'
-                                    ? 'destructive'
-                                    : 'secondary'
-                                }
-                                className="text-xs"
+                                      ? semanticColors.lossChipClasses
+                                      : ''
+                                }`}
                               >
                                 {t.outcome}
                               </Badge>
@@ -448,13 +482,7 @@ export function JournalPage() {
                           </div>
 
                           <div className="text-right shrink-0">
-                            <div
-                              className={
-                                (typeof t.pnl === 'number' ? t.pnl : 0) >= 0
-                                  ? 'text-foreground font-semibold'
-                                  : 'text-destructive font-semibold'
-                              }
-                            >
+                            <div className={`font-semibold ${pnlTextClass(typeof t.pnl === 'number' ? t.pnl : 0)}`}>
                               {formatCurrency(t.pnl)}
                             </div>
                           </div>

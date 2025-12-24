@@ -17,6 +17,7 @@ import { AddTradeDialog } from './add-trade-dialog';
 import { MTImportDialog } from './mt-import-dialog';
 import { TradeDetailsDialog } from './trade-details-dialog';
 import { toast } from 'sonner';
+import { pnlTextClass, semanticColors } from '../utils/semantic-colors';
 
 export function TradeJournal() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -186,16 +187,20 @@ export function TradeJournal() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <h3 className="text-lg">{trade.symbol}</h3>
-                      <Badge variant={trade.type === 'long' ? 'default' : 'secondary'}>
+                      <Badge
+                        variant="outline"
+                        className={trade.type === 'long' ? semanticColors.longChipClasses : semanticColors.shortChipClasses}
+                      >
                         {trade.type.toUpperCase()}
                       </Badge>
                       <Badge
-                        variant={
+                        variant={trade.outcome === 'breakeven' ? 'secondary' : 'outline'}
+                        className={
                           trade.outcome === 'win'
-                            ? 'default'
+                            ? semanticColors.winChipClasses
                             : trade.outcome === 'loss'
-                            ? 'destructive'
-                            : 'secondary'
+                              ? semanticColors.lossChipClasses
+                              : undefined
                         }
                       >
                         {trade.outcome}
@@ -220,7 +225,7 @@ export function TradeJournal() {
                       </div>
                       <div>
                         <span className="text-muted-foreground">P&L:</span>{' '}
-                        <span className={`font-medium ${trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        <span className={`font-medium ${pnlTextClass(trade.pnl)}`}>
                           {formatCurrency(trade.pnl)}
                         </span>
                       </div>
@@ -234,10 +239,10 @@ export function TradeJournal() {
                   {/* P&L and Actions */}
                   <div className="flex items-center gap-4 lg:flex-col lg:items-end">
                     <div className="text-right">
-                      <div className={`text-xl font-medium ${trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <div className={`text-xl font-medium ${pnlTextClass(trade.pnl)}`}>
                         {formatCurrency(trade.pnl)}
                       </div>
-                      <div className={`text-sm ${trade.pnlPercentage >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <div className={`text-sm ${pnlTextClass(trade.pnlPercentage)}`}>
                         {formatPercentage(trade.pnlPercentage)}
                       </div>
                     </div>

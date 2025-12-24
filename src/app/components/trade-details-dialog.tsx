@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
+import { pnlTextClass, semanticColors } from '../utils/semantic-colors';
 import type { Trade } from '../types/trade';
 import { format } from 'date-fns';
 import { formatCurrency, formatPercentage } from '../utils/trade-calculations';
@@ -91,16 +92,20 @@ export function TradeDetailsDialog({ trade, open, onOpenChange }: TradeDetailsDi
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             <span>{trade.symbol}</span>
-            <Badge variant={trade.type === 'long' ? 'default' : 'secondary'}>
+            <Badge
+              variant="outline"
+              className={trade.type === 'long' ? semanticColors.longChipClasses : semanticColors.shortChipClasses}
+            >
               {trade.type.toUpperCase()}
             </Badge>
             <Badge
-              variant={
+              variant={trade.outcome === 'breakeven' ? 'secondary' : 'outline'}
+              className={
                 trade.outcome === 'win'
-                  ? 'default'
+                  ? semanticColors.winChipClasses
                   : trade.outcome === 'loss'
-                  ? 'destructive'
-                  : 'secondary'
+                    ? semanticColors.lossChipClasses
+                    : undefined
               }
             >
               {trade.outcome}
@@ -123,11 +128,11 @@ export function TradeDetailsDialog({ trade, open, onOpenChange }: TradeDetailsDi
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
                 <span className="text-sm text-muted-foreground">P&L</span>
-                <p className={`font-medium ${trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(trade.pnl)}</p>
+                <p className={`font-medium ${pnlTextClass(trade.pnl)}`}>{formatCurrency(trade.pnl)}</p>
               </div>
               <div>
                 <span className="text-sm text-muted-foreground">P&L %</span>
-                <p className={`font-medium ${trade.pnlPercentage >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatPercentage(trade.pnlPercentage)}</p>
+                <p className={`font-medium ${pnlTextClass(trade.pnlPercentage)}`}>{formatPercentage(trade.pnlPercentage)}</p>
               </div>
               <div>
                 <span className="text-sm text-muted-foreground">Planned RR</span>
@@ -208,13 +213,13 @@ export function TradeDetailsDialog({ trade, open, onOpenChange }: TradeDetailsDi
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <span className="text-sm text-muted-foreground">Profit/Loss</span>
-                <p className={`text-lg font-medium ${trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <p className={`text-lg font-medium ${pnlTextClass(trade.pnl)}`}>
                   {formatCurrency(trade.pnl)}
                 </p>
               </div>
               <div>
                 <span className="text-sm text-muted-foreground">P&L Percentage</span>
-                <p className={`text-lg font-medium ${trade.pnlPercentage >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <p className={`text-lg font-medium ${pnlTextClass(trade.pnlPercentage)}`}>
                   {formatPercentage(trade.pnlPercentage)}
                 </p>
               </div>

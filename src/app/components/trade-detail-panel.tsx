@@ -28,6 +28,7 @@ import {
 import { formatCurrency } from '../utils/trade-calculations';
 import { toast } from 'sonner';
 import { ScreenshotGallery } from './screenshot-gallery';
+import { pnlTextClass, semanticColors } from '../utils/semantic-colors';
 
 type TradeDetailPanelProps = {
   trade: TradeWithDetails;
@@ -150,12 +151,15 @@ export function TradeDetailPanel({ trade, onClose, onTradeUpdated }: TradeDetail
         <div className="mt-3">
           <div className="flex items-center gap-2 mb-2">
             <h2 className="text-2xl font-semibold">{trade.symbol}</h2>
-            <Badge variant={trade.type === 'long' ? 'default' : 'secondary'}>
+            <Badge
+              variant="outline"
+              className={trade.type === 'long' ? semanticColors.longChipClasses : semanticColors.shortChipClasses}
+            >
               {trade.type.toUpperCase()}
             </Badge>
             <Badge
-              variant={isProfitable ? 'default' : 'destructive'}
-              className={isProfitable ? 'bg-green-600' : 'bg-red-600'}
+              variant="outline"
+              className={isProfitable ? semanticColors.winChipClasses : semanticColors.lossChipClasses}
             >
               {isProfitable ? 'WIN' : 'LOSS'}
             </Badge>
@@ -179,9 +183,7 @@ export function TradeDetailPanel({ trade, onClose, onTradeUpdated }: TradeDetail
               <div>
                 <div className="text-xs text-muted-foreground mb-1">P/L</div>
                 <div
-                  className={`text-2xl font-bold ${
-                    isProfitable ? 'text-green-600' : 'text-red-600'
-                  }`}
+                  className={`text-2xl font-bold ${pnlTextClass(trade.pnl)}`}
                 >
                   {formatCurrency(trade.pnl)}
                 </div>

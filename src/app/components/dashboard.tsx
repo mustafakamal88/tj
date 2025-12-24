@@ -11,6 +11,7 @@ import { getEffectivePlan, hasPaidEntitlement } from '../utils/entitlements';
 import { getSupabaseClient } from '../utils/supabase';
 import { toast } from 'sonner';
 import type { Trade } from '../types/trade';
+import { pnlBgSoftClass, pnlTextClass, semanticColors } from '../utils/semantic-colors';
 import { 
   format, 
   startOfMonth, 
@@ -138,6 +139,7 @@ export function DashboardCalendarCard({
                           className={`
                             border-b border-r p-1 sm:p-4 aspect-square sm:aspect-auto sm:min-h-[100px] flex flex-col min-w-0 overflow-hidden
                             ${isEmpty ? 'bg-muted/20' : ''}
+                            ${!isEmpty && dayData && !dayData.isClosed && !isToday(day) ? pnlBgSoftClass(dayData.pnl) : ''}
                             ${isToday(day) ? 'bg-blue-50 dark:bg-blue-950/20' : ''}
                             ${interactive}
                             ${isClickable ? 'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset' : ''}
@@ -157,9 +159,7 @@ export function DashboardCalendarCard({
                                   <span className="text-sm sm:text-2xl text-muted-foreground leading-none">—</span>
                                 ) : (
                                   <span
-                                    className={`block w-full text-center whitespace-nowrap text-[11px] sm:text-xl font-medium tabular-nums leading-tight ${
-                                      dayData && dayData.pnl >= 0 ? 'text-green-600' : 'text-red-600'
-                                    }`}
+                                    className={`block w-full text-center whitespace-nowrap text-[11px] sm:text-xl font-medium tabular-nums leading-tight ${pnlTextClass(dayData?.pnl)}`}
                                   >
                                     {dayData && formatCurrency(dayData.pnl).replace('.00', '')}
                                   </span>
@@ -190,9 +190,7 @@ export function DashboardCalendarCard({
                       {weekData.days > 0 ? (
                         <>
                           <div
-                            className={`text-sm sm:text-xl font-medium tabular-nums whitespace-nowrap ${
-                              weekData.pnl >= 0 ? 'text-green-600' : 'text-red-600'
-                            }`}
+                            className={`text-sm sm:text-xl font-medium tabular-nums whitespace-nowrap ${pnlTextClass(weekData.pnl)}`}
                           >
                             {formatCurrency(weekData.pnl).replace('.00', '')}
                           </div>
@@ -525,7 +523,7 @@ export function Dashboard() {
               <span className="text-muted-foreground">Total P&L (Month)</span>
               <DollarSign className="w-4 h-4 text-muted-foreground" />
             </div>
-            <div className={`text-2xl ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <div className={`text-2xl ${pnlTextClass(totalPnL)}`}>
               {formatCurrency(totalPnL)}
             </div>
           </Card>
@@ -546,9 +544,9 @@ export function Dashboard() {
               <TrendingUp className="w-4 h-4 text-muted-foreground" />
             </div>
             <div className="text-2xl">
-              <span className="text-green-600">{wins}</span>
+              <span className={semanticColors.profitText}>{wins}</span>
               <span className="text-muted-foreground"> / </span>
-              <span className="text-red-600">{losses}</span>
+              <span className={semanticColors.lossText}>{losses}</span>
             </div>
           </Card>
 

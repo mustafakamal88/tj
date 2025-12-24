@@ -25,6 +25,7 @@ import {
   type TradeNoteMeta,
 } from '../utils/day-journal-api';
 import { formatCurrency } from '../utils/trade-calculations';
+import { pnlTextClass, semanticColors } from '../utils/semantic-colors';
 import { DayNewsBlock } from './day-news-block';
 import { TradingViewChart } from './trading-view-chart';
 import { ScreenshotGallery } from './screenshot-gallery';
@@ -496,8 +497,10 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                                   <span className="font-semibold">{trade.symbol}</span>
                                   <Badge
-                                    variant={trade.type === 'long' ? 'default' : 'secondary'}
-                                    className="text-xs"
+                                    variant="outline"
+                                    className={`text-xs ${
+                                      trade.type === 'long' ? semanticColors.longChipClasses : semanticColors.shortChipClasses
+                                    }`}
                                   >
                                     {trade.type.toUpperCase()}
                                   </Badge>
@@ -517,9 +520,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                               <div className="text-right flex items-center gap-3">
                                 <div>
                                   <div
-                                    className={`font-semibold ${
-                                      trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'
-                                    }`}
+                                    className={`font-semibold ${pnlTextClass(trade.pnl)}`}
                                   >
                                     {formatCurrency(trade.pnl)}
                                   </div>
@@ -543,7 +544,14 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-base">Selected Trade</h3>
-                        <Badge variant={selectedTradeDetail.type === 'long' ? 'default' : 'secondary'}>
+                        <Badge
+                          variant="outline"
+                          className={
+                            selectedTradeDetail.type === 'long'
+                              ? semanticColors.longChipClasses
+                              : semanticColors.shortChipClasses
+                          }
+                        >
                           {selectedTradeDetail.type.toUpperCase()}
                         </Badge>
                         <span className="text-sm font-medium">{selectedTradeDetail.symbol}</span>

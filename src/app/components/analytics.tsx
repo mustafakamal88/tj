@@ -18,6 +18,7 @@ import { format } from 'date-fns';
 import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
 import { getEffectivePlan } from '../utils/entitlements';
+import { pnlTextClass, semanticColors } from '../utils/semantic-colors';
 
 export function Analytics() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -161,7 +162,7 @@ export function Analytics() {
                   <span className="text-xs text-muted-foreground">Total P&L</span>
                   <DollarSign className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className={`mt-2 text-2xl font-semibold tabular-nums ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <div className={`mt-2 text-2xl font-semibold tabular-nums ${pnlTextClass(totalPnL)}`}>
                   {formatCurrency(totalPnL)}
                 </div>
               </Card>
@@ -182,7 +183,7 @@ export function Analytics() {
                   <span className="text-xs text-muted-foreground">Avg P&L</span>
                   <Target className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className={`mt-2 text-2xl font-semibold tabular-nums ${averagePnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <div className={`mt-2 text-2xl font-semibold tabular-nums ${pnlTextClass(averagePnL)}`}>
                   {formatCurrency(averagePnL)}
                 </div>
               </Card>
@@ -230,7 +231,7 @@ export function Analytics() {
                         <div className="text-sm font-medium truncate">{symbol}</div>
                         <div className="text-xs text-muted-foreground tabular-nums">{stats.count} trades</div>
                       </div>
-                      <div className={`text-sm font-semibold tabular-nums ${stats.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <div className={`text-sm font-semibold tabular-nums ${pnlTextClass(stats.pnl)}`}>
                         {formatCurrency(stats.pnl)}
                       </div>
                     </div>
@@ -307,7 +308,7 @@ export function Analytics() {
                   <span className="text-xs text-muted-foreground">Avg Win</span>
                   <TrendingUp className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className="mt-2 text-xl font-semibold tabular-nums text-green-600">{formatCurrency(averageWin)}</div>
+                <div className={`mt-2 text-xl font-semibold tabular-nums ${semanticColors.profitText}`}>{formatCurrency(averageWin)}</div>
               </Card>
 
               <Card className="p-5">
@@ -315,7 +316,7 @@ export function Analytics() {
                   <span className="text-xs text-muted-foreground">Avg Loss</span>
                   <TrendingDown className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className="mt-2 text-xl font-semibold tabular-nums text-red-600">{formatCurrency(averageLoss)}</div>
+                <div className={`mt-2 text-xl font-semibold tabular-nums ${semanticColors.lossText}`}>{formatCurrency(averageLoss)}</div>
               </Card>
 
               <Card className="p-5">
