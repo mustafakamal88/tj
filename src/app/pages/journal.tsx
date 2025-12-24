@@ -24,6 +24,10 @@ type SymbolSummary = {
 type TradeSourceGroup = 'all' | 'imported' | 'manual';
 type TradeSort = 'recent' | 'oldest' | 'biggest_win' | 'biggest_loss';
 
+function formatSignedCurrency(value: number): string {
+  return `${value > 0 ? '+' : ''}${formatCurrency(value)}`;
+}
+
 function isImportedTrade(t: Trade): boolean {
   return Boolean(
     t.ticket ||
@@ -266,7 +270,7 @@ export function JournalPage() {
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
                               <span className={pnlTextClass(f.totalPnl)}>
-                                {formatCurrency(f.totalPnl)}
+                                {formatSignedCurrency(f.totalPnl)}
                               </span>
                             </div>
                           </div>
@@ -346,8 +350,7 @@ export function JournalPage() {
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-muted-foreground">Total:</span>
                     <span className={`tabular-nums ${pnlTextClass(activeSummary.totalPnl)}`}>
-                      {activeSummary.totalPnl > 0 ? '+' : ''}
-                      {formatCurrency(activeSummary.totalPnl)}
+                      {formatSignedCurrency(activeSummary.totalPnl)}
                     </span>
                     <span className="text-muted-foreground">·</span>
                     <span className="text-muted-foreground">Trades:</span>
@@ -379,7 +382,7 @@ export function JournalPage() {
                     <span className="text-muted-foreground">·</span>
                     <span className="text-muted-foreground">Exp:</span>
                     <span className={`tabular-nums ${pnlTextClass(activeSummary.expectancy ?? null)}`}>
-                      {typeof activeSummary.expectancy === 'number' ? formatCurrency(activeSummary.expectancy) : '—'}
+                      {typeof activeSummary.expectancy === 'number' ? formatSignedCurrency(activeSummary.expectancy) : '—'}
                     </span>
                   </div>
                   <div className="text-xs text-muted-foreground">Click a trade to open the drawer</div>
@@ -483,7 +486,7 @@ export function JournalPage() {
 
                           <div className="text-right shrink-0">
                             <div className={`font-semibold ${pnlTextClass(typeof t.pnl === 'number' ? t.pnl : 0)}`}>
-                              {formatCurrency(t.pnl)}
+                              {formatSignedCurrency(typeof t.pnl === 'number' ? t.pnl : 0)}
                             </div>
                           </div>
                         </div>
