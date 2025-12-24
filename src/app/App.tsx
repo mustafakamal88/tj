@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Navigation } from './components/navigation';
 import { HomePage } from './components/home-page';
 import { Dashboard } from './components/dashboard';
-import { TradeJournal } from './components/trade-journal';
+import { JournalPage } from './pages/journal';
 import { Analytics } from './components/analytics';
 import { LearnMorePage } from './components/learn-more-page';
 import { BillingPage } from './components/billing-page';
@@ -143,7 +143,7 @@ function AppContent() {
       case 'dashboard':
         return <Dashboard />;
       case 'journal':
-        return <TradeJournal />;
+        return <JournalPage />;
       case 'analytics':
         return <Analytics />;
       case 'learn':
