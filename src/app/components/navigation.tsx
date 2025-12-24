@@ -22,17 +22,26 @@ interface NavigationProps {
   onLogout: () => void;
   onSubscriptionClick: () => void;
   onBillingClick: () => void;
+  appSidebarOpen?: boolean;
+  onAppSidebarOpenChange?: (open: boolean) => void;
 }
 
-export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogout, onSubscriptionClick, onBillingClick }: NavigationProps) {
+export function Navigation({
+  currentPage,
+  onNavigate,
+  user,
+  onAuthClick,
+  onLogout,
+  onSubscriptionClick,
+  onBillingClick,
+  appSidebarOpen,
+  onAppSidebarOpenChange,
+}: NavigationProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = user
     ? [
         { id: 'home' as Page, label: 'Home', icon: TrendingUp },
-        { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard, protected: true },
-        { id: 'journal' as Page, label: 'Journal', icon: BookOpen, protected: true },
-        { id: 'analytics' as Page, label: 'Analytics', icon: BarChart3, protected: true },
         { id: 'learn' as Page, label: 'Learn More', icon: GraduationCap },
       ]
     : [
@@ -68,7 +77,7 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
             </span>
           </button>
 
-          {/* Desktop Navigation */}
+          {/* Desktop Navigation (public only; app navigation lives in the sidebar) */}
           <div className="hidden md:flex items-center gap-1">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -150,17 +159,23 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-expanded={mobileMenuOpen}
-              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              onClick={() => {
+                if (user && onAppSidebarOpenChange) {
+                  onAppSidebarOpenChange(!Boolean(appSidebarOpen));
+                  return;
+                }
+                setMobileMenuOpen(!mobileMenuOpen);
+              }}
+              aria-expanded={user ? Boolean(appSidebarOpen) : mobileMenuOpen}
+              aria-label={user ? (appSidebarOpen ? 'Close menu' : 'Open menu') : mobileMenuOpen ? 'Close menu' : 'Open menu'}
             >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {(user ? Boolean(appSidebarOpen) : mobileMenuOpen) ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </Button>
           </div>
         </div>
 
         {/* Mobile Navigation */}
-        {mobileMenuOpen && (
+        {!user && mobileMenuOpen && (
           <div className="md:hidden py-4 border-t">
             <div className="flex flex-col gap-2">
               {navItems.map((item) => {

@@ -11,6 +11,7 @@ import { BrokersPage } from './pages/brokers';
 import { PricingPage } from './pages/pricing';
 import { LoginPage } from './pages/login';
 import { SignupPage } from './pages/signup';
+import { AppShell } from './components/app-shell';
 import { ErrorBoundary } from './components/error-boundary';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
@@ -39,12 +40,20 @@ export type Page =
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<Page>('home');
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+  const [mobileAppSidebarOpen, setMobileAppSidebarOpen] = useState(false);
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [authDialogDefaultTab, setAuthDialogDefaultTab] = useState<'login' | 'signup'>('login');
   const [isSubscriptionDialogOpen, setIsSubscriptionDialogOpen] = useState(false);
   const { user, loading: authLoading, signOut } = useAuth();
   const { profile, loading: profileLoading, refresh: refreshProfile } = useProfile();
   const userEmail = user?.email ?? null;
+
+  const isProtectedPage = (page: Page) => {
+    return page === 'dashboard' || page === 'journal' || page === 'analytics' || page === 'billing';
+  };
+
+  const cleanPathname = (p: string) => p.replace(/\/+$/, '') || '/';
 
   const openAuthDialog = (tab: 'login' | 'signup' = 'login') => {
     setAuthDialogDefaultTab(tab);
@@ -74,11 +83,13 @@ function AppContent() {
     url.pathname = path;
     if (opts?.replace) window.history.replaceState({}, '', url.toString());
     else window.history.pushState({}, '', url.toString());
+    setPathname(url.pathname);
   };
 
   useEffect(() => {
     // Initial route based on path (important for Stripe redirect to /billing).
-    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    const path = cleanPathname(window.location.pathname);
+    setPathname(path);
     const pageFromPath: Page =
       path === '/features' ? 'features' :
       path === '/brokers' ? 'brokers' :
@@ -94,7 +105,8 @@ function AppContent() {
     setCurrentPage(pageFromPath);
 
     const onPop = () => {
-      const p = window.location.pathname.replace(/\/+$/, '') || '/';
+      const p = cleanPathname(window.location.pathname);
+      setPathname(p);
       const next: Page =
         p === '/features' ? 'features' :
         p === '/brokers' ? 'brokers' :
@@ -112,6 +124,10 @@ function AppContent() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  useEffect(() => {
+    setMobileAppSidebarOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -155,7 +171,7 @@ function AppContent() {
   // Protected route logic
   const handleNavigate = (page: Page) => {
     // Check if trying to access protected routes
-    if ((page === 'dashboard' || page === 'journal' || page === 'analytics' || page === 'billing') && !userEmail) {
+    if (isProtectedPage(page) && !userEmail) {
       toast.error('Please login to access this page');
       openAuthDialog('login');
       return;
@@ -165,9 +181,20 @@ function AppContent() {
 
   const renderPage = () => {
     // Redirect to home if not logged in and trying to access protected routes
-    if ((currentPage === 'dashboard' || currentPage === 'journal' || currentPage === 'analytics' || currentPage === 'billing') && !userEmail) {
+    if (isProtectedPage(currentPage) && !userEmail) {
       return <HomePage onGetStarted={() => openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
     }
+
+    const wrapApp = (node: React.ReactNode) => (
+      <AppShell
+        currentPage={currentPage}
+        onNavigate={handleNavigate}
+        mobileSidebarOpen={mobileAppSidebarOpen}
+        onMobileSidebarOpenChange={setMobileAppSidebarOpen}
+      >
+        {node}
+      </AppShell>
+    );
 
     switch (currentPage) {
       case 'home':
@@ -183,19 +210,19 @@ function AppContent() {
       case 'signup':
         return <SignupPage onOpenAuth={() => openAuthDialog('signup')} onHome={() => setCurrentPage('home')} />;
       case 'dashboard':
-        return (
+        return wrapApp(
           <ErrorBoundary title="Dashboard crashed" description="Refresh the page and try opening the day drawer again.">
             <Dashboard />
           </ErrorBoundary>
         );
       case 'journal':
-        return <JournalPage />;
+        return wrapApp(<JournalPage />);
       case 'analytics':
-        return <Analytics />;
+        return wrapApp(<Analytics />);
       case 'learn':
         return <LearnMorePage />;
       case 'billing':
-        return <BillingPage />;
+        return wrapApp(<BillingPage />);
       default:
         return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
     }
@@ -221,6 +248,8 @@ function AppContent() {
         onLogout={handleLogout}
         onSubscriptionClick={() => setIsSubscriptionDialogOpen(true)}
         onBillingClick={() => handleNavigate('billing')}
+        appSidebarOpen={mobileAppSidebarOpen}
+        onAppSidebarOpenChange={setMobileAppSidebarOpen}
       />
       {renderPage()}
       <AuthDialog
