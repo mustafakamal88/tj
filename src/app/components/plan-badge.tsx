@@ -5,7 +5,7 @@ import { hasPaidEntitlement } from '../utils/entitlements';
 export function PlanBadge({ className }: { className?: string }) {
   const { profile, loading } = useProfile();
 
-  const stableClass = `min-w-[140px] justify-center ${className ?? ''}`.trim();
+  const stableClass = `min-w-[96px] sm:min-w-[140px] justify-center text-[11px] sm:text-xs px-1.5 sm:px-2 ${className ?? ''}`.trim();
 
   if (loading || !profile) {
     return (
