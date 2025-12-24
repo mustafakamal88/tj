@@ -1,6 +1,6 @@
 -- Cleanup RLS policies (idempotent):
 -- A) PROFILES: remove risky public SELECT policy and ensure authenticated-only SELECT own row
--- B) BROKER_ACCOUNTS: dedupe policies so there is exactly one per command
+-- B) BROKER_ACCOUNTS: dedupe policies so there is exactly one per command (idempotent)
 -- C) TRADE_SCREENSHOTS: ensure authenticated select/insert/delete policies exist (do not loosen)
 
 begin;
@@ -30,19 +30,19 @@ begin
         and tablename = 'profiles'
         and policyname = 'profiles_select_own_authenticated'
     ) then
-      execute $$
+      execute $pol$
         create policy "profiles_select_own_authenticated"
         on public.profiles
         for select
         to authenticated
-        using (id = auth.uid())
-      $$;
+        using (id = auth.uid());
+      $pol$;
     end if;
   end if;
 end$$;
 
 -- -----------------------------------------------------------------------------
--- B) BROKER_ACCOUNTS (dedupe)
+-- B) BROKER_ACCOUNTS (dedupe, idempotent)
 -- -----------------------------------------------------------------------------
 
 do $$
@@ -107,26 +107,47 @@ begin
   execute 'drop policy if exists "broker_accounts_delete_owner" on public.broker_accounts';
 
   -- Recreate ONE consistent set: *_own.
-  execute format(
-    'create policy "broker_accounts_select_own" on public.broker_accounts for select to authenticated using (%I = auth.uid())',
-    owner_col
-  );
+  -- Use IF NOT EXISTS checks to keep the migration idempotent.
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'broker_accounts' and policyname = 'broker_accounts_select_own'
+  ) then
+    execute format(
+      'create policy "broker_accounts_select_own" on public.broker_accounts for select to authenticated using (%I = auth.uid())',
+      owner_col
+    );
+  end if;
 
-  execute format(
-    'create policy "broker_accounts_insert_own" on public.broker_accounts for insert to authenticated with check (%I = auth.uid())',
-    owner_col
-  );
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'broker_accounts' and policyname = 'broker_accounts_insert_own'
+  ) then
+    execute format(
+      'create policy "broker_accounts_insert_own" on public.broker_accounts for insert to authenticated with check (%I = auth.uid())',
+      owner_col
+    );
+  end if;
 
-  execute format(
-    'create policy "broker_accounts_update_own" on public.broker_accounts for update to authenticated using (%I = auth.uid()) with check (%I = auth.uid())',
-    owner_col,
-    owner_col
-  );
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'broker_accounts' and policyname = 'broker_accounts_update_own'
+  ) then
+    execute format(
+      'create policy "broker_accounts_update_own" on public.broker_accounts for update to authenticated using (%I = auth.uid()) with check (%I = auth.uid())',
+      owner_col,
+      owner_col
+    );
+  end if;
 
-  execute format(
-    'create policy "broker_accounts_delete_own" on public.broker_accounts for delete to authenticated using (%I = auth.uid())',
-    owner_col
-  );
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'broker_accounts' and policyname = 'broker_accounts_delete_own'
+  ) then
+    execute format(
+      'create policy "broker_accounts_delete_own" on public.broker_accounts for delete to authenticated using (%I = auth.uid())',
+      owner_col
+    );
+  end if;
 end$$;
 
 -- -----------------------------------------------------------------------------
@@ -150,7 +171,7 @@ begin
       select 1 from pg_policies
       where schemaname = 'public' and tablename = 'trade_screenshots' and policyname = 'trade_screenshots_select_own'
     ) then
-      execute $$
+      execute $pol$
         create policy "trade_screenshots_select_own"
         on public.trade_screenshots
         for select
@@ -162,15 +183,15 @@ begin
             where t.id = trade_screenshots.trade_id
               and t.user_id = auth.uid()
           )
-        )
-      $$;
+        );
+      $pol$;
     end if;
 
     if not exists (
       select 1 from pg_policies
       where schemaname = 'public' and tablename = 'trade_screenshots' and policyname = 'trade_screenshots_insert_own'
     ) then
-      execute $$
+      execute $pol$
         create policy "trade_screenshots_insert_own"
         on public.trade_screenshots
         for insert
@@ -182,15 +203,15 @@ begin
             where t.id = trade_screenshots.trade_id
               and t.user_id = auth.uid()
           )
-        )
-      $$;
+        );
+      $pol$;
     end if;
 
     if not exists (
       select 1 from pg_policies
       where schemaname = 'public' and tablename = 'trade_screenshots' and policyname = 'trade_screenshots_delete_own'
     ) then
-      execute $$
+      execute $pol$
         create policy "trade_screenshots_delete_own"
         on public.trade_screenshots
         for delete
@@ -202,8 +223,8 @@ begin
             where t.id = trade_screenshots.trade_id
               and t.user_id = auth.uid()
           )
-        )
-      $$;
+        );
+      $pol$;
     end if;
   end if;
 end$$;
