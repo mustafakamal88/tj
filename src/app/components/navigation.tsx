@@ -22,9 +22,21 @@ interface NavigationProps {
   onLogout: () => void;
   onSubscriptionClick: () => void;
   onBillingClick: () => void;
+  appShell?: boolean;
+  onOpenSidebar?: () => void;
 }
 
-export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogout, onSubscriptionClick, onBillingClick }: NavigationProps) {
+export function Navigation({
+  currentPage,
+  onNavigate,
+  user,
+  onAuthClick,
+  onLogout,
+  onSubscriptionClick,
+  onBillingClick,
+  appShell,
+  onOpenSidebar,
+}: NavigationProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
