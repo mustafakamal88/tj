@@ -6,6 +6,11 @@ import { JournalPage } from './pages/journal';
 import { Analytics } from './components/analytics';
 import { LearnMorePage } from './components/learn-more-page';
 import { BillingPage } from './components/billing-page';
+import { FeaturesPage } from './pages/features';
+import { BrokersPage } from './pages/brokers';
+import { PricingPage } from './pages/pricing';
+import { LoginPage } from './pages/login';
+import { SignupPage } from './pages/signup';
 import { ErrorBoundary } from './components/error-boundary';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
@@ -19,7 +24,18 @@ import { ensureProfile } from './utils/profile';
 import { ProfileProvider, useProfile } from './utils/use-profile';
 import { AuthProvider, useAuth } from './utils/auth';
 
-export type Page = 'home' | 'dashboard' | 'journal' | 'analytics' | 'learn' | 'billing';
+export type Page =
+  | 'home'
+  | 'features'
+  | 'brokers'
+  | 'pricing'
+  | 'login'
+  | 'signup'
+  | 'dashboard'
+  | 'journal'
+  | 'analytics'
+  | 'learn'
+  | 'billing';
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<Page>('home');
@@ -44,6 +60,11 @@ function AppContent() {
     setCurrentPage(page);
     const path =
       page === 'home' ? '/' :
+      page === 'features' ? '/features' :
+      page === 'brokers' ? '/brokers' :
+      page === 'pricing' ? '/pricing' :
+      page === 'login' ? '/login' :
+      page === 'signup' ? '/signup' :
       page === 'dashboard' ? '/dashboard' :
       page === 'journal' ? '/journal' :
       page === 'analytics' ? '/analytics' :
@@ -59,6 +80,11 @@ function AppContent() {
     // Initial route based on path (important for Stripe redirect to /billing).
     const path = window.location.pathname.replace(/\/+$/, '') || '/';
     const pageFromPath: Page =
+      path === '/features' ? 'features' :
+      path === '/brokers' ? 'brokers' :
+      path === '/pricing' ? 'pricing' :
+      path === '/login' ? 'login' :
+      path === '/signup' ? 'signup' :
       path === '/dashboard' ? 'dashboard' :
       path === '/journal' ? 'journal' :
       path === '/analytics' ? 'analytics' :
@@ -70,6 +96,11 @@ function AppContent() {
     const onPop = () => {
       const p = window.location.pathname.replace(/\/+$/, '') || '/';
       const next: Page =
+        p === '/features' ? 'features' :
+        p === '/brokers' ? 'brokers' :
+        p === '/pricing' ? 'pricing' :
+        p === '/login' ? 'login' :
+        p === '/signup' ? 'signup' :
         p === '/dashboard' ? 'dashboard' :
         p === '/journal' ? 'journal' :
         p === '/analytics' ? 'analytics' :
@@ -141,6 +172,16 @@ function AppContent() {
     switch (currentPage) {
       case 'home':
         return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
+      case 'features':
+        return <FeaturesPage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
+      case 'brokers':
+        return <BrokersPage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
+      case 'pricing':
+        return <PricingPage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
+      case 'login':
+        return <LoginPage onOpenAuth={() => openAuthDialog('login')} onHome={() => setCurrentPage('home')} />;
+      case 'signup':
+        return <SignupPage onOpenAuth={() => openAuthDialog('signup')} onHome={() => setCurrentPage('home')} />;
       case 'dashboard':
         return (
           <ErrorBoundary title="Dashboard crashed" description="Refresh the page and try opening the day drawer again.">

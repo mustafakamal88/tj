@@ -1,4 +1,4 @@
-import { TrendingUp, LayoutDashboard, BookOpen, BarChart3, Menu, X, LogOut, User, CreditCard, Lock, GraduationCap, Receipt } from 'lucide-react';
+import { TrendingUp, LayoutDashboard, BookOpen, BarChart3, Menu, X, LogOut, User, CreditCard, Lock, GraduationCap, Receipt, Sparkles, Globe, BadgeDollarSign } from 'lucide-react';
 import { Button } from './ui/button';
 import { useState } from 'react';
 import type { Page } from '../App';
@@ -27,13 +27,20 @@ interface NavigationProps {
 export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogout, onSubscriptionClick, onBillingClick }: NavigationProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navItems = [
-    { id: 'home' as Page, label: 'Home', icon: TrendingUp },
-    { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard, protected: true },
-    { id: 'journal' as Page, label: 'Journal', icon: BookOpen, protected: true },
-    { id: 'analytics' as Page, label: 'Analytics', icon: BarChart3, protected: true },
-    { id: 'learn' as Page, label: 'Learn More', icon: GraduationCap },
-  ];
+  const navItems = user
+    ? [
+        { id: 'home' as Page, label: 'Home', icon: TrendingUp },
+        { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard, protected: true },
+        { id: 'journal' as Page, label: 'Journal', icon: BookOpen, protected: true },
+        { id: 'analytics' as Page, label: 'Analytics', icon: BarChart3, protected: true },
+        { id: 'learn' as Page, label: 'Learn More', icon: GraduationCap },
+      ]
+    : [
+        { id: 'home' as Page, label: 'Home', icon: TrendingUp },
+        { id: 'features' as Page, label: 'Features', icon: Sparkles },
+        { id: 'brokers' as Page, label: 'Supported Brokers', icon: Globe },
+        { id: 'pricing' as Page, label: 'Pricing', icon: BadgeDollarSign },
+      ];
 
   return (
     <nav className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
