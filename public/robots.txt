@@ -1,0 +1,13 @@
+User-agent: *
+Disallow: /dashboard
+Disallow: /journal
+Disallow: /analytics
+Disallow: /university
+Disallow: /community
+Disallow: /import-history
+Disallow: /billing
+Disallow: /settings
+Disallow: /login
+Disallow: /signup
+
+Sitemap: https://tradejournal.ai/sitemap.xml
