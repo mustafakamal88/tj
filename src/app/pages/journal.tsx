@@ -21,7 +21,7 @@ type SymbolSummary = {
 };
 
 type TradeSourceGroup = 'all' | 'imported' | 'manual';
-type TradeSort = 'time_desc' | 'time_asc' | 'pnl_desc' | 'pnl_asc';
+type TradeSort = 'recent' | 'oldest' | 'biggest_win' | 'biggest_loss';
 
 function isImportedTrade(t: Trade): boolean {
   return Boolean(
@@ -41,7 +41,7 @@ export function JournalPage() {
   const [expandedSymbols, setExpandedSymbols] = useState<string[]>([]);
   const [activeSymbol, setActiveSymbol] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<TradeSourceGroup>('all');
-  const [sort, setSort] = useState<TradeSort>('time_desc');
+  const [sort, setSort] = useState<TradeSort>('recent');
   const { profile } = useProfile();
   const effectivePlan = getEffectivePlan(profile);
 
@@ -107,30 +107,64 @@ export function JournalPage() {
     return folders.find((f) => f.symbol === activeSymbol) ?? null;
   }, [folders, activeSymbol]);
 
-  const activeTrades = useMemo(() => {
+  const activeBaseTrades = useMemo(() => {
     if (!activeFolder) return [];
-    const base =
-      activeGroup === 'imported'
-        ? activeFolder.imported
-        : activeGroup === 'manual'
+    return activeGroup === 'imported'
+      ? activeFolder.imported
+      : activeGroup === 'manual'
         ? activeFolder.manual
         : activeFolder.trades;
+  }, [activeFolder, activeGroup]);
 
+  const activeSummary = useMemo(() => {
+    const count = activeBaseTrades.length;
+    const totalPnl = activeBaseTrades.reduce((sum, t) => sum + (typeof t.pnl === 'number' ? t.pnl : 0), 0);
+    const wins = activeBaseTrades.filter((t) => t.outcome === 'win').length;
+    const losses = activeBaseTrades.filter((t) => t.outcome === 'loss').length;
+    const denom = wins + losses;
+    const winRate = denom > 0 ? (wins / denom) * 100 : null;
+
+    return {
+      count,
+      totalPnl,
+      winRate,
+      label: activeSymbol ? `Overall performance for ${activeSymbol}` : 'Overall performance',
+    };
+  }, [activeBaseTrades, activeSymbol]);
+
+  const activeTrades = useMemo(() => {
     const toTime = (t: Trade) => {
-      const time = t.openTime || t.closeTime || t.date;
+      const time = t.closeTime || t.openTime || t.date;
       const ms = new Date(time).getTime();
       return Number.isFinite(ms) ? ms : 0;
     };
 
-    const sorted = [...base].sort((a, b) => {
-      if (sort === 'pnl_desc') return (b.pnl ?? 0) - (a.pnl ?? 0);
-      if (sort === 'pnl_asc') return (a.pnl ?? 0) - (b.pnl ?? 0);
-      if (sort === 'time_asc') return toTime(a) - toTime(b);
-      return toTime(b) - toTime(a);
+    const stable = (a: Trade, b: Trade) => {
+      const at = toTime(a);
+      const bt = toTime(b);
+      if (bt !== at) return bt - at;
+      return String(b.id).localeCompare(String(a.id));
+    };
+
+    const sorted = [...activeBaseTrades].sort((a, b) => {
+      if (sort === 'biggest_win') {
+        const diff = (b.pnl ?? 0) - (a.pnl ?? 0);
+        return diff !== 0 ? diff : stable(a, b);
+      }
+      if (sort === 'biggest_loss') {
+        const diff = (a.pnl ?? 0) - (b.pnl ?? 0);
+        return diff !== 0 ? diff : stable(a, b);
+      }
+      if (sort === 'oldest') {
+        const diff = toTime(a) - toTime(b);
+        return diff !== 0 ? diff : String(a.id).localeCompare(String(b.id));
+      }
+      // recent
+      return stable(a, b);
     });
 
     return sorted;
-  }, [activeFolder, activeGroup, sort]);
+  }, [activeBaseTrades, sort]);
 
   const handleOpenTrade = (id: string) => {
     setSelectedTradeId(id);
@@ -183,10 +217,18 @@ export function JournalPage() {
                     const hasSourceSplit = importedCount > 0 && manualCount > 0;
 
                     return (
-                      <div key={f.symbol} className="rounded-lg border">
+                      <div key={f.symbol} className="relative rounded-lg border overflow-hidden">
+                        <div
+                          aria-hidden
+                          className={`absolute left-0 top-1 bottom-1 w-1 rounded-r-md ${
+                            totalPositive
+                              ? 'bg-green-600/60 dark:bg-green-500/50'
+                              : 'bg-red-600/60 dark:bg-red-500/50'
+                          }`}
+                        />
                         <button
                           type="button"
-                          className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors ${
+                          className={`w-full flex items-center justify-between gap-3 px-3 py-2 pl-4 text-left transition-colors ${
                             isActive ? 'bg-accent' : 'hover:bg-accent'
                           }`}
                           onClick={() => {
@@ -210,7 +252,13 @@ export function JournalPage() {
                               <Badge variant="outline" className="text-[11px]">{f.tradeCount}</Badge>
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
-                              <span className={totalPositive ? 'text-foreground' : 'text-destructive'}>
+                              <span
+                                className={
+                                  totalPositive
+                                    ? 'text-green-600 dark:text-green-500'
+                                    : 'text-red-600 dark:text-red-500'
+                                }
+                              >
                                 {formatCurrency(f.totalPnl)}
                               </span>
                             </div>
@@ -288,26 +336,66 @@ export function JournalPage() {
                       <Badge variant="outline" className="text-[11px]">{activeGroup}</Badge>
                     ) : null}
                   </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">{activeSummary.label}</span>
+                    <span className="text-muted-foreground">•</span>
+                    <span className={activeSummary.totalPnl >= 0 ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}>
+                      {formatCurrency(activeSummary.totalPnl)}
+                    </span>
+                    <span className="text-muted-foreground">•</span>
+                    <span className="text-muted-foreground tabular-nums">{activeSummary.count} trades</span>
+                    {typeof activeSummary.winRate === 'number' ? (
+                      <>
+                        <span className="text-muted-foreground">•</span>
+                        <span className="text-muted-foreground tabular-nums">WR {activeSummary.winRate.toFixed(0)}%</span>
+                      </>
+                    ) : null}
+                  </div>
                   <div className="text-xs text-muted-foreground">Click a trade to open the drawer</div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={sort.startsWith('time') ? 'default' : 'outline'}
-                    onClick={() => setSort((s) => (s === 'time_desc' ? 'time_asc' : 'time_desc'))}
-                  >
-                    Time
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={sort.startsWith('pnl') ? 'default' : 'outline'}
-                    onClick={() => setSort((s) => (s === 'pnl_desc' ? 'pnl_asc' : 'pnl_desc'))}
-                  >
-                    P/L
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Sort</span>
+                    <div className="flex rounded-md border overflow-hidden">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={sort === 'recent' ? 'default' : 'ghost'}
+                        className="rounded-none"
+                        onClick={() => setSort('recent')}
+                      >
+                        Recent
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={sort === 'oldest' ? 'default' : 'ghost'}
+                        className="rounded-none"
+                        onClick={() => setSort('oldest')}
+                      >
+                        Oldest
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={sort === 'biggest_win' ? 'default' : 'ghost'}
+                        className="rounded-none"
+                        onClick={() => setSort('biggest_win')}
+                      >
+                        Biggest Win
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={sort === 'biggest_loss' ? 'default' : 'ghost'}
+                        className="rounded-none"
+                        onClick={() => setSort('biggest_loss')}
+                      >
+                        Biggest Loss
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
