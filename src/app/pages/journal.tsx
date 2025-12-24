@@ -7,6 +7,7 @@ import { formatCurrency } from '../utils/trade-calculations';
 import { useProfile } from '../utils/use-profile';
 import { getEffectivePlan } from '../utils/entitlements';
 import { filterTradesForFreeUser } from '../utils/data-limit';
+import { JournalTradeDrawer } from '../components/journal-trade-drawer';
 
 type SymbolSummary = {
   symbol: string;
@@ -18,6 +19,8 @@ type SymbolSummary = {
 
 export function JournalPage() {
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
+  const [tradeDrawerOpen, setTradeDrawerOpen] = useState(false);
   const { profile } = useProfile();
   const effectivePlan = getEffectivePlan(profile);
 
@@ -67,6 +70,11 @@ export function JournalPage() {
     return summaries;
   }, [trades]);
 
+  const handleOpenTrade = (id: string) => {
+    setSelectedTradeId(id);
+    setTradeDrawerOpen(true);
+  };
+
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -74,6 +82,15 @@ export function JournalPage() {
           <h1 className="text-3xl mb-2">Journal</h1>
           <p className="text-muted-foreground">Trades grouped by symbol</p>
         </div>
+
+        <JournalTradeDrawer
+          open={tradeDrawerOpen}
+          tradeId={selectedTradeId}
+          onOpenChange={(next) => {
+            setTradeDrawerOpen(next);
+            if (!next) setSelectedTradeId(null);
+          }}
+        />
 
         {grouped.length === 0 ? (
           <Card className="p-12 text-center text-muted-foreground">No trades yet</Card>
@@ -103,7 +120,12 @@ export function JournalPage() {
 
                   <div className="divide-y divide-border">
                     {group.trades.map((t) => (
-                      <div key={t.id} className="px-6 py-4">
+                      <button
+                        key={t.id}
+                        type="button"
+                        className="px-6 py-4 w-full text-left hover:bg-muted/40"
+                        onClick={() => handleOpenTrade(t.id)}
+                      >
                         <div className="flex items-center justify-between gap-4">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -136,7 +158,7 @@ export function JournalPage() {
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </Card>

@@ -29,6 +29,7 @@ import { DayNewsBlock } from './day-news-block';
 import { TradingViewChart } from './trading-view-chart';
 import { ScreenshotGallery } from './screenshot-gallery';
 import { toast } from 'sonner';
+import { buildTradeNoteExtras, parseTradeNoteExtras } from '../utils/trade-note-extras';
 
 type DayViewDrawerProps = {
   open: boolean;
@@ -61,28 +62,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const TRADE_EMOTIONS = ['Calm', 'Fear', 'FOMO', 'Revenge', 'Overconfident', 'Hesitation'] as const;
   const TRADE_MISTAKES = ['Entered early', 'No SL', 'Oversized', 'Moved SL', 'Overtraded', "Didn’t follow plan"] as const;
 
-  function parseExtraNotes(extraNotes?: string): { emotionsText: string; mistakesText: string } {
-    const raw = (extraNotes || '').trim();
-    if (!raw) return { emotionsText: '', mistakesText: '' };
-
-    const emoMatch = raw.match(/## Emotions\n([\s\S]*?)(?=\n## Mistakes\n|$)/);
-    const misMatch = raw.match(/## Mistakes\n([\s\S]*?)$/);
-
-    return {
-      emotionsText: (emoMatch?.[1] ?? '').trim(),
-      mistakesText: (misMatch?.[1] ?? '').trim(),
-    };
-  }
-
-  function buildExtraNotes(input: { emotionsText: string; mistakesText: string }): string | undefined {
-    const e = (input.emotionsText || '').trim();
-    const m = (input.mistakesText || '').trim();
-    if (!e && !m) return undefined;
-    const parts: string[] = [];
-    if (e) parts.push(['## Emotions', e].join('\n'));
-    if (m) parts.push(['## Mistakes', m].join('\n'));
-    return parts.join('\n\n');
-  }
+  // Trade note extras helpers live in utils/trade-note-extras.ts
 
   function splitDayNotesPreserveExtras(raw: string): { main: string; extras: string } {
     const text = raw || '';
@@ -164,7 +144,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       setTradeNotesDirty(false);
       const meta = ((detail?.note?.meta as TradeNoteMeta) || {}) as TradeNoteMeta;
       setTradeMeta(meta);
-      const parsed = parseExtraNotes(meta.extraNotes);
+      const parsed = parseTradeNoteExtras(meta.extraNotes);
       setTradeEmotionsText(parsed.emotionsText);
       setTradeMistakesText(parsed.mistakesText);
 
@@ -187,7 +167,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       setTradeNotesDirty(false);
       const meta = ((detail?.note?.meta as TradeNoteMeta) || tradeMeta) as TradeNoteMeta;
       setTradeMeta(meta);
-      const parsed = parseExtraNotes(meta.extraNotes);
+      const parsed = parseTradeNoteExtras(meta.extraNotes);
       setTradeEmotionsText(parsed.emotionsText);
       setTradeMistakesText(parsed.mistakesText);
     }
@@ -200,7 +180,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       const meta: TradeNoteMeta = {
         emotions: tradeMeta.emotions || [],
         mistakes: tradeMeta.mistakes || [],
-        extraNotes: buildExtraNotes({ emotionsText: tradeEmotionsText, mistakesText: tradeMistakesText }),
+        extraNotes: buildTradeNoteExtras({ emotionsText: tradeEmotionsText, mistakesText: tradeMistakesText }),
       };
       const success = await upsertTradeNotes(selectedTradeDetail.id, tradeNotes, meta);
       if (success) {
