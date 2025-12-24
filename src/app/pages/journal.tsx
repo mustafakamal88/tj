@@ -120,10 +120,13 @@ export function JournalPage() {
 
                   <div className="divide-y divide-border">
                     {group.trades.map((t) => (
+                      
                       <button
                         key={t.id}
                         type="button"
-                        className="px-6 py-4 w-full text-left hover:bg-muted/40"
+                        className={`w-full text-left p-4 transition-colors ${
+                          t.id === selectedTradeId ? 'bg-accent' : 'hover:bg-accent'
+                        }`}
                         onClick={() => handleOpenTrade(t.id)}
                       >
                         <div className="flex items-center justify-between gap-4">
@@ -153,7 +156,13 @@ export function JournalPage() {
                           </div>
 
                           <div className="text-right shrink-0">
-                            <div className={pnlPositive ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                            <div
+                              className={
+                                (typeof t.pnl === 'number' ? t.pnl : 0) >= 0
+                                  ? 'text-foreground font-semibold'
+                                  : 'text-destructive font-semibold'
+                              }
+                            >
                               {formatCurrency(t.pnl)}
                             </div>
                           </div>
