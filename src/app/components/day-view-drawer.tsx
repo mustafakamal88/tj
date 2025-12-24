@@ -336,6 +336,66 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const dayTitle = format(dayDate, 'EEE, MMM d, yyyy');
   const metrics = calculateDayMetrics(trades);
 
+  const dayInsights = useMemo(() => {
+    const tradeCount = trades.length;
+    if (tradeCount === 0) {
+      return {
+        biggestWin: null as null | { pnl: number; symbol: string },
+        biggestLoss: null as null | { pnl: number; symbol: string },
+        netR: null as null | number,
+        topTags: [] as Array<{ label: string; count: number }>,
+      };
+    }
+
+    let biggestWin: null | { pnl: number; symbol: string } = null;
+    let biggestLoss: null | { pnl: number; symbol: string } = null;
+
+    for (const t of trades) {
+      if (typeof t.pnl !== 'number') continue;
+      if (!biggestWin || t.pnl > biggestWin.pnl) biggestWin = { pnl: t.pnl, symbol: t.symbol };
+      if (!biggestLoss || t.pnl < biggestLoss.pnl) biggestLoss = { pnl: t.pnl, symbol: t.symbol };
+    }
+
+    // Net R (sum of R-multiples) when risk can be inferred.
+    let netR: number | null = null;
+    let netRCount = 0;
+    for (const t of trades) {
+      const entry = typeof t.entry === 'number' ? t.entry : null;
+      const sl = typeof t.stopLoss === 'number' ? t.stopLoss : null;
+      const qty = typeof t.quantity === 'number' ? t.quantity : null;
+      const pnl = typeof t.pnl === 'number' ? t.pnl : null;
+      if (entry === null || sl === null || qty === null || pnl === null) continue;
+      const riskDistance = Math.abs(entry - sl);
+      const riskAmount = riskDistance > 0 ? riskDistance * qty : 0;
+      if (!Number.isFinite(riskAmount) || riskAmount <= 0) continue;
+      const r = pnl / riskAmount;
+      if (!Number.isFinite(r)) continue;
+      netR = (netR ?? 0) + r;
+      netRCount += 1;
+    }
+    if (netRCount === 0) netR = null;
+
+    const counts = new Map<string, number>();
+    for (const t of trades) {
+      if (Array.isArray(t.tags)) {
+        for (const raw of t.tags) {
+          const label = String(raw || '').trim();
+          if (!label) continue;
+          counts.set(label, (counts.get(label) ?? 0) + 1);
+        }
+      }
+      const setup = String((t as any).setup || '').trim();
+      if (setup) counts.set(setup, (counts.get(setup) ?? 0) + 1);
+    }
+
+    const topTags = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([label, count]) => ({ label, count }));
+
+    return { biggestWin, biggestLoss, netR, topTags };
+  }, [trades]);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -445,6 +505,76 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                           </button>
                         );
                       })}
+                    </div>
+                  </Card>
+                )}
+              </div>
+
+              {/* Day Insights */}
+              <div>
+                <h3 className="font-semibold mb-3 text-sm">Day Insights</h3>
+                {trades.length === 0 ? (
+                  <Card className="p-6 text-center text-muted-foreground">
+                    <p>No trades yet for insights.</p>
+                  </Card>
+                ) : (
+                  <Card className="p-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Total P/L</div>
+                        <div className={metrics.totalPnl >= 0 ? 'text-foreground font-semibold' : 'text-destructive font-semibold'}>
+                          {formatCurrency(metrics.totalPnl)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Trades</div>
+                        <div className="font-semibold">{metrics.tradeCount}</div>
+                      </div>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Win rate</div>
+                        <div className="font-semibold">{metrics.winRate.toFixed(0)}%</div>
+                      </div>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Avg R:R</div>
+                        <div className="font-semibold">{metrics.avgRR > 0 ? metrics.avgRR.toFixed(2) : '—'}</div>
+                      </div>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Biggest win</div>
+                        <div className="font-semibold">
+                          {dayInsights.biggestWin ? formatCurrency(dayInsights.biggestWin.pnl) : '—'}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="text-xs text-muted-foreground">Biggest loss</div>
+                        <div className="font-semibold">
+                          {dayInsights.biggestLoss ? formatCurrency(dayInsights.biggestLoss.pnl) : '—'}
+                        </div>
+                      </div>
+
+                      {dayInsights.netR !== null ? (
+                        <div className="rounded-lg border bg-muted/20 p-3 sm:col-span-2">
+                          <div className="text-xs text-muted-foreground">Net R</div>
+                          <div className="font-semibold">{dayInsights.netR.toFixed(2)}R</div>
+                        </div>
+                      ) : null}
+
+                      {dayInsights.topTags.length ? (
+                        <div className="rounded-lg border bg-muted/20 p-3 sm:col-span-2">
+                          <div className="text-xs text-muted-foreground mb-2">Top tags / strategy</div>
+                          <div className="flex flex-wrap gap-2">
+                            {dayInsights.topTags.map((t) => (
+                              <Badge key={t.label} variant="outline" className="text-xs">
+                                {t.label} ({t.count})
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </Card>
                 )}
