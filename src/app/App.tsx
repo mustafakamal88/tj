@@ -6,6 +6,7 @@ import { JournalPage } from './pages/journal';
 import { Analytics } from './components/analytics';
 import { LearnMorePage } from './components/learn-more-page';
 import { BillingPage } from './components/billing-page';
+import { ErrorBoundary } from './components/error-boundary';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
 import { OnboardingDialog } from './components/onboarding-dialog';
@@ -141,7 +142,11 @@ function AppContent() {
       case 'home':
         return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
       case 'dashboard':
-        return <Dashboard />;
+        return (
+          <ErrorBoundary title="Dashboard crashed" description="Refresh the page and try opening the day drawer again.">
+            <Dashboard />
+          </ErrorBoundary>
+        );
       case 'journal':
         return <JournalPage />;
       case 'analytics':

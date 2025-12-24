@@ -355,11 +355,9 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     }
   };
 
-  if (!selectedDay) return null;
-
-  const dayDate = parseISO(selectedDay);
-  const dayTitle = format(dayDate, 'EEE, MMM d, yyyy');
-  const metrics = calculateDayMetrics(trades);
+  const dayDate = useMemo(() => (selectedDay ? parseISO(selectedDay) : null), [selectedDay]);
+  const dayTitle = useMemo(() => (dayDate ? format(dayDate, 'EEE, MMM d, yyyy') : ''), [dayDate]);
+  const metrics = useMemo(() => calculateDayMetrics(trades), [trades]);
 
   const dayInsights = useMemo(() => {
     const tradeCount = trades.length;
@@ -420,6 +418,8 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
 
     return { biggestWin, biggestLoss, netR, topTags };
   }, [trades]);
+
+  if (!selectedDay) return null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
