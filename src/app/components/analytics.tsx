@@ -106,6 +106,22 @@ function winLossDenom(trades: Trade[]): { wins: number; losses: number; denom: n
   return { wins, losses, denom: wins + losses };
 }
 
+function tradePnLValue(t: any): number {
+  const candidates = [
+    t?.pnl,
+    t?.profit_loss,
+    t?.profitLoss,
+    t?.realized_pnl,
+    t?.realizedPnL,
+    t?.net_pnl,
+    t?.netPnL,
+  ];
+  for (const v of candidates) {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return 0;
+}
+
 function computeRMultiple(t: Trade): number | null {
   const entry = typeof t.entry === 'number' ? t.entry : null;
   const sl = typeof (t as any).stopLoss === 'number' ? (t as any).stopLoss : typeof (t as any).sl === 'number' ? (t as any).sl : null;
@@ -164,6 +180,8 @@ export function Analytics() {
 
   const chart = useChartPalette();
 
+  const tradesArray: Trade[] = Array.isArray(trades) ? trades : [];
+
   const refreshTrades = async () => {
     const allTrades = await fetchTrades();
     const filteredTrades = effectivePlan === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
@@ -185,24 +203,24 @@ export function Analytics() {
   }, [effectivePlan]);
 
   const stats = useMemo(() => {
-    const totalPnL = calculateTotalPnL(trades);
-    const averagePnL = calculateAveragePnL(trades);
-    const profitFactor = calculateProfitFactor(trades);
+    const totalPnL = tradesArray.reduce((sum, t) => sum + tradePnLValue(t), 0);
+    const averagePnL = tradesArray.length > 0 ? totalPnL / tradesArray.length : 0;
+    const profitFactor = calculateProfitFactor(tradesArray);
 
-    const wins = trades.filter((t) => t.outcome === 'win');
-    const losses = trades.filter((t) => t.outcome === 'loss');
-    const breakevens = trades.filter((t) => t.outcome === 'breakeven');
+    const wins = tradesArray.filter((t) => t.outcome === 'win');
+    const losses = tradesArray.filter((t) => t.outcome === 'loss');
+    const breakevens = tradesArray.filter((t) => t.outcome === 'breakeven');
 
-    const denom = winLossDenom(trades).denom;
-    const winRate = denom > 0 ? (winLossDenom(trades).wins / denom) * 100 : 0;
+    const wl = winLossDenom(tradesArray);
+    const winRate = wl.denom > 0 ? (wl.wins / wl.denom) * 100 : 0;
 
-    const totalWinAmount = wins.reduce((sum, t) => sum + (typeof t.pnl === 'number' ? t.pnl : 0), 0);
-    const totalLossAmount = losses.reduce((sum, t) => sum + (typeof t.pnl === 'number' ? t.pnl : 0), 0);
+    const totalWinAmount = wins.reduce((sum, t) => sum + tradePnLValue(t), 0);
+    const totalLossAmount = losses.reduce((sum, t) => sum + tradePnLValue(t), 0);
     const averageWin = wins.length > 0 ? totalWinAmount / wins.length : 0;
     const averageLoss = losses.length > 0 ? totalLossAmount / losses.length : 0;
 
-    const longTrades = trades.filter((t) => t.type === 'long');
-    const shortTrades = trades.filter((t) => t.type === 'short');
+    const longTrades = tradesArray.filter((t) => t.type === 'long');
+    const shortTrades = tradesArray.filter((t) => t.type === 'short');
     const longWin = winLossDenom(longTrades);
     const shortWin = winLossDenom(shortTrades);
     const longWR = longWin.denom > 0 ? (longWin.wins / longWin.denom) * 100 : 0;
@@ -223,17 +241,20 @@ export function Analytics() {
       longWR,
       shortWR,
     };
-  }, [trades]);
+  }, [tradesArray]);
+
+  const totalPnL = stats.totalPnL ?? 0;
+  const averagePnL = stats.averagePnL ?? 0;
 
   const equityCurveData = useMemo(() => {
-    const sorted = [...trades]
+    const sorted = [...tradesArray]
       .map((t) => ({ t, dt: tradeTimestamp(t) }))
       .filter((x) => x.dt)
       .sort((a, b) => (a.dt as Date).getTime() - (b.dt as Date).getTime());
 
     let equity = 0;
     return sorted.map(({ t, dt }) => {
-      const pnl = typeof t.pnl === 'number' ? t.pnl : 0;
+      const pnl = tradePnLValue(t);
       equity += pnl;
       return {
         date: format(dt as Date, 'MMM d'),
@@ -241,10 +262,10 @@ export function Analytics() {
         pnl,
       };
     });
-  }, [trades]);
+  }, [tradesArray]);
 
   const outcomeData = useMemo(() => {
-    const total = trades.length;
+    const total = tradesArray.length;
     const items = [
       { name: 'Wins', value: stats.wins.length, color: chart.profit },
       { name: 'Losses', value: stats.losses.length, color: chart.loss },
@@ -252,17 +273,17 @@ export function Analytics() {
     ].filter((d) => d.value > 0);
 
     return { total, items };
-  }, [trades.length, stats.wins.length, stats.losses.length, stats.breakevens.length, chart.profit, chart.loss, chart.neutral]);
+  }, [tradesArray.length, stats.wins.length, stats.losses.length, stats.breakevens.length, chart.profit, chart.loss, chart.neutral]);
 
   const monthlyData = useMemo(() => {
     const map = new Map<string, { month: string; pnl: number; trades: number; sortKey: number }>();
-    for (const t of trades) {
+    for (const t of tradesArray) {
       const dt = tradeTimestamp(t);
       if (!dt) continue;
       const key = format(dt, 'yyyy-MM');
       const label = format(dt, 'MMM yyyy');
       const existing = map.get(key);
-      const pnl = typeof t.pnl === 'number' ? t.pnl : 0;
+      const pnl = tradePnLValue(t);
       if (existing) {
         existing.pnl += pnl;
         existing.trades += 1;
@@ -271,16 +292,16 @@ export function Analytics() {
       }
     }
     return [...map.values()].sort((a, b) => a.sortKey - b.sortKey);
-  }, [trades]);
+  }, [tradesArray]);
 
   const topSymbols = useMemo(() => {
-    const symbolStats = trades.reduce((acc, trade) => {
+    const symbolStats = tradesArray.reduce((acc, trade) => {
       const symbol = String(trade.symbol || '').trim() || '—';
       if (!acc[symbol]) {
         acc[symbol] = { count: 0, pnl: 0, wins: 0, losses: 0 };
       }
       acc[symbol].count += 1;
-      acc[symbol].pnl += typeof trade.pnl === 'number' ? trade.pnl : 0;
+      acc[symbol].pnl += tradePnLValue(trade);
       if (trade.outcome === 'win') acc[symbol].wins += 1;
       if (trade.outcome === 'loss') acc[symbol].losses += 1;
       return acc;
@@ -289,10 +310,10 @@ export function Analytics() {
     return Object.entries(symbolStats)
       .sort((a, b) => b[1].count - a[1].count)
       .slice(0, 5);
-  }, [trades]);
+  }, [tradesArray]);
 
   const overtrading = useMemo(() => {
-    if (trades.length === 0) {
+    if (tradesArray.length === 0) {
       return {
         series: [] as Array<{ day: string; trades: number; rollingAvg7: number; overtrade: number | null }>,
         avgTradesPerDay: 0,
@@ -302,7 +323,7 @@ export function Analytics() {
       };
     }
 
-    const dated = trades
+    const dated = tradesArray
       .map((t) => ({ t, dt: tradeTimestamp(t) }))
       .filter((x) => x.dt)
       .sort((a, b) => (a.dt as Date).getTime() - (b.dt as Date).getTime());
@@ -343,10 +364,10 @@ export function Analytics() {
       [...weekdayCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
 
     return { series, avgTradesPerDay, peakTradesPerDay, overtradeDays, mostActiveWeekday };
-  }, [trades]);
+  }, [tradesArray]);
 
   const riskDiscipline = useMemo(() => {
-    const total = trades.length;
+    const total = tradesArray.length;
     if (total === 0) {
       return {
         slSetRate: null as number | null,
@@ -370,14 +391,14 @@ export function Analytics() {
     };
 
     const sizes: number[] = [];
-    for (const t of trades) {
+    for (const t of tradesArray) {
       const size = typeof (t as any).size === 'number' ? (t as any).size : null;
       if (size !== null && Number.isFinite(size)) sizes.push(size);
     }
     sizes.sort((a, b) => a - b);
     const sizeOutlierThreshold = sizes.length >= 20 ? sizes[Math.floor(sizes.length * 0.95)] : null;
 
-    for (const t of trades) {
+    for (const t of tradesArray) {
       const sl = typeof (t as any).stopLoss === 'number' ? (t as any).stopLoss : typeof (t as any).sl === 'number' ? (t as any).sl : null;
       const tp = typeof (t as any).takeProfit === 'number' ? (t as any).takeProfit : typeof (t as any).tp === 'number' ? (t as any).tp : null;
       if (sl === null) {
@@ -420,10 +441,10 @@ export function Analytics() {
     })();
 
     return { slSetRate, rrGoodRate, tpMissingRate, issues, disciplineScore };
-  }, [trades]);
+  }, [tradesArray]);
 
   const tjScore = useMemo(() => {
-    if (trades.length === 0) return [] as Array<{ metric: string; score: number }>;
+    if (tradesArray.length === 0) return [] as Array<{ metric: string; score: number }>;
 
     const items: Array<{ metric: string; score: number }> = [];
 
@@ -435,7 +456,7 @@ export function Analytics() {
     items.push({ metric: 'Profit Factor', score: (pf / 3) * 100 });
 
     // Avg R (derived)
-    const rValues = trades.map(computeRMultiple).filter((v): v is number => typeof v === 'number');
+    const rValues = tradesArray.map(computeRMultiple).filter((v): v is number => typeof v === 'number');
     if (rValues.length > 0) {
       const avgR = rValues.reduce((a, b) => a + b, 0) / rValues.length;
       const clamped = Math.max(-1, Math.min(3, avgR));
@@ -444,11 +465,11 @@ export function Analytics() {
 
     // Consistency (based on daily pnl volatility)
     const daily = new Map<string, number>();
-    for (const t of trades) {
+    for (const t of tradesArray) {
       const dt = tradeTimestamp(t);
       if (!dt) continue;
       const key = format(dt, 'yyyy-MM-dd');
-      daily.set(key, (daily.get(key) ?? 0) + (typeof t.pnl === 'number' ? t.pnl : 0));
+      daily.set(key, (daily.get(key) ?? 0) + tradePnLValue(t));
     }
     const dailyPnL = [...daily.values()];
     if (dailyPnL.length >= 5) {
@@ -467,7 +488,7 @@ export function Analytics() {
     }
 
     return items;
-  }, [trades, stats.winRate, stats.profitFactor, riskDiscipline.disciplineScore]);
+  }, [tradesArray, stats.winRate, stats.profitFactor, riskDiscipline.disciplineScore]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-background">
@@ -480,14 +501,22 @@ export function Analytics() {
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="tabular-nums">
-                {trades.length} trades
+                {tradesArray.length} trades
               </Badge>
               <Badge variant="secondary">{effectivePlan.toUpperCase()}</Badge>
             </div>
           </div>
         </div>
 
-        {!access.advanced_analytics ? (
+        {!Array.isArray(trades) ? (
+          <Card className="p-12 text-center">
+            <Activity className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+            <p className="text-muted-foreground mb-2">Unable to load analytics</p>
+            <p className="text-sm text-muted-foreground">Trade data was not available. Please refresh and try again.</p>
+          </Card>
+        ) : null}
+
+        {!Array.isArray(trades) ? null : !access.advanced_analytics ? (
           <Card className="p-8">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
@@ -499,7 +528,7 @@ export function Analytics() {
               <Button onClick={() => requestUpgrade('advanced_analytics')}>Upgrade</Button>
             </div>
           </Card>
-        ) : trades.length === 0 ? (
+        ) : tradesArray.length === 0 ? (
           <Card className="p-12 text-center">
             <Activity className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
             <p className="text-muted-foreground mb-2">No trading data yet</p>
