@@ -1,20 +1,20 @@
 export const semanticColors = {
-  profitText: 'text-green-600 dark:text-green-500',
-  lossText: 'text-red-600 dark:text-red-500',
+  profitText: 'text-emerald-600 dark:text-emerald-400',
+  lossText: 'text-rose-600 dark:text-rose-400',
   neutralText: 'text-muted-foreground',
 
-  profitBgSoft: 'bg-green-600/5 dark:bg-green-500/10',
-  lossBgSoft: 'bg-red-600/5 dark:bg-red-500/10',
+  profitBgSoft: 'bg-emerald-600/5 dark:bg-emerald-500/10',
+  lossBgSoft: 'bg-rose-600/5 dark:bg-rose-500/10',
 
   // Useful for thin accent bars and small swatches.
-  profitBar: 'bg-green-600/60 dark:bg-green-500/50',
-  lossBar: 'bg-red-600/60 dark:bg-red-500/50',
+  profitBar: 'bg-emerald-600/60 dark:bg-emerald-500/50',
+  lossBar: 'bg-rose-600/60 dark:bg-rose-500/50',
 
-  longChipClasses: 'border border-green-600/20 bg-green-600/10 text-green-700 dark:text-green-400',
-  shortChipClasses: 'border border-red-600/20 bg-red-600/10 text-red-700 dark:text-red-400',
+  longChipClasses: 'border border-emerald-600/20 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400',
+  shortChipClasses: 'border border-rose-600/20 bg-rose-600/10 text-rose-700 dark:text-rose-400',
 
-  winChipClasses: 'border border-green-600/20 bg-green-600/10 text-green-700 dark:text-green-400',
-  lossChipClasses: 'border border-red-600/20 bg-red-600/10 text-red-700 dark:text-red-400',
+  winChipClasses: 'border border-emerald-600/20 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400',
+  lossChipClasses: 'border border-rose-600/20 bg-rose-600/10 text-rose-700 dark:text-rose-400',
 };
 
 export function pnlTextClass(pnl: number | null | undefined): string {

@@ -57,6 +57,8 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const [tradeMistakesText, setTradeMistakesText] = useState('');
   const [uploadingTradeShot, setUploadingTradeShot] = useState(false);
   const [tradeShotError, setTradeShotError] = useState<string | null>(null);
+  const [selectedSession, setSelectedSession] = useState<'asia' | 'london' | 'ny' | 'late' | null>(null);
+  const [selectedMistake, setSelectedMistake] = useState<string | null>(null);
   const tradeNotesDebounceRef = useRef<number | null>(null);
   const selectedTradeSectionRef = useRef<HTMLDivElement | null>(null);
   const lastSavedTradeNoteKeyRef = useRef<string>('');
@@ -99,6 +101,11 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     } finally {
       setLoading(false);
     }
+  }, [selectedDay]);
+
+  useEffect(() => {
+    setSelectedSession(null);
+    setSelectedMistake(null);
   }, [selectedDay]);
 
   const currentTradeNoteKey = useMemo(() => {
@@ -360,6 +367,203 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const dayTitle = useMemo(() => (dayDate ? format(dayDate, 'EEE, MMM d, yyyy') : ''), [dayDate]);
   const metrics = useMemo(() => calculateDayMetrics(trades), [trades]);
 
+  const sessionInsights = useMemo(() => {
+    const toLocalDate = (t: Trade): Date | null => {
+      const time = t.openTime || t.closeTime || t.date;
+      const dt =
+        typeof time === 'string'
+          ? /^\d{4}-\d{2}-\d{2}$/.test(time)
+            ? parseISO(time)
+            : time.includes('T')
+              ? parseISO(time)
+              : new Date(time)
+          : new Date(time);
+      return Number.isFinite(dt.getTime()) ? dt : null;
+    };
+
+    const sessionKey = (t: Trade): 'asia' | 'london' | 'ny' | 'late' | null => {
+      const dt = toLocalDate(t);
+      if (!dt) return null;
+      const h = dt.getHours();
+      if (h >= 0 && h <= 8) return 'asia';
+      if (h >= 9 && h <= 13) return 'london';
+      if (h >= 14 && h <= 20) return 'ny';
+      if (h >= 21 && h <= 23) return 'late';
+      return null;
+    };
+
+    const compute = (arr: Trade[]) => {
+      const tradesCount = arr.length;
+      const totalPnl = arr.reduce((sum, t) => sum + (typeof t.pnl === 'number' ? t.pnl : 0), 0);
+
+      const wins = arr.filter((t) => typeof t.pnl === 'number' && t.pnl > 0);
+      const losses = arr.filter((t) => typeof t.pnl === 'number' && t.pnl < 0);
+      const denom = wins.length + losses.length;
+      const winRate = denom > 0 ? (wins.length / denom) * 100 : null;
+
+      const sumWins = wins.reduce((sum, t) => sum + (t.pnl as number), 0);
+      const sumLossAbs = losses.reduce((sum, t) => sum + Math.abs(t.pnl as number), 0);
+      const avgWin = wins.length > 0 ? sumWins / wins.length : null;
+      const avgLoss = losses.length > 0 ? sumLossAbs / losses.length : null;
+
+      return { tradesCount, totalPnl, winRate, avgWin, avgLoss };
+    };
+
+    const buckets: Record<'asia' | 'london' | 'ny' | 'late', Trade[]> = {
+      asia: [],
+      london: [],
+      ny: [],
+      late: [],
+    };
+
+    for (const t of trades) {
+      const key = sessionKey(t);
+      if (!key) continue;
+      buckets[key].push(t);
+    }
+
+    const order: Array<{ key: 'asia' | 'london' | 'ny' | 'late'; label: string }> = [
+      { key: 'asia', label: 'Asia' },
+      { key: 'london', label: 'London' },
+      { key: 'ny', label: 'New York' },
+    ];
+    if (buckets.late.length > 0) order.push({ key: 'late', label: 'Late' });
+
+    const stats = order.map((s) => ({
+      ...s,
+      ...compute(buckets[s.key]),
+    }));
+
+    return { order, stats, buckets, sessionKey };
+  }, [trades]);
+
+  const mistakeInsights = useMemo(() => {
+    const titleize = (value: string) => {
+      const cleaned = value
+        .trim()
+        .replace(/^#+/, '')
+        .replace(/^mistake[_-]?/i, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+
+      if (!cleaned) return '';
+      return cleaned.replace(/\b\w/g, (m) => m.toUpperCase());
+    };
+
+    const extract = (t: Trade): string[] => {
+      const out: string[] = [];
+
+      const metaMistakes = (t as any)?.note?.meta?.mistakes ?? (t as any)?.meta?.mistakes;
+      if (Array.isArray(metaMistakes)) {
+        for (const m of metaMistakes) {
+          const label = titleize(String(m || ''));
+          if (label) out.push(label);
+        }
+      }
+
+      const direct = (t as any)?.mistakes;
+      if (Array.isArray(direct)) {
+        for (const m of direct) {
+          const label = titleize(String(m || ''));
+          if (label) out.push(label);
+        }
+      } else if (typeof direct === 'string') {
+        for (const m of direct.split(/[\n,;]+/g)) {
+          const label = titleize(m);
+          if (label) out.push(label);
+        }
+      }
+
+      const tags = Array.isArray((t as any)?.tags) ? ((t as any).tags as unknown[]) : [];
+      for (const raw of tags) {
+        const tag = String(raw || '').trim();
+        if (!tag) continue;
+        const m = tag.match(/^mistake[:_\-](.+)$/i);
+        if (m?.[1]) {
+          const label = titleize(m[1]);
+          if (label) out.push(label);
+        }
+        const hashMatches = [...tag.matchAll(/#mistake[_-]([a-z0-9_\-]+)/gi)];
+        for (const hm of hashMatches) {
+          const label = titleize(hm[1] || '');
+          if (label) out.push(label);
+        }
+      }
+
+      const notesText =
+        (t as any)?.note?.notes ||
+        (t as any)?.notes ||
+        '';
+      if (typeof notesText === 'string' && notesText.trim()) {
+        const lines = notesText.split(/\r?\n/);
+        for (const line of lines) {
+          const m = line.match(/^\s*mistakes?\s*:\s*(.+)\s*$/i);
+          if (m?.[1]) {
+            for (const chunk of m[1].split(/[,;]+/g)) {
+              const label = titleize(chunk);
+              if (label) out.push(label);
+            }
+          }
+          const hashMatches = [...line.matchAll(/#mistake[_-]([a-z0-9_\-]+)/gi)];
+          for (const hm of hashMatches) {
+            const label = titleize(hm[1] || '');
+            if (label) out.push(label);
+          }
+        }
+      }
+
+      // Deduplicate within a trade so counts represent occurrences across trades.
+      return [...new Set(out)];
+    };
+
+    const tradeToMistakes = new Map<string, string[]>();
+    const counts = new Map<string, number>();
+    let tradesWithAnyMistake = 0;
+    let totalMistakesCount = 0;
+
+    for (const t of trades) {
+      const mistakes = extract(t);
+      tradeToMistakes.set(t.id, mistakes);
+      if (mistakes.length > 0) {
+        tradesWithAnyMistake += 1;
+        totalMistakesCount += mistakes.length;
+        for (const m of mistakes) counts.set(m, (counts.get(m) ?? 0) + 1);
+      }
+    }
+
+    const uniqueMistakesCount = counts.size;
+    const topMistakes = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([label, count]) => ({ label, count }));
+
+    const mistakeRate = trades.length > 0 ? (tradesWithAnyMistake / trades.length) * 100 : null;
+
+    return {
+      tradeToMistakes,
+      tradesWithAnyMistake,
+      totalMistakesCount,
+      uniqueMistakesCount,
+      topMistakes,
+      mistakeRate,
+    };
+  }, [trades]);
+
+  const hasActiveFilters = Boolean(selectedSession || selectedMistake);
+
+  const visibleTrades = useMemo(() => {
+    let list = trades;
+    if (selectedSession) {
+      list = list.filter((t) => sessionInsights.sessionKey(t) === selectedSession);
+    }
+    if (selectedMistake) {
+      list = list.filter((t) => (mistakeInsights.tradeToMistakes.get(t.id) ?? []).includes(selectedMistake));
+    }
+    return list;
+  }, [trades, selectedSession, selectedMistake, sessionInsights, mistakeInsights.tradeToMistakes]);
+
   const dayInsights = useMemo(() => {
     const tradeCount = trades.length;
     if (tradeCount === 0) {
@@ -478,18 +682,39 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                   <Card className="p-6 text-center text-muted-foreground">
                     <p>No trades on this day</p>
                   </Card>
+                ) : visibleTrades.length === 0 ? (
+                  <Card className="p-6 text-center text-muted-foreground">
+                    <p>No trades match the current filters.</p>
+                    {hasActiveFilters ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="mt-3"
+                        onClick={() => {
+                          setSelectedSession(null);
+                          setSelectedMistake(null);
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    ) : null}
+                  </Card>
                 ) : (
                   <Card className="p-0 overflow-hidden">
                     <div className="divide-y divide-border">
-                      {trades.map((trade) => {
+                      {visibleTrades.map((trade) => {
                         const isSelected = selectedTradeId === trade.id;
+                        const matchesMistake =
+                          selectedMistake && (mistakeInsights.tradeToMistakes.get(trade.id) ?? []).includes(selectedMistake);
                         return (
                           <button
                             key={trade.id}
                             type="button"
                             className={`w-full text-left p-4 transition-colors ${
                               isSelected ? 'bg-accent' : 'hover:bg-accent'
-                            }`}
+                            } ${matchesMistake ? 'ring-1 ring-primary/25' : ''}`}
+                            data-matches-mistake={matchesMistake ? 'true' : 'false'}
                             onClick={() => handleTradeClick(trade)}
                           >
                             <div className="flex items-center justify-between gap-3">
@@ -749,7 +974,22 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
 
               {/* 5) Day Insights (premium grid) */}
               <div>
-                <h3 className="font-semibold mb-3 text-sm">Day Insights</h3>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h3 className="font-semibold text-sm">Day Insights</h3>
+                  {hasActiveFilters ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedSession(null);
+                        setSelectedMistake(null);
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  ) : null}
+                </div>
                 {trades.length === 0 ? (
                   <Card className="p-6 text-center text-muted-foreground">
                     <p>No trades yet for insights.</p>
@@ -759,13 +999,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="rounded-lg border bg-muted/20 p-3">
                         <div className="text-xs text-muted-foreground">Total P/L</div>
-                        <div
-                          className={
-                            metrics.totalPnl >= 0
-                              ? 'text-foreground font-semibold'
-                              : 'text-destructive font-semibold'
-                          }
-                        >
+                        <div className={`font-semibold ${pnlTextClass(metrics.totalPnl)}`}>
                           {formatCurrency(metrics.totalPnl)}
                         </div>
                       </div>
@@ -818,6 +1052,99 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                           </div>
                         </div>
                       ) : null}
+                    </div>
+
+                    {/* Sessions */}
+                    <div className="mt-4 pt-4 border-t">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <div>
+                          <div className="text-sm font-semibold">Sessions</div>
+                          <div className="text-xs text-muted-foreground">Tap a session to filter trades</div>
+                        </div>
+                        {selectedSession ? (
+                          <Badge variant="outline" className="text-xs">Session: {sessionInsights.stats.find((s) => s.key === selectedSession)?.label}</Badge>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {sessionInsights.stats.map((s) => {
+                          const active = selectedSession === s.key;
+                          return (
+                            <button
+                              key={s.key}
+                              type="button"
+                              className={`min-w-[160px] flex-1 rounded-lg border p-3 text-left bg-muted/20 hover:bg-muted/30 transition-colors ${
+                                active ? 'ring-2 ring-primary/40' : ''
+                              }`}
+                              onClick={() => setSelectedSession((prev) => (prev === s.key ? null : s.key))}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="font-semibold text-sm">{s.label}</div>
+                                <Badge variant="outline" className="text-[11px]">{s.tradesCount}</Badge>
+                              </div>
+                              <div className={`mt-1 font-semibold tabular-nums ${pnlTextClass(s.totalPnl)}`}>
+                                {s.totalPnl > 0 ? '+' : ''}{formatCurrency(s.totalPnl)}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground tabular-nums">
+                                WR {typeof s.winRate === 'number' ? `${s.winRate.toFixed(0)}%` : '—'}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Mistakes */}
+                    <div className="mt-4 pt-4 border-t">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <div>
+                          <div className="text-sm font-semibold">Mistakes</div>
+                          <div className="text-xs text-muted-foreground">Tap a mistake to filter trades</div>
+                        </div>
+                        {selectedMistake ? (
+                          <Badge variant="outline" className="text-xs">Mistake: {selectedMistake}</Badge>
+                        ) : null}
+                      </div>
+
+                      {mistakeInsights.uniqueMistakesCount === 0 ? (
+                        <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+                          Add mistakes to trade notes (e.g. “Mistake: Overtraded” or #mistake_fomo) to see insights.
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            <Badge variant="outline" className="text-xs">
+                              Trades w/ mistakes: {mistakeInsights.tradesWithAnyMistake} / {trades.length}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs">
+                              Mistake rate: {typeof mistakeInsights.mistakeRate === 'number' ? `${mistakeInsights.mistakeRate.toFixed(0)}%` : '—'}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs">
+                              Unique mistakes: {mistakeInsights.uniqueMistakesCount}
+                            </Badge>
+                          </div>
+
+                          <div className="space-y-2">
+                            {mistakeInsights.topMistakes.map((m) => {
+                              const active = selectedMistake === m.label;
+                              return (
+                                <button
+                                  key={m.label}
+                                  type="button"
+                                  className={`w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left bg-muted/20 hover:bg-muted/30 transition-colors ${
+                                    active ? 'ring-2 ring-primary/40' : ''
+                                  }`}
+                                  onClick={() => setSelectedMistake((prev) => (prev === m.label ? null : m.label))}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-medium truncate">{m.label}</div>
+                                  </div>
+                                  <Badge variant="outline" className="text-[11px]">{m.count}</Badge>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </Card>
                 )}
