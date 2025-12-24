@@ -81,7 +81,7 @@ export function Navigation({
       >
         <path d={svgPaths.p20226f80} fill="currentColor" />
       </svg>
-      <span className="text-base sm:text-lg font-semibold leading-none tracking-tight text-foreground whitespace-nowrap">
+      <span className="hidden sm:block text-base sm:text-lg font-semibold leading-none tracking-tight text-foreground whitespace-nowrap">
         <span className="text-foreground">Trade</span>{' '}
         <span className="text-[#34a85a]">Journal</span>
       </span>

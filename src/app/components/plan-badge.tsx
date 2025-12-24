@@ -16,7 +16,7 @@ export function PlanBadge({ className }: { className?: string }) {
   }
 
   const isPaid = hasPaidEntitlement(profile);
-  const label = isPaid ? `Current: ${profile.subscriptionPlan.toUpperCase()}` : 'Current: FREE';
+  const label = isPaid ? profile.subscriptionPlan.toUpperCase() : 'FREE';
 
   return (
     <Badge
