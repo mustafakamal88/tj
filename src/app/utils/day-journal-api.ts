@@ -21,14 +21,9 @@ export type TradeNote = {
 };
 
 export type TradeNoteMeta = {
-  emotions?: {
-    chips?: string[];
-    text?: string;
-  };
-  mistakes?: {
-    checks?: string[];
-    text?: string;
-  };
+  emotions?: string[];
+  mistakes?: string[];
+  extraNotes?: string;
 };
 
 export type TradeScreenshot = {
@@ -65,10 +60,9 @@ function sanitizeFileName(name: string): string {
 
 function toStoragePath(params: { userId: string; tradeId: string; fileName: string }): string {
   const safeName = sanitizeFileName(params.fileName || 'screenshot');
-  const unique = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
-  // IMPORTANT: must match storage RLS policy in migrations:
-  // <userId>/trades/<tradeId>/<file>
-  return `${params.userId}/trades/${params.tradeId}/${Date.now()}-${unique}-${safeName}`;
+  // IMPORTANT: must match storage RLS policy:
+  // <userId>/<tradeId>/<file>
+  return `${params.userId}/${params.tradeId}/${Date.now()}-${safeName}`;
 }
 
 function summarizeSupabaseError(error: unknown): {
@@ -336,20 +330,7 @@ export async function getTradeDetail(tradeId: string): Promise<TradeWithDetails 
       .eq('trade_id', tradeId)
       .maybeSingle();
 
-    // Fetch trade screenshots (authoritative)
-    const { data: screenshotsData, error: screenshotsError } = await supabase
-      .from('trade_screenshots')
-      .select('*')
-      .eq('trade_id', tradeId)
-      .order('created_at', { ascending: true });
-
-    if (screenshotsError) {
-      console.error('[day-journal-api] getTradeDetail trade_screenshots failed', {
-        tradeId,
-        userId: authData.user.id,
-        error: summarizeSupabaseError(screenshotsError),
-      });
-    }
+    const screenshots = await fetchTradeScreenshots(tradeId);
 
     const trade: Trade = {
       id: tradeData.id,
@@ -395,18 +376,6 @@ export async function getTradeDetail(tradeId: string): Promise<TradeWithDetails 
         }
       : undefined;
 
-    const screenshots: TradeScreenshot[] = screenshotsData
-      ? screenshotsData.map((s: any) => ({
-          id: s.id,
-          tradeId: s.trade_id,
-          userId: s.user_id,
-          path: s.path,
-          mimeType: s.mime_type ?? undefined,
-          sizeBytes: Number(s.size_bytes),
-          createdAt: s.created_at,
-        }))
-      : [];
-
     return {
       ...trade,
       note,
@@ -418,10 +387,48 @@ export async function getTradeDetail(tradeId: string): Promise<TradeWithDetails 
   }
 }
 
+export async function fetchTradeScreenshots(tradeId: string): Promise<TradeScreenshot[]> {
+  try {
+    const supabase = requireSupabaseClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) return [];
+
+    const { data, error } = await supabase
+      .from('trade_screenshots')
+      .select('*')
+      .eq('trade_id', tradeId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[day-journal-api] fetchTradeScreenshots failed', {
+        tradeId,
+        userId: authData.user.id,
+        error: summarizeSupabaseError(error),
+      });
+      return [];
+    }
+
+    return Array.isArray(data)
+      ? data.map((s: any) => ({
+          id: s.id,
+          tradeId: s.trade_id,
+          userId: s.user_id,
+          path: s.path,
+          mimeType: s.mime_type ?? undefined,
+          sizeBytes: Number(s.size_bytes),
+          createdAt: s.created_at,
+        }))
+      : [];
+  } catch (error) {
+    console.error('[day-journal-api] fetchTradeScreenshots exception', { tradeId, error });
+    return [];
+  }
+}
+
 /**
  * Create or update trade notes
  */
-export async function upsertTradeNotes(tradeId: string, notes: string): Promise<boolean> {
+export async function upsertTradeNotes(tradeId: string, notes: string, meta?: TradeNoteMeta): Promise<boolean> {
   try {
     const supabase = requireSupabaseClient();
     const { data: authData } = await supabase.auth.getUser();
@@ -445,10 +452,9 @@ export async function upsertTradeNotes(tradeId: string, notes: string): Promise<
         );
 
     // Backwards-compatible: if meta column doesn't exist yet, fall back to notes-only.
-    const metaArg = arguments.length >= 3 ? (arguments as any)[2] : undefined;
-    const { error } = await attempt(metaArg !== undefined, metaArg);
+    const { error } = await attempt(meta !== undefined, meta);
     if (error) {
-      if (metaArg !== undefined && isMissingColumnOrSchemaCacheError(error)) {
+      if (meta !== undefined && isMissingColumnOrSchemaCacheError(error)) {
         const { error: retryError } = await attempt(false);
         if (retryError) {
           console.error('[day-journal-api] upsertTradeNotes failed (retry without meta)', retryError);
@@ -489,7 +495,7 @@ export type AddTradeScreenshotResult =
       error?: ReturnType<typeof summarizeSupabaseError>;
     };
 
-export async function addTradeScreenshot(tradeId: string, file: File): Promise<AddTradeScreenshotResult> {
+export async function uploadTradeScreenshot(tradeId: string, file: File): Promise<AddTradeScreenshotResult> {
   const fileName = typeof file?.name === 'string' && file.name.trim() ? file.name : 'screenshot';
   const fileSize = typeof file?.size === 'number' ? file.size : 0;
   const fileType = typeof file?.type === 'string' ? file.type : '';
@@ -523,7 +529,7 @@ export async function addTradeScreenshot(tradeId: string, file: File): Promise<A
           : status === 403 || msg.includes('permission') || msg.includes('policy') || msg.includes('rls')
           ? 'storage_policy'
           : 'unknown';
-      console.error('[day-journal-api] addTradeScreenshot upload failed', {
+      console.error('[day-journal-api] uploadTradeScreenshot upload failed', {
         bucket: TRADE_SCREENSHOTS_BUCKET,
         file: { name: fileName, size: fileSize, type: fileType },
         path,
@@ -571,7 +577,7 @@ export async function addTradeScreenshot(tradeId: string, file: File): Promise<A
         status === 403 || msg.includes('permission') || msg.includes('policy') || msg.includes('rls')
           ? 'db_policy'
           : 'db_error';
-      console.error('[day-journal-api] addTradeScreenshot DB insert failed', {
+      console.error('[day-journal-api] uploadTradeScreenshot DB insert failed', {
         table: 'trade_screenshots',
         bucket: TRADE_SCREENSHOTS_BUCKET,
         file: { name: fileName, size: fileSize, type: fileType },
@@ -583,7 +589,7 @@ export async function addTradeScreenshot(tradeId: string, file: File): Promise<A
       try {
         await supabase.storage.from(TRADE_SCREENSHOTS_BUCKET).remove([path]);
       } catch (cleanupError) {
-        console.warn('[day-journal-api] addTradeScreenshot cleanup remove failed', {
+        console.warn('[day-journal-api] uploadTradeScreenshot cleanup remove failed', {
           bucket: TRADE_SCREENSHOTS_BUCKET,
           path,
           cleanupError,
@@ -615,7 +621,7 @@ export async function addTradeScreenshot(tradeId: string, file: File): Promise<A
         await supabase.from('trades').update({ screenshots: [...current, path] }).eq('id', tradeId);
       }
     } catch (syncError) {
-      console.warn('[day-journal-api] addTradeScreenshot trades.screenshots sync failed', {
+      console.warn('[day-journal-api] uploadTradeScreenshot trades.screenshots sync failed', {
         tradeId,
         path,
         userId,
@@ -625,7 +631,7 @@ export async function addTradeScreenshot(tradeId: string, file: File): Promise<A
 
     return { ok: true, path };
   } catch (error) {
-    console.error('[day-journal-api] addTradeScreenshot exception', {
+    console.error('[day-journal-api] uploadTradeScreenshot exception', {
       tradeId,
       file: { name: fileName, size: fileSize, type: fileType },
       error,
