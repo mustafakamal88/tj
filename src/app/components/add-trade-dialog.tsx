@@ -12,6 +12,7 @@ import type { Session } from '@supabase/supabase-js';
 import { requireSupabaseClient, toastSessionExpiredOnce } from '../utils/supabase';
 import { calculatePnL, determineOutcome } from '../utils/trade-calculations';
 import type { TradeMarket, TradeSizeUnit, TradeType } from '../types/trade';
+import { TRADE_SCREENSHOTS_BUCKET, uploadTradeScreenshot } from '../utils/day-journal-api';
 
 interface AddTradeDialogProps {
   open: boolean;
@@ -19,7 +20,6 @@ interface AddTradeDialogProps {
   onTradeAdded: () => void;
 }
 
-const SCREENSHOTS_BUCKET = 'trade-screenshots';
 const MAX_SCREENSHOTS_PER_TRADE = 3;
 const GIGABYTE_BYTES = 1024 * 1024 * 1024;
 const FREE_SCREENSHOT_STORAGE_BYTES = 2 * GIGABYTE_BYTES; // 2GB
@@ -645,115 +645,16 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
       const tradeId = result.tradeId;
       if (screenshots.length > 0 && tradeId) {
-        const session = await ensureSession(supabase);
-        if (!session) {
-          toastSessionExpiredOnce();
-          return;
-        }
-
-        const userId = session.user.id;
-
-        const uploaded: Array<{ path: string; sizeBytes: number; mimeType: string }> = [];
-        for (const file of screenshots) {
-          const safeName = sanitizeFileName(file.name || 'screenshot.png');
-          const unique = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
-          const path = `${userId}/trades/${tradeId}/${unique}-${safeName}`;
-
-          const uploadOnce = () =>
-            supabase.storage.from(SCREENSHOTS_BUCKET).upload(path, file, {
-              upsert: false,
-              contentType: file.type,
-            });
-
-          let { error: uploadError } = await uploadOnce();
-          const uploadStatus = (uploadError as { statusCode?: number })?.statusCode;
-          if (uploadError && isAuthStatus(uploadStatus)) {
-            try {
-              await supabase.auth.refreshSession();
-            } catch {
-              // ignore
-            }
-            ({ error: uploadError } = await uploadOnce());
-          }
-          if (uploadError) {
-            const statusCode = (uploadError as { statusCode?: number }).statusCode;
-            toastByStatus({
-              status: statusCode,
-              message: uploadError.message ? `Screenshot upload failed: ${uploadError.message}` : 'Screenshot upload failed.',
-              permissionMessage: 'No permission to upload. Check storage policy.',
-            });
-            return;
-          }
-
-          uploaded.push({ path, sizeBytes: file.size, mimeType: file.type });
-        }
-
-        if (uploaded.length > 0) {
-          const metaInsertWithMime = () =>
-            supabase.from('trade_screenshots').insert(
-              uploaded.map((s) => ({
-                trade_id: tradeId,
-                path: s.path,
-                size_bytes: s.sizeBytes,
-                mime_type: s.mimeType || null,
-              })),
-            );
-
-          const metaInsertWithoutMime = () =>
-            supabase.from('trade_screenshots').insert(
-              uploaded.map((s) => ({
-                trade_id: tradeId,
-                path: s.path,
-                size_bytes: s.sizeBytes,
-              })),
-            );
-
-          let { error: metaError, status: metaStatus } = await metaInsertWithMime();
-          if (metaError && isMissingColumnOrSchemaCacheError(metaError)) {
-            ({ error: metaError, status: metaStatus } = await metaInsertWithoutMime());
-          }
-          if (metaError && isAuthStatus(metaStatus)) {
-            try {
-              await supabase.auth.refreshSession();
-            } catch {
-              // ignore
-            }
-            ({ error: metaError, status: metaStatus } = await metaInsertWithMime());
-            if (metaError && isMissingColumnOrSchemaCacheError(metaError)) {
-              ({ error: metaError, status: metaStatus } = await metaInsertWithoutMime());
-            }
-          }
-          if (metaError) {
-            toastByStatus({
-              status: metaStatus,
-              message: metaError.message ? `Screenshot tracking failed: ${metaError.message}` : 'Screenshot tracking failed.',
-              permissionMessage: 'Permission denied saving screenshots.',
-            });
-            return;
-          }
-
-          const updateOnce = () =>
-            supabase
-              .from('trades')
-              .update({ screenshots: uploaded.map((s) => s.path) })
-              .eq('id', tradeId);
-
-          let { error: updateError, status: updateStatus } = await updateOnce();
-          if (updateError && isAuthStatus(updateStatus)) {
-            try {
-              await supabase.auth.refreshSession();
-            } catch {
-              // ignore
-            }
-            ({ error: updateError, status: updateStatus } = await updateOnce());
-          }
-          if (updateError) {
-            toastByStatus({
-              status: updateStatus,
-              message: updateError.message ? `Failed to attach screenshots: ${updateError.message}` : 'Failed to attach screenshots.',
-              permissionMessage: 'Permission denied saving trade.',
-            });
-            return;
+        const uploads = await Promise.all(screenshots.map((file) => uploadTradeScreenshot(tradeId, file)));
+        const failures = uploads.filter((r) => !r.ok);
+        if (failures.length > 0) {
+          const firstFailure = failures[0] as Exclude<(typeof uploads)[number], { ok: true }>;
+          if (firstFailure.kind === 'bucket_missing') {
+            toast.error(`Storage bucket missing (${TRADE_SCREENSHOTS_BUCKET}).`);
+          } else if (firstFailure.kind === 'storage_policy' || firstFailure.kind === 'db_policy') {
+            toast.error(`Permission denied uploading screenshots. Check Supabase policies (bucket: ${TRADE_SCREENSHOTS_BUCKET}).`);
+          } else {
+            toast.error('Some screenshots failed to upload.');
           }
         }
       }

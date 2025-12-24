@@ -22,7 +22,7 @@ import type { TradeWithDetails } from '../utils/day-journal-api';
 import {
   TRADE_SCREENSHOTS_BUCKET,
   upsertTradeNotes,
-  addTradeScreenshot,
+  uploadTradeScreenshot,
   deleteTradeScreenshot,
 } from '../utils/day-journal-api';
 import { formatCurrency } from '../utils/trade-calculations';
@@ -64,7 +64,7 @@ export function TradeDetailPanel({ trade, onClose, onTradeUpdated }: TradeDetail
 
     setUploadingMedia(true);
     try {
-      const uploadPromises = Array.from(files).map((file) => addTradeScreenshot(trade.id, file));
+      const uploadPromises = Array.from(files).map((file) => uploadTradeScreenshot(trade.id, file));
       const results = await Promise.all(uploadPromises);
 
       const successCount = results.filter((r) => r.ok).length;

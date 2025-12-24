@@ -18,7 +18,7 @@ import {
   type DayJournal,
   type DayNews,
   type TradeWithDetails,
-  addTradeScreenshot,
+  uploadTradeScreenshot,
   deleteTradeScreenshot,
   TRADE_SCREENSHOTS_BUCKET,
   upsertTradeNotes,
@@ -50,12 +50,38 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const [savingTradeNotes, setSavingTradeNotes] = useState(false);
   const [tradeNotes, setTradeNotes] = useState('');
   const [tradeMeta, setTradeMeta] = useState<TradeNoteMeta>({});
+  const [tradeEmotionsText, setTradeEmotionsText] = useState('');
+  const [tradeMistakesText, setTradeMistakesText] = useState('');
   const [uploadingTradeShot, setUploadingTradeShot] = useState(false);
   const [tradeShotError, setTradeShotError] = useState<string | null>(null);
   const tradeNotesDebounceRef = useRef<number | null>(null);
+  const selectedTradeSectionRef = useRef<HTMLDivElement | null>(null);
 
   const TRADE_EMOTIONS = ['Calm', 'Fear', 'FOMO', 'Revenge', 'Overconfident', 'Hesitation'] as const;
   const TRADE_MISTAKES = ['Entered early', 'No SL', 'Oversized', 'Moved SL', 'Overtraded', "Didn’t follow plan"] as const;
+
+  function parseExtraNotes(extraNotes?: string): { emotionsText: string; mistakesText: string } {
+    const raw = (extraNotes || '').trim();
+    if (!raw) return { emotionsText: '', mistakesText: '' };
+
+    const emoMatch = raw.match(/## Emotions\n([\s\S]*?)(?=\n## Mistakes\n|$)/);
+    const misMatch = raw.match(/## Mistakes\n([\s\S]*?)$/);
+
+    return {
+      emotionsText: (emoMatch?.[1] ?? '').trim(),
+      mistakesText: (misMatch?.[1] ?? '').trim(),
+    };
+  }
+
+  function buildExtraNotes(input: { emotionsText: string; mistakesText: string }): string | undefined {
+    const e = (input.emotionsText || '').trim();
+    const m = (input.mistakesText || '').trim();
+    if (!e && !m) return undefined;
+    const parts: string[] = [];
+    if (e) parts.push(['## Emotions', e].join('\n'));
+    if (m) parts.push(['## Mistakes', m].join('\n'));
+    return parts.join('\n\n');
+  }
 
   function splitDayNotesPreserveExtras(raw: string): { main: string; extras: string } {
     const text = raw || '';
@@ -98,6 +124,8 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       setSelectedTradeDetail(null);
       setTradeNotes('');
       setTradeMeta({});
+      setTradeEmotionsText('');
+      setTradeMistakesText('');
       setTradeShotError(null);
     }
   }, [open, selectedDay, loadDayData]);
@@ -131,7 +159,16 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       const detail = await getTradeDetail(trade.id);
       setSelectedTradeDetail(detail);
       setTradeNotes(detail?.note?.notes || '');
-      setTradeMeta((detail?.note?.meta as TradeNoteMeta) || {});
+      const meta = ((detail?.note?.meta as TradeNoteMeta) || {}) as TradeNoteMeta;
+      setTradeMeta(meta);
+      const parsed = parseExtraNotes(meta.extraNotes);
+      setTradeEmotionsText(parsed.emotionsText);
+      setTradeMistakesText(parsed.mistakesText);
+
+      // Auto-scroll selected trade section into view.
+      window.setTimeout(() => {
+        selectedTradeSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
     } catch (error) {
       console.error('Failed to load trade detail', error);
       toast.error('Failed to load trade details');
@@ -144,7 +181,11 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       const detail = await getTradeDetail(selectedTradeId);
       setSelectedTradeDetail(detail);
       setTradeNotes(detail?.note?.notes || tradeNotes);
-      setTradeMeta((detail?.note?.meta as TradeNoteMeta) || tradeMeta);
+      const meta = ((detail?.note?.meta as TradeNoteMeta) || tradeMeta) as TradeNoteMeta;
+      setTradeMeta(meta);
+      const parsed = parseExtraNotes(meta.extraNotes);
+      setTradeEmotionsText(parsed.emotionsText);
+      setTradeMistakesText(parsed.mistakesText);
     }
   };
 
@@ -152,7 +193,12 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     if (!selectedTradeDetail) return;
     setSavingTradeNotes(true);
     try {
-      const success = await upsertTradeNotes(selectedTradeDetail.id, tradeNotes, tradeMeta);
+      const meta: TradeNoteMeta = {
+        emotions: tradeMeta.emotions || [],
+        mistakes: tradeMeta.mistakes || [],
+        extraNotes: buildExtraNotes({ emotionsText: tradeEmotionsText, mistakesText: tradeMistakesText }),
+      };
+      const success = await upsertTradeNotes(selectedTradeDetail.id, tradeNotes, meta);
       if (success) {
         toast.success('Trade notes saved');
         await handleTradeUpdated();
@@ -187,7 +233,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tradeNotes, tradeMeta, selectedTradeDetail?.id]);
+  }, [tradeNotes, tradeMeta, tradeEmotionsText, tradeMistakesText, selectedTradeDetail?.id]);
 
   const handleTradeScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -196,7 +242,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     setTradeShotError(null);
     setUploadingTradeShot(true);
     try {
-      const results = await Promise.all(Array.from(files).map((f) => addTradeScreenshot(selectedTradeDetail.id, f)));
+      const results = await Promise.all(Array.from(files).map((f) => uploadTradeScreenshot(selectedTradeDetail.id, f)));
       const okCount = results.filter((r) => r.ok).length;
       if (okCount > 0) {
         toast.success(`Uploaded ${okCount} screenshot(s)`);
@@ -366,7 +412,8 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
 
               {/* Selected Trade (shows directly under Trades Taken) */}
               {selectedTradeDetail ? (
-                <Card className="p-4 bg-card/50 border-muted space-y-4">
+                <div ref={selectedTradeSectionRef}>
+                  <Card className="p-4 bg-card/50 border-muted space-y-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -388,6 +435,8 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                         setSelectedTradeDetail(null);
                         setTradeNotes('');
                         setTradeMeta({});
+                        setTradeEmotionsText('');
+                        setTradeMistakesText('');
                         setTradeShotError(null);
                       }}
                     >
@@ -454,7 +503,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                     <h4 className="font-semibold text-sm mb-2">Emotions</h4>
                     <div className="flex flex-wrap gap-2 mb-3">
                       {TRADE_EMOTIONS.map((label) => {
-                        const active = (tradeMeta.emotions?.chips || []).includes(label);
+                        const active = (tradeMeta.emotions || []).includes(label);
                         return (
                           <Button
                             key={label}
@@ -462,15 +511,9 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                             size="sm"
                             variant={active ? 'default' : 'outline'}
                             onClick={() => {
-                              const prev = tradeMeta.emotions?.chips || [];
+                              const prev = tradeMeta.emotions || [];
                               const next = prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label];
-                              setTradeMeta((m) => ({
-                                ...m,
-                                emotions: {
-                                  chips: next,
-                                  text: m.emotions?.text || '',
-                                },
-                              }));
+                              setTradeMeta((m) => ({ ...m, emotions: next }));
                             }}
                           >
                             {label}
@@ -479,16 +522,8 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                       })}
                     </div>
                     <Textarea
-                      value={tradeMeta.emotions?.text || ''}
-                      onChange={(e) =>
-                        setTradeMeta((m) => ({
-                          ...m,
-                          emotions: {
-                            chips: m.emotions?.chips || [],
-                            text: e.target.value,
-                          },
-                        }))
-                      }
+                      value={tradeEmotionsText}
+                      onChange={(e) => setTradeEmotionsText(e.target.value)}
                       placeholder="Optional…"
                       className="min-h-[100px] resize-y font-mono text-sm bg-background/50"
                     />
@@ -499,26 +534,20 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                     <h4 className="font-semibold text-sm mb-2">Mistakes</h4>
                     <div className="space-y-2 mb-3">
                       {TRADE_MISTAKES.map((label) => {
-                        const checked = (tradeMeta.mistakes?.checks || []).includes(label);
+                        const checked = (tradeMeta.mistakes || []).includes(label);
                         return (
                           <label key={label} className="flex items-center gap-2 text-sm">
                             <input
                               type="checkbox"
                               checked={checked}
                               onChange={(e) => {
-                                const prev = tradeMeta.mistakes?.checks || [];
+                                const prev = tradeMeta.mistakes || [];
                                 const next = e.target.checked
                                   ? prev.includes(label)
                                     ? prev
                                     : [...prev, label]
                                   : prev.filter((x) => x !== label);
-                                setTradeMeta((m) => ({
-                                  ...m,
-                                  mistakes: {
-                                    checks: next,
-                                    text: m.mistakes?.text || '',
-                                  },
-                                }));
+                                setTradeMeta((m) => ({ ...m, mistakes: next }));
                               }}
                             />
                             <span>{label}</span>
@@ -527,21 +556,14 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
                       })}
                     </div>
                     <Textarea
-                      value={tradeMeta.mistakes?.text || ''}
-                      onChange={(e) =>
-                        setTradeMeta((m) => ({
-                          ...m,
-                          mistakes: {
-                            checks: m.mistakes?.checks || [],
-                            text: e.target.value,
-                          },
-                        }))
-                      }
+                      value={tradeMistakesText}
+                      onChange={(e) => setTradeMistakesText(e.target.value)}
                       placeholder="Optional…"
                       className="min-h-[100px] resize-y font-mono text-sm bg-background/50"
                     />
                   </div>
-                </Card>
+                  </Card>
+                </div>
               ) : null}
 
               {/* 3) Day Notes (small card) */}

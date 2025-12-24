@@ -6,9 +6,7 @@ import { Separator } from './ui/separator';
 import type { Trade } from '../types/trade';
 import { format } from 'date-fns';
 import { formatCurrency, formatPercentage } from '../utils/trade-calculations';
-import { requireSupabaseClient } from '../utils/supabase';
-
-const SCREENSHOTS_BUCKET = 'trade-screenshots';
+import { createTradeScreenshotSignedUrl } from '../utils/day-journal-api';
 
 interface TradeDetailsDialogProps {
   trade: Trade;
@@ -58,28 +56,19 @@ export function TradeDetailsDialog({ trade, open, onOpenChange }: TradeDetailsDi
     let cancelled = false;
 
     (async () => {
-      let supabase: ReturnType<typeof requireSupabaseClient>;
-      try {
-        supabase = requireSupabaseClient();
-      } catch {
-        return;
-      }
-
       const now = Date.now();
       for (const path of screenshots) {
         const existing = signedUrls[path];
         if (existing && existing.expiresAtMs - now > 30_000) continue;
 
-        const { data, error } = await supabase.storage
-          .from(SCREENSHOTS_BUCKET)
-          .createSignedUrl(path, 3600);
+        const result = await createTradeScreenshotSignedUrl(path, 3600);
 
         if (cancelled) return;
-        if (error || !data?.signedUrl) continue;
+        if (!result?.signedUrl) continue;
 
         setSignedUrls((prev) => ({
           ...prev,
-          [path]: { url: data.signedUrl, expiresAtMs: Date.now() + 3600_000 },
+          [path]: { url: result.signedUrl, expiresAtMs: result.expiresAtMs },
         }));
       }
     })();
