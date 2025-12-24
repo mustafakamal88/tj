@@ -278,11 +278,19 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const dayTitle = format(dayDate, 'EEE, MMM d, yyyy');
   const metrics = calculateDayMetrics(trades);
 
+  const handleSheetOpenChange = (nextOpen: boolean) => {
+    // Close is only allowed via the explicit ❌ button.
+    if (!nextOpen) return;
+    onOpenChange(true);
+  };
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleSheetOpenChange}>
       <SheetContent
         side="right"
         className="w-full sm:max-w-[640px] lg:max-w-[900px] p-0 flex flex-col"
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
       >
         {/* Header */}
         <SheetHeader className="p-4 border-b bg-muted/30">
