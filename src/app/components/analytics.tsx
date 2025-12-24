@@ -5,8 +5,6 @@ import { Button } from './ui/button';
 import { fetchTrades } from '../utils/trades-api';
 import { filterTradesForFreeUser } from '../utils/data-limit';
 import {
-  calculateTotalPnL,
-  calculateAveragePnL,
   calculateProfitFactor,
   formatCurrency,
 } from '../utils/trade-calculations';
@@ -147,6 +145,29 @@ function computePlannedRR(t: Trade): number | null {
   return Number.isFinite(rr) ? rr : null;
 }
 
+function formatTooltipValue(keyOrName: unknown, value: unknown): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value);
+
+  const key = String(keyOrName ?? '').toLowerCase();
+  if (
+    key.includes('p/l') ||
+    key.includes('pnl') ||
+    key.includes('equity') ||
+    key.includes('profit') ||
+    key.includes('loss') ||
+    key.includes('expect')
+  ) {
+    return formatMoney(value);
+  }
+  if (key.includes('win') && key.includes('rate')) return formatPct(value, 1);
+  if (key.includes('rate') || key.includes('pct') || key.includes('%')) return formatPct(value, 0);
+  if (key.includes('score')) return value.toFixed(0);
+  if (key.includes('rolling')) return value.toFixed(1);
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(2);
+}
+
 function TJTooltip({ active, payload, label }: any) {
   if (!active || !payload || payload.length === 0) return null;
   return (
@@ -162,7 +183,7 @@ function TJTooltip({ active, payload, label }: any) {
                 <span className="text-muted-foreground truncate">{p.name ?? p.dataKey}</span>
               </div>
               <span className="tabular-nums text-foreground">
-                {typeof p.value === 'number' ? p.value : String(p.value)}
+                {formatTooltipValue(p.name ?? p.dataKey, p.value)}
               </span>
             </div>
           ))}
@@ -622,12 +643,18 @@ export function Analytics() {
                     <h2 className="text-base font-semibold">Overtrading Detector</h2>
                     <p className="text-xs text-muted-foreground">Last 60 days</p>
                   </div>
+                  {overtrading.peakTradesPerDay > 8 ? (
+                    <Badge variant="outline" className={`text-[11px] ${semanticColors.lossText}`}>
+                      Warning
+                    </Badge>
+                  ) : null}
                 </div>
 
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                   <div className="rounded-lg border bg-muted/20 p-3">
                     <div className="text-xs text-muted-foreground">Avg trades/day</div>
                     <div className="font-semibold tabular-nums">{overtrading.avgTradesPerDay.toFixed(1)}</div>
+                    <div className="text-[11px] text-muted-foreground">Flagged if &gt; 8/day</div>
                   </div>
                   <div className="rounded-lg border bg-muted/20 p-3">
                     <div className="text-xs text-muted-foreground">Peak trades/day</div>
