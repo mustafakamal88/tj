@@ -41,6 +41,14 @@ const DialogContent = React.forwardRef<
         className
       )}
       {...props}
+      onPointerDownOutside={(e) => {
+        props.onPointerDownOutside?.(e);
+        e.preventDefault();
+      }}
+      onInteractOutside={(e) => {
+        props.onInteractOutside?.(e);
+        e.preventDefault();
+      }}
     >
       {children}
 

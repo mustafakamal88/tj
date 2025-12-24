@@ -52,6 +52,16 @@ function SheetContent({
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left";
 }) {
+  const handlePointerDownOutside: React.ComponentProps<typeof SheetPrimitive.Content>["onPointerDownOutside"] = (e) => {
+    props.onPointerDownOutside?.(e);
+    e.preventDefault();
+  };
+
+  const handleInteractOutside: React.ComponentProps<typeof SheetPrimitive.Content>["onInteractOutside"] = (e) => {
+    props.onInteractOutside?.(e);
+    e.preventDefault();
+  };
+
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -70,9 +80,11 @@ function SheetContent({
           className,
         )}
         {...props}
+        onPointerDownOutside={handlePointerDownOutside}
+        onInteractOutside={handleInteractOutside}
       >
         {children}
-        <SheetPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+        <SheetPrimitive.Close className="absolute top-4 right-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
           <XIcon className="size-4" />
           <span className="sr-only">Close</span>
         </SheetPrimitive.Close>

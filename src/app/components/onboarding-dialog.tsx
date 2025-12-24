@@ -57,7 +57,7 @@ export function OnboardingDialog({ open, userId, onCompleted }: OnboardingDialog
 
   return (
     <Dialog open={open} onOpenChange={() => undefined}>
-      <DialogContent className="w-[95vw] max-w-lg max-h-[90dvh] overflow-y-auto [&>button:last-child]:hidden">
+      <DialogContent className="w-[95vw] max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>What usually hurts your trading the most?</DialogTitle>
         </DialogHeader>

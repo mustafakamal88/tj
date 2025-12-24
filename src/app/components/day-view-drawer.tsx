@@ -341,7 +341,6 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       <SheetContent
         side="right"
         className="w-full sm:max-w-[640px] lg:max-w-[900px] p-0 flex flex-col"
-        onInteractOutside={(e) => e.preventDefault()}
       >
         {/* Header */}
         <SheetHeader className="p-4 border-b bg-muted/30">

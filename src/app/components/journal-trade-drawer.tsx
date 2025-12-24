@@ -236,7 +236,6 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
       <SheetContent
         side="right"
         className="w-full sm:max-w-[720px] p-0"
-        onInteractOutside={(e) => e.preventDefault()}
       >
         <div className="flex h-full flex-col">
           <SheetHeader className="shrink-0 border-b p-4 bg-muted/30">
