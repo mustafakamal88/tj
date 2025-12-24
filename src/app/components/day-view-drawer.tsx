@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Card } from './ui/card';
 import { Skeleton } from './ui/skeleton';
-import { X, Save, TrendingUp, FileText, Image as ImageIcon, ChevronRight, Upload } from 'lucide-react';
+import { Save, TrendingUp, FileText, Image as ImageIcon, ChevronRight, Upload } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import type { Trade } from '../types/trade';
 import {
@@ -58,6 +58,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const [tradeShotError, setTradeShotError] = useState<string | null>(null);
   const tradeNotesDebounceRef = useRef<number | null>(null);
   const selectedTradeSectionRef = useRef<HTMLDivElement | null>(null);
+  const lastSavedTradeNoteSnapshotRef = useRef<string>('');
 
   const TRADE_EMOTIONS = ['Calm', 'Fear', 'FOMO', 'Revenge', 'Overconfident', 'Hesitation'] as const;
   const TRADE_MISTAKES = ['Entered early', 'No SL', 'Oversized', 'Moved SL', 'Overtraded', "Didn’t follow plan"] as const;
@@ -97,6 +98,21 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       setLoading(false);
     }
   }, [selectedDay]);
+
+  const currentTradeNoteSnapshot = useMemo(() => {
+    const normalizedExtraNotes = buildTradeNoteExtras({
+      emotionsText: tradeEmotionsText,
+      mistakesText: tradeMistakesText,
+    });
+    return JSON.stringify({
+      notes: tradeNotes || '',
+      meta: {
+        emotions: tradeMeta.emotions || [],
+        mistakes: tradeMeta.mistakes || [],
+        extraNotes: normalizedExtraNotes,
+      },
+    });
+  }, [tradeNotes, tradeMeta.emotions, tradeMeta.mistakes, tradeEmotionsText, tradeMistakesText]);
 
   useEffect(() => {
     if (open && selectedDay) {
@@ -140,13 +156,28 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     try {
       const detail = await getTradeDetail(trade.id);
       setSelectedTradeDetail(detail);
-      setTradeNotes(detail?.note?.notes || '');
+      const serverNotes = detail?.note?.notes || '';
+      setTradeNotes(serverNotes);
       setTradeNotesDirty(false);
       const meta = ((detail?.note?.meta as TradeNoteMeta) || {}) as TradeNoteMeta;
       setTradeMeta(meta);
       const parsed = parseTradeNoteExtras(meta.extraNotes);
       setTradeEmotionsText(parsed.emotionsText);
       setTradeMistakesText(parsed.mistakesText);
+
+      // Snapshot guards against accidental saves/toasts on selection.
+      const normalizedExtra = buildTradeNoteExtras({
+        emotionsText: parsed.emotionsText,
+        mistakesText: parsed.mistakesText,
+      });
+      lastSavedTradeNoteSnapshotRef.current = JSON.stringify({
+        notes: serverNotes,
+        meta: {
+          emotions: meta.emotions || [],
+          mistakes: meta.mistakes || [],
+          extraNotes: normalizedExtra,
+        },
+      });
 
       // Auto-scroll selected trade section into view.
       window.setTimeout(() => {
@@ -163,18 +194,39 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     if (selectedTradeId) {
       const detail = await getTradeDetail(selectedTradeId);
       setSelectedTradeDetail(detail);
-      setTradeNotes(detail?.note?.notes || tradeNotes);
+      const serverNotes = detail?.note?.notes || tradeNotes;
+      setTradeNotes(serverNotes);
       setTradeNotesDirty(false);
       const meta = ((detail?.note?.meta as TradeNoteMeta) || tradeMeta) as TradeNoteMeta;
       setTradeMeta(meta);
       const parsed = parseTradeNoteExtras(meta.extraNotes);
       setTradeEmotionsText(parsed.emotionsText);
       setTradeMistakesText(parsed.mistakesText);
+
+      const normalizedExtra = buildTradeNoteExtras({
+        emotionsText: parsed.emotionsText,
+        mistakesText: parsed.mistakesText,
+      });
+      lastSavedTradeNoteSnapshotRef.current = JSON.stringify({
+        notes: serverNotes,
+        meta: {
+          emotions: meta.emotions || [],
+          mistakes: meta.mistakes || [],
+          extraNotes: normalizedExtra,
+        },
+      });
     }
   };
 
   const handleSaveTradeNotes = async (opts?: { source?: 'manual' | 'autosave' }) => {
     if (!selectedTradeDetail) return;
+
+    // Guard: never save if unchanged (prevents loops/toast spam).
+    if (currentTradeNoteSnapshot === lastSavedTradeNoteSnapshotRef.current) {
+      setTradeNotesDirty(false);
+      return;
+    }
+
     setSavingTradeNotes(true);
     try {
       const meta: TradeNoteMeta = {
@@ -186,6 +238,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       if (success) {
         // Avoid toast spam for autosave.
         if (opts?.source !== 'autosave') toast.success('Trade notes saved');
+        lastSavedTradeNoteSnapshotRef.current = currentTradeNoteSnapshot;
         setTradeNotesDirty(false);
         await handleTradeUpdated();
       } else {
@@ -204,6 +257,11 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
     if (!selectedTradeDetail) return;
     if (!tradeNotesDirty) return;
 
+    if (currentTradeNoteSnapshot === lastSavedTradeNoteSnapshotRef.current) {
+      setTradeNotesDirty(false);
+      return;
+    }
+
     if (tradeNotesDebounceRef.current) {
       window.clearTimeout(tradeNotesDebounceRef.current);
     }
@@ -219,7 +277,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tradeNotes, tradeMeta, tradeEmotionsText, tradeMistakesText, selectedTradeDetail?.id, tradeNotesDirty]);
+  }, [currentTradeNoteSnapshot, selectedTradeDetail?.id, tradeNotesDirty]);
 
   const handleTradeScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -278,19 +336,12 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
   const dayTitle = format(dayDate, 'EEE, MMM d, yyyy');
   const metrics = calculateDayMetrics(trades);
 
-  const handleSheetOpenChange = (nextOpen: boolean) => {
-    // Close is only allowed via the explicit ❌ button.
-    if (!nextOpen) return;
-    onOpenChange(true);
-  };
-
   return (
-    <Sheet open={open} onOpenChange={handleSheetOpenChange}>
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
         className="w-full sm:max-w-[640px] lg:max-w-[900px] p-0 flex flex-col"
         onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
       >
         {/* Header */}
         <SheetHeader className="p-4 border-b bg-muted/30">
@@ -309,15 +360,7 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
               </div>
             </div>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onOpenChange(false)}
-              className="-mt-1"
-              aria-label="Close day view"
-            >
-              <X className="w-5 h-5" />
-            </Button>
+            {/* Close button is provided by SheetContent (single X in top-right). */}
           </div>
         </SheetHeader>
 

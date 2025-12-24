@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { X, Save, Upload } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Save, Upload } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -44,9 +44,22 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
   const [shotError, setShotError] = useState<string | null>(null);
 
   const autosaveRef = useRef<number | null>(null);
+  const lastSavedSnapshotRef = useRef<string>('');
 
   const pnl = trade?.pnl ?? null;
   const symbol = trade?.symbol ?? '';
+
+  const currentSnapshot = useMemo(() => {
+    const normalizedExtraNotes = buildTradeNoteExtras({ emotionsText, mistakesText });
+    return JSON.stringify({
+      notes: notes || '',
+      meta: {
+        emotions: meta.emotions || [],
+        mistakes: meta.mistakes || [],
+        extraNotes: normalizedExtraNotes,
+      },
+    });
+  }, [notes, meta.emotions, meta.mistakes, emotionsText, mistakesText]);
 
   const loadTrade = async (id: string) => {
     setLoading(true);
@@ -54,7 +67,8 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
     try {
       const detail = await getTradeDetail(id);
       setTrade(detail);
-      setNotes(detail?.note?.notes || '');
+      const serverNotes = detail?.note?.notes || '';
+      setNotes(serverNotes);
       setNotesDirty(false);
 
       const nextMeta = ((detail?.note?.meta as TradeNoteMeta) || {}) as TradeNoteMeta;
@@ -62,6 +76,19 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
       const parsed = parseTradeNoteExtras(nextMeta.extraNotes);
       setEmotionsText(parsed.emotionsText);
       setMistakesText(parsed.mistakesText);
+
+      const normalizedExtra = buildTradeNoteExtras({
+        emotionsText: parsed.emotionsText,
+        mistakesText: parsed.mistakesText,
+      });
+      lastSavedSnapshotRef.current = JSON.stringify({
+        notes: serverNotes,
+        meta: {
+          emotions: nextMeta.emotions || [],
+          mistakes: nextMeta.mistakes || [],
+          extraNotes: normalizedExtra,
+        },
+      });
     } catch (error) {
       console.error('Failed to load trade detail', error);
       toast.error('Failed to load trade details');
@@ -95,6 +122,13 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
 
   const handleSave = async (opts?: { source?: 'manual' | 'autosave' }) => {
     if (!trade) return;
+
+    // Guard: never save if unchanged.
+    if (currentSnapshot === lastSavedSnapshotRef.current) {
+      setNotesDirty(false);
+      return;
+    }
+
     setSaving(true);
     try {
       const nextMeta: TradeNoteMeta = {
@@ -106,6 +140,7 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
       const success = await upsertTradeNotes(trade.id, notes, nextMeta);
       if (success) {
         if (opts?.source !== 'autosave') toast.success('Trade notes saved');
+        lastSavedSnapshotRef.current = currentSnapshot;
         setNotesDirty(false);
         await loadTrade(trade.id);
       } else {
@@ -125,6 +160,11 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
     if (!open) return;
     if (!notesDirty) return;
 
+    if (currentSnapshot === lastSavedSnapshotRef.current) {
+      setNotesDirty(false);
+      return;
+    }
+
     if (autosaveRef.current) window.clearTimeout(autosaveRef.current);
 
     autosaveRef.current = window.setTimeout(() => {
@@ -137,7 +177,7 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
         autosaveRef.current = null;
       }
     };
-  }, [trade, open, notesDirty, notes, meta, emotionsText, mistakesText]);
+  }, [trade?.id, open, notesDirty, currentSnapshot]);
 
   const toggleEmotion = (value: (typeof TRADE_EMOTIONS)[number]) => {
     const current = meta.emotions || [];
@@ -191,19 +231,12 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
     }
   };
 
-  const handleOpenChange = (nextOpen: boolean) => {
-    // Close is only allowed via our explicit close button.
-    if (!nextOpen) return;
-    onOpenChange(true);
-  };
-
   return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
         className="w-full sm:max-w-[720px] p-0"
         onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
       >
         <div className="flex h-full flex-col">
           <SheetHeader className="shrink-0 border-b p-4 bg-muted/30">
@@ -218,15 +251,7 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
                   </div>
                 ) : null}
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => onOpenChange(false)}
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </Button>
+              {/* Close button is provided by SheetContent (single X in top-right). */}
             </div>
           </SheetHeader>
 

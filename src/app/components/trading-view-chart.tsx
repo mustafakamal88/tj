@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from './ui/card';
 
 type TradingViewChartProps = {
@@ -9,11 +9,28 @@ type TradingViewChartProps = {
 export function TradingViewChart({ symbol, heightClassName = 'h-[200px]' }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scriptLoadedRef = useRef(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof document === 'undefined') return 'dark';
+    return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+  });
 
   const containerId = useMemo(() => {
     const safe = String(symbol || 'chart').replace(/[^a-zA-Z0-9_-]/g, '-');
     return `tradingview-widget-${safe}`;
   }, [symbol]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const el = document.documentElement;
+    const updateTheme = () => setTheme(el.classList.contains('dark') ? 'dark' : 'light');
+    updateTheme();
+
+    const observer = new MutationObserver(updateTheme);
+    observer.observe(el, { attributes: true, attributeFilter: ['class'] });
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -51,7 +68,7 @@ export function TradingViewChart({ symbol, heightClassName = 'h-[200px]' }: Trad
         symbol: formattedSymbol,
         interval: '60',
         timezone: 'Etc/UTC',
-        theme: 'dark',
+        theme,
         style: '1',
         locale: 'en',
         enable_publishing: false,
@@ -66,7 +83,7 @@ export function TradingViewChart({ symbol, heightClassName = 'h-[200px]' }: Trad
         studies: [],
       });
     }
-  }, [symbol, containerId]);
+  }, [symbol, containerId, theme]);
 
   return (
     <Card className="overflow-hidden bg-background">
