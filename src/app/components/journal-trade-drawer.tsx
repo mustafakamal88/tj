@@ -206,7 +206,7 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
         <div className="flex h-full flex-col">
-          <SheetHeader className="shrink-0 border-b p-4">
+          <SheetHeader className="shrink-0 border-b p-4 bg-muted/30">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <SheetTitle className="truncate">
@@ -254,9 +254,10 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
                       onClick={() => void handleSave({ source: 'manual' })}
                       disabled={saving || !notesDirty}
                       size="sm"
+                      className="gap-2"
                     >
-                      <Save className="mr-2 h-4 w-4" />
-                      Save
+                      <Save className="w-3 h-3" />
+                      {saving ? 'Saving...' : 'Save'}
                     </Button>
                   </div>
                 </Card>
@@ -268,20 +269,25 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
                 ) : null}
 
                 <Card className="p-4 space-y-3">
-                  <div className="text-sm font-medium">Notes</div>
+                  <div className="flex items-center justify-between mb-1">
+                    <h4 className="font-semibold text-sm">Trade Notes</h4>
+                  </div>
                   <Textarea
                     value={notes}
                     onChange={(e) => {
                       setNotes(e.target.value);
                       setNotesDirty(true);
                     }}
-                    placeholder="Trade notes…"
-                    className="min-h-[140px]"
+                    placeholder="Why did I take this trade? What was the plan?"
+                    className="min-h-[140px] resize-y font-mono text-sm bg-background/50"
                   />
+                  {trade.note ? (
+                    <p className="text-[11px] text-muted-foreground">Autosaves after you pause typing.</p>
+                  ) : null}
                 </Card>
 
                 <Card className="p-4 space-y-3">
-                  <div className="text-sm font-medium">Emotions</div>
+                  <h4 className="font-semibold text-sm">Emotions</h4>
                   <div className="flex flex-wrap gap-2">
                     {TRADE_EMOTIONS.map((e) => (
                       <Button
@@ -301,25 +307,36 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
                       setEmotionsText(e.target.value);
                       setNotesDirty(true);
                     }}
-                    placeholder="What were you feeling?"
-                    className="min-h-[100px]"
+                    placeholder="Optional…"
+                    className="min-h-[100px] resize-y font-mono text-sm bg-background/50"
                   />
                 </Card>
 
                 <Card className="p-4 space-y-3">
-                  <div className="text-sm font-medium">Mistakes</div>
-                  <div className="flex flex-wrap gap-2">
-                    {TRADE_MISTAKES.map((m) => (
-                      <Button
-                        key={m}
-                        type="button"
-                        variant={(meta.mistakes || []).includes(m) ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => toggleMistake(m)}
-                      >
-                        {m}
-                      </Button>
-                    ))}
+                  <h4 className="font-semibold text-sm">Mistakes</h4>
+                  <div className="space-y-2">
+                    {TRADE_MISTAKES.map((label) => {
+                      const checked = (meta.mistakes || []).includes(label);
+                      return (
+                        <label key={label} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const prev = meta.mistakes || [];
+                              const next = e.target.checked
+                                ? prev.includes(label)
+                                  ? prev
+                                  : [...prev, label]
+                                : prev.filter((x) => x !== label);
+                              setMeta((m) => ({ ...m, mistakes: next }));
+                              setNotesDirty(true);
+                            }}
+                          />
+                          <span>{label}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                   <Textarea
                     value={mistakesText}
@@ -328,13 +345,13 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
                       setNotesDirty(true);
                     }}
                     placeholder="What went wrong / what to fix?"
-                    className="min-h-[100px]"
+                    className="min-h-[100px] resize-y font-mono text-sm bg-background/50"
                   />
                 </Card>
 
                 <Card className="p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium">Screenshots</div>
+                    <h4 className="font-semibold text-sm">Screenshots</h4>
                     <label className="inline-flex">
                       <input
                         type="file"
@@ -347,9 +364,9 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
                           e.currentTarget.value = '';
                         }}
                       />
-                      <Button type="button" variant="outline" size="sm" disabled={uploadingShot}>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Upload
+                      <Button type="button" variant="outline" size="sm" disabled={uploadingShot} className="gap-2">
+                        <Upload className="w-3 h-3" />
+                        {uploadingShot ? 'Uploading...' : 'Upload'}
                       </Button>
                     </label>
                   </div>
