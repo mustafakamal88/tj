@@ -270,7 +270,7 @@ export function JournalPage() {
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
                               <span className={pnlTextClass(f.totalPnl)}>
-                                {formatCurrency(f.totalPnl)}
+                                {formatSignedCurrency(f.totalPnl)}
                               </span>
                             </div>
                           </div>
