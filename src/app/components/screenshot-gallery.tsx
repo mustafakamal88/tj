@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent } from './ui/dialog';
-import { X, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import type { TradeScreenshot } from '../utils/day-journal-api';
 import { createTradeScreenshotSignedUrl } from '../utils/day-journal-api';
 
@@ -114,20 +114,10 @@ export function ScreenshotGallery({ media, onDelete }: ScreenshotGalleryProps) {
       {/* Lightbox */}
       <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
         <DialogContent
-          className="max-w-[95vw] max-h-[95vh] p-0 bg-black/95 border-0"
+          className="max-w-[95vw] max-h-[95vh] p-0 bg-black/95 border-0 text-white"
           onKeyDown={handleKeyDown}
         >
           <div className="relative flex items-center justify-center h-[95vh]">
-            {/* Close button */}
-            <Button
-              size="icon"
-              variant="ghost"
-              className="absolute top-4 right-4 z-10 text-white hover:bg-white/20"
-              onClick={() => setLightboxOpen(false)}
-            >
-              <X className="w-6 h-6" />
-            </Button>
-
             {/* Delete button */}
             <Button
               size="icon"
