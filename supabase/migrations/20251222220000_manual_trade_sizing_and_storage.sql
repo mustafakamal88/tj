@@ -60,17 +60,35 @@ revoke update (storage_used_bytes) on table public.profiles from authenticated;
 -- 3) Screenshot metadata table (size + path per upload)
 -- ---------------------------------------------------------------------------
 
+-- NOTE: This migration must work against both legacy schemas (trade_screenshots has user_id)
+-- and newer schemas (no user_id; ownership is derived via trade_id -> trades.user_id).
+
 create table if not exists public.trade_screenshots (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
-  trade_id uuid not null references public.trades (id) on delete cascade,
-  path text not null,
-  size_bytes bigint not null,
+  trade_id uuid references public.trades (id) on delete cascade,
+  object_path text,
+  path text,
+  filename text,
+  metadata jsonb,
+  mime_type text,
+  size_bytes bigint,
   created_at timestamptz not null default now()
 );
 
+-- Ensure commonly-used columns exist across environments (non-destructive).
+alter table public.trade_screenshots
+  add column if not exists trade_id uuid,
+  add column if not exists object_path text,
+  add column if not exists path text,
+  add column if not exists filename text,
+  add column if not exists metadata jsonb,
+  add column if not exists mime_type text,
+  add column if not exists size_bytes bigint,
+  add column if not exists created_at timestamptz;
+
 do $$
 begin
+  -- Add a non-breaking check constraint only if missing.
   if not exists (
     select 1
     from pg_constraint c
@@ -82,35 +100,112 @@ begin
   ) then
     alter table public.trade_screenshots
       add constraint trade_screenshots_size_bytes_check
-      check (size_bytes > 0);
+      check (size_bytes is null or size_bytes >= 0);
   end if;
 end$$;
 
-create index if not exists trade_screenshots_user_id_idx on public.trade_screenshots (user_id);
-create index if not exists trade_screenshots_trade_id_idx on public.trade_screenshots (trade_id);
+-- Indexes (create user_id index only if the column exists).
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'trade_screenshots'
+      and column_name = 'user_id'
+  ) then
+    execute 'create index if not exists trade_screenshots_user_id_idx on public.trade_screenshots (user_id)';
+  end if;
+
+  execute 'create index if not exists trade_screenshots_trade_id_idx on public.trade_screenshots (trade_id)';
+end$$;
 
 alter table public.trade_screenshots enable row level security;
 
+-- Drop and recreate policies depending on schema.
 drop policy if exists "trade_screenshots_select_own" on public.trade_screenshots;
-create policy "trade_screenshots_select_own"
-on public.trade_screenshots
-for select
-to authenticated
-using (user_id = auth.uid());
-
 drop policy if exists "trade_screenshots_insert_own" on public.trade_screenshots;
-create policy "trade_screenshots_insert_own"
-on public.trade_screenshots
-for insert
-to authenticated
-with check (user_id = auth.uid());
-
 drop policy if exists "trade_screenshots_delete_own" on public.trade_screenshots;
-create policy "trade_screenshots_delete_own"
-on public.trade_screenshots
-for delete
-to authenticated
-using (user_id = auth.uid());
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'trade_screenshots'
+      and column_name = 'user_id'
+  ) then
+    execute $p$
+      create policy "trade_screenshots_select_own"
+      on public.trade_screenshots
+      for select
+      to authenticated
+      using (user_id = auth.uid())
+    $p$;
+
+    execute $p$
+      create policy "trade_screenshots_insert_own"
+      on public.trade_screenshots
+      for insert
+      to authenticated
+      with check (user_id = auth.uid())
+    $p$;
+
+    execute $p$
+      create policy "trade_screenshots_delete_own"
+      on public.trade_screenshots
+      for delete
+      to authenticated
+      using (user_id = auth.uid())
+    $p$;
+  else
+    execute $p$
+      create policy "trade_screenshots_select_own"
+      on public.trade_screenshots
+      for select
+      to authenticated
+      using (
+        exists (
+          select 1
+          from public.trades t
+          where t.id = trade_screenshots.trade_id
+            and t.user_id = auth.uid()
+        )
+      )
+    $p$;
+
+    execute $p$
+      create policy "trade_screenshots_insert_own"
+      on public.trade_screenshots
+      for insert
+      to authenticated
+      with check (
+        exists (
+          select 1
+          from public.trades t
+          where t.id = trade_screenshots.trade_id
+            and t.user_id = auth.uid()
+        )
+      )
+    $p$;
+
+    execute $p$
+      create policy "trade_screenshots_delete_own"
+      on public.trade_screenshots
+      for delete
+      to authenticated
+      using (
+        exists (
+          select 1
+          from public.trades t
+          where t.id = trade_screenshots.trade_id
+            and t.user_id = auth.uid()
+        )
+      )
+    $p$;
+  end if;
+end$$;
 
 -- Automatically increment cached usage when a screenshot row is inserted.
 create or replace function public.handle_trade_screenshot_insert()
@@ -119,10 +214,30 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  owner_id uuid;
 begin
-  update public.profiles
-  set storage_used_bytes = storage_used_bytes + new.size_bytes
-  where id = new.user_id;
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'trade_screenshots'
+      and column_name = 'user_id'
+  ) then
+    owner_id := nullif(to_jsonb(new)->>'user_id', '')::uuid;
+  else
+    select t.user_id
+      into owner_id
+      from public.trades t
+     where t.id = new.trade_id;
+  end if;
+
+  if owner_id is not null then
+    update public.profiles
+       set storage_used_bytes = coalesce(storage_used_bytes, 0) + coalesce(new.size_bytes, 0)
+     where id = owner_id;
+  end if;
+
   return new;
 end;
 $$;
@@ -140,7 +255,7 @@ insert into storage.buckets (id, name, public)
 values ('trade-screenshots', 'trade-screenshots', false)
 on conflict (id) do nothing;
 
--- Restrict to paths like: <userId>/trades/<tradeId>/<file>
+-- Restrict to paths like: <userId>/<tradeId>/<file>
 drop policy if exists "trade_screenshots_objects_select_own" on storage.objects;
 create policy "trade_screenshots_objects_select_own"
 on storage.objects
@@ -149,7 +264,6 @@ to authenticated
 using (
   bucket_id = 'trade-screenshots'
   and auth.uid()::text = (storage.foldername(name))[1]
-  and (storage.foldername(name))[2] = 'trades'
 );
 
 drop policy if exists "trade_screenshots_objects_insert_own" on storage.objects;
@@ -160,7 +274,6 @@ to authenticated
 with check (
   bucket_id = 'trade-screenshots'
   and auth.uid()::text = (storage.foldername(name))[1]
-  and (storage.foldername(name))[2] = 'trades'
 );
 
 drop policy if exists "trade_screenshots_objects_delete_own" on storage.objects;
@@ -171,7 +284,6 @@ to authenticated
 using (
   bucket_id = 'trade-screenshots'
   and auth.uid()::text = (storage.foldername(name))[1]
-  and (storage.foldername(name))[2] = 'trades'
 );
 
 commit;
