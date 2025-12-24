@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Link } from 'lucide-react';
 import { fetchTradesCount, fetchTradesForCalendarMonth } from '../utils/trades-api';
 import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
@@ -14,6 +15,7 @@ import type { Trade } from '../types/trade';
 import { pnlBgSoftClass, pnlTextClass, semanticColors } from '../utils/semantic-colors';
 import { 
   format, 
+  parseISO,
   startOfMonth, 
   endOfMonth, 
   eachDayOfInterval, 
@@ -47,7 +49,9 @@ type DashboardCalendarCardProps = {
   onPrevMonth?: () => void;
   onNextMonth?: () => void;
   onDayClick?: (day: Date) => void;
+  onGoToDate?: (day: Date) => void;
   preview?: boolean;
+  hideWeekends?: boolean;
 };
 
 export function DashboardCalendarCard({
@@ -59,8 +63,38 @@ export function DashboardCalendarCard({
   onPrevMonth,
   onNextMonth,
   onDayClick,
+  onGoToDate,
   preview = false,
+  hideWeekends = false,
 }: DashboardCalendarCardProps) {
+  const [goToDate, setGoToDate] = useState('');
+  const showHideWeekends = !preview && hideWeekends;
+  const visibleDayIndexes = showHideWeekends ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
+  const dayHeaders = showHideWeekends
+    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Week']
+    : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Week'];
+
+  const handleGoToDate = () => {
+    if (!goToDate) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(goToDate)) {
+      toast.error('Enter a valid date');
+      return;
+    }
+    const parsed = parseISO(goToDate);
+    if (!Number.isFinite(parsed.getTime())) {
+      toast.error('Enter a valid date');
+      return;
+    }
+
+    if (onGoToDate) {
+      onGoToDate(parsed);
+      return;
+    }
+    if (onDayClick) {
+      onDayClick(parsed);
+    }
+  };
+
   return (
     <Card className="p-4 sm:p-6">
       {/* Calendar Header */}
@@ -71,7 +105,25 @@ export function DashboardCalendarCard({
           <h2>{format(currentMonth, 'MMMM yyyy')}</h2>
         </div>
         {!preview && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center gap-2">
+              <Input
+                type="date"
+                aria-label="Go to date"
+                value={goToDate}
+                onChange={(e) => setGoToDate(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleGoToDate();
+                  }
+                }}
+                className="w-[160px]"
+              />
+              <Button variant="outline" onClick={handleGoToDate} disabled={!goToDate} aria-label="Go to date">
+                Go
+              </Button>
+            </div>
             <Button variant="outline" size="icon" onClick={onPrevMonth} disabled={!onPrevMonth}>
               <ChevronLeft className="w-4 h-4" />
             </Button>
@@ -93,8 +145,14 @@ export function DashboardCalendarCard({
         <div className={preview ? 'flex justify-end' : ''}>
           <div className="w-full min-w-[800px]">
             {/* Day Headers */}
-            <div className="grid grid-cols-8 gap-0 mb-2 [grid-template-columns:repeat(7,minmax(0,1fr))_120px]">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Week'].map((day) => (
+            <div
+              className={
+                showHideWeekends
+                  ? 'grid grid-cols-6 gap-0 mb-2 [grid-template-columns:repeat(5,minmax(0,1fr))_120px]'
+                  : 'grid grid-cols-8 gap-0 mb-2 [grid-template-columns:repeat(7,minmax(0,1fr))_120px]'
+              }
+            >
+              {dayHeaders.map((day) => (
                 <div key={day} className="text-center text-[10px] sm:text-sm text-muted-foreground py-1.5 sm:py-2">
                   {day}
                 </div>
@@ -108,10 +166,15 @@ export function DashboardCalendarCard({
                 return (
                   <div
                     key={weekIndex}
-                    className="grid grid-cols-8 gap-0 [grid-template-columns:repeat(7,minmax(0,1fr))_120px]"
+                    className={
+                      showHideWeekends
+                        ? 'grid grid-cols-6 gap-0 [grid-template-columns:repeat(5,minmax(0,1fr))_120px]'
+                        : 'grid grid-cols-8 gap-0 [grid-template-columns:repeat(7,minmax(0,1fr))_120px]'
+                    }
                   >
                     {/* Day Cells */}
-                    {week.map((day, dayIndex) => {
+                    {visibleDayIndexes.map((dayIndex) => {
+                      const day = week[dayIndex];
                       const dayData = getDayData(day);
                       const isEmpty = day.getTime() === 0;
                       const isClickable = !preview && !isEmpty && onDayClick;
@@ -569,6 +632,11 @@ export function Dashboard() {
           onPrevMonth={() => setCurrentMonth(subMonths(currentMonth, 1))}
           onNextMonth={() => setCurrentMonth(addMonths(currentMonth, 1))}
           onDayClick={handleDayClick}
+          onGoToDate={(day) => {
+            setCurrentMonth(day);
+            handleDayClick(day);
+          }}
+          hideWeekends
         />
 
         {/* Empty State */}
