@@ -649,6 +649,9 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
         const failures = uploads.filter((r) => !r.ok);
         if (failures.length > 0) {
           const firstFailure = failures[0] as Exclude<(typeof uploads)[number], { ok: true }>;
+          if (firstFailure.userMessage) {
+            toast.error(firstFailure.userMessage);
+          } else 
           if (firstFailure.kind === 'bucket_missing') {
             toast.error(`Storage bucket missing (${TRADE_SCREENSHOTS_BUCKET}).`);
           } else if (firstFailure.kind === 'storage_policy' || firstFailure.kind === 'db_policy') {

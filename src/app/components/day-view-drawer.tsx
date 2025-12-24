@@ -251,6 +251,10 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
 
       const firstFailure = results.find((r) => !r.ok);
       if (firstFailure && !firstFailure.ok) {
+        if (firstFailure.userMessage) {
+          setTradeShotError(firstFailure.userMessage);
+          toast.error(firstFailure.userMessage);
+        } else 
         if (firstFailure.kind === 'bucket_missing') {
           setTradeShotError(`Storage bucket missing (${TRADE_SCREENSHOTS_BUCKET}).`);
           toast.error(`Storage bucket missing (${TRADE_SCREENSHOTS_BUCKET}).`);

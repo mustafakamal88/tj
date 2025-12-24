@@ -74,6 +74,9 @@ export function TradeDetailPanel({ trade, onClose, onTradeUpdated }: TradeDetail
       } else {
         const firstFailure = results.find((r) => !r.ok);
         if (firstFailure && !firstFailure.ok) {
+          if (firstFailure.userMessage) {
+            toast.error(firstFailure.userMessage);
+          } else 
           if (firstFailure.kind === 'bucket_missing') {
             toast.error(
               `Storage bucket missing (${TRADE_SCREENSHOTS_BUCKET}). See docs/day-journal-feature.md`,
