@@ -79,6 +79,7 @@ export function UniversityCoursePage({ courseSlug, onBackToUniversity, onOpenLes
                         className={cn(
                           'w-full rounded-md border px-3 py-2 text-left transition-colors',
                           'hover:bg-accent/40',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                           done ? 'bg-accent/30' : 'bg-background',
                         )}
                       >

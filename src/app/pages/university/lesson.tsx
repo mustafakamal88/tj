@@ -50,7 +50,7 @@ export function UniversityLessonPage({ courseSlug, lessonSlug, onBackToCourse, o
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <Seo title={`${lesson.title} | ${course.title} | University | TJ`} noindex />
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <button
             type="button"
@@ -66,7 +66,7 @@ export function UniversityLessonPage({ courseSlug, lessonSlug, onBackToCourse, o
         </div>
         <div className="shrink-0">
           <Button type="button" variant={isDone ? 'secondary' : 'default'} onClick={() => toggleLessonCompleted(courseSlug, lessonSlug)}>
-            {isDone ? 'Completed' : 'Mark complete'}
+            {isDone ? 'Mark incomplete' : 'Mark complete'}
           </Button>
         </div>
       </div>
