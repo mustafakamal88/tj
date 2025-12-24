@@ -409,7 +409,7 @@ export async function fetchTradeScreenshots(tradeId: string): Promise<TradeScree
 
     const { data, error } = await supabase
       .from('trade_screenshots')
-      .select('id, trade_id, user_id, object_path, path, filename, metadata, size_bytes, created_at, mime_type')
+      .select('id, trade_id, object_path, path, filename, metadata, size_bytes, created_at, mime_type')
       .eq('trade_id', tradeId)
       .order('created_at', { ascending: true });
 
@@ -429,7 +429,8 @@ export async function fetchTradeScreenshots(tradeId: string): Promise<TradeScree
             return {
               id: String(s.id),
               tradeId: String(s.trade_id),
-              userId: String(s.user_id),
+              // `trade_screenshots` may not have a `user_id` column; RLS enforces ownership via trade_id.
+              userId: authData.user.id,
               path: normalizedPath,
               mimeType:
                 (s.metadata as any)?.mime ??
@@ -599,13 +600,12 @@ export async function uploadTradeScreenshot(tradeId: string, file: File): Promis
         .from('trade_screenshots')
         .insert({
           trade_id: tradeId,
-          user_id: userId,
           object_path: storedPath,
           filename: fileName,
           metadata: { mime: fileType || undefined },
           size_bytes: fileSize,
         })
-        .select('id, trade_id, user_id, object_path, path, filename, metadata, size_bytes, created_at')
+        .select('id, trade_id, object_path, path, filename, metadata, size_bytes, created_at')
         .maybeSingle();
 
     const insertMinimal = () =>
@@ -613,11 +613,10 @@ export async function uploadTradeScreenshot(tradeId: string, file: File): Promis
         .from('trade_screenshots')
         .insert({
           trade_id: tradeId,
-          user_id: userId,
           object_path: storedPath,
           size_bytes: fileSize,
         })
-        .select('id, trade_id, user_id, object_path, path, filename, metadata, size_bytes, created_at')
+        .select('id, trade_id, object_path, path, filename, metadata, size_bytes, created_at')
         .maybeSingle();
 
     console.info('[day-journal-api] uploadTradeScreenshot db insert start', {
@@ -771,8 +770,7 @@ export async function deleteTradeScreenshot(screenshotId: string): Promise<boole
     const { error: dbError } = await supabase
       .from('trade_screenshots')
       .delete()
-      .eq('id', screenshotId)
-      .eq('user_id', userId);
+      .eq('id', screenshotId);
 
     if (dbError) {
       console.error('[day-journal-api] deleteTradeScreenshot DB delete failed', {
