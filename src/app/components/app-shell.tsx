@@ -2,7 +2,9 @@ import type { Page } from '../App';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from './ui/sheet';
 import { cn } from './ui/utils';
-import { appNavItems } from '../nav/app-nav';
+import { appNavGroups } from '../nav/app-nav';
+import { AlertCircle } from 'lucide-react';
+import { useEffect } from 'react';
 
 type AppShellProps = {
   currentPage: Page;
@@ -19,43 +21,67 @@ export function AppShell({
   onMobileSidebarOpenChange,
   children,
 }: AppShellProps) {
-  const items = appNavItems;
+  useEffect(() => {
+    onMobileSidebarOpenChange(false);
+  }, [currentPage, onMobileSidebarOpenChange]);
 
   const SidebarNav = ({ onItemClick }: { onItemClick?: () => void }) => (
-    <div className="flex h-full flex-col">
-      <div className="px-3 py-3">
-        <div className="space-y-1">
-          {items.map((item) => {
-            const Icon = item.icon;
-            const active = currentPage === item.id;
-            return (
-              <Button
-                key={item.id}
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  onNavigate(item.id);
-                  onItemClick?.();
-                }}
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'relative w-full justify-start gap-2.5 text-sm',
-                  active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    'absolute left-0 top-1 bottom-1 w-0.5 rounded-r bg-primary transition-opacity',
-                    active ? 'opacity-100' : 'opacity-0',
-                  )}
-                />
-                <Icon className="size-[18px]" />
-                {item.label}
-              </Button>
-            );
-          })}
-        </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="px-3 py-4 space-y-6">
+        {appNavGroups.map((group) => (
+          <div key={group.label}>
+            <div className="px-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {group.label}
+            </div>
+            <div className="mt-2 space-y-1">
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const active = currentPage === item.id;
+                return (
+                  <Button
+                    key={item.id}
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      onNavigate(item.id);
+                      onItemClick?.();
+                    }}
+                    aria-current={active ? 'page' : undefined}
+                    className={cn(
+                      'relative w-full justify-start gap-2.5 text-sm',
+                      active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'absolute left-0 top-1 bottom-1 w-0.5 rounded-r bg-primary transition-opacity',
+                        active ? 'opacity-100' : 'opacity-0',
+                      )}
+                    />
+                    <Icon className="size-[18px]" />
+                    {item.label}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-auto border-t px-3 py-3">
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => {
+            onNavigate('learn');
+            onItemClick?.();
+          }}
+          className="w-full justify-start gap-2.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <AlertCircle className="size-[18px]" />
+          Learn More
+        </Button>
       </div>
     </div>
   );
@@ -68,13 +94,6 @@ export function AppShell({
         </aside>
 
         <main className="flex-1 min-w-0">
-          <div className="md:hidden border-b bg-background">
-            <div className="px-4 py-2">
-              <Button type="button" variant="outline" onClick={() => onMobileSidebarOpenChange(true)}>
-                Menu
-              </Button>
-            </div>
-          </div>
           {children}
         </main>
       </div>

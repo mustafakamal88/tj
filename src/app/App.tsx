@@ -12,6 +12,11 @@ import { PricingPage } from './pages/pricing';
 import { LoginPage } from './pages/login';
 import { SignupPage } from './pages/signup';
 import { AppShell } from './components/app-shell';
+import { Seo } from './components/seo';
+import { CommunityPage } from './pages/community';
+import { ImportHistoryPage } from './pages/import-history';
+import { SettingsPage } from './pages/settings';
+import { UniversityPage } from './pages/university';
 import { ErrorBoundary } from './components/error-boundary';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
@@ -36,7 +41,11 @@ export type Page =
   | 'journal'
   | 'analytics'
   | 'learn'
-  | 'billing';
+  | 'billing'
+  | 'university'
+  | 'community'
+  | 'importHistory'
+  | 'settings';
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<Page>('home');
@@ -50,7 +59,16 @@ function AppContent() {
   const userEmail = user?.email ?? null;
 
   const isProtectedPage = (page: Page) => {
-    return page === 'dashboard' || page === 'journal' || page === 'analytics' || page === 'billing';
+    return (
+      page === 'dashboard' ||
+      page === 'journal' ||
+      page === 'analytics' ||
+      page === 'billing' ||
+      page === 'university' ||
+      page === 'community' ||
+      page === 'importHistory' ||
+      page === 'settings'
+    );
   };
 
   const cleanPathname = (p: string) => p.replace(/\/+$/, '') || '/';
@@ -78,7 +96,11 @@ function AppContent() {
       page === 'journal' ? '/journal' :
       page === 'analytics' ? '/analytics' :
       page === 'learn' ? '/learn' :
-      '/billing';
+      page === 'billing' ? '/billing' :
+      page === 'university' ? '/university' :
+      page === 'community' ? '/community' :
+      page === 'importHistory' ? '/import-history' :
+      '/settings';
     const url = new URL(window.location.href);
     url.pathname = path;
     if (opts?.replace) window.history.replaceState({}, '', url.toString());
@@ -101,6 +123,10 @@ function AppContent() {
       path === '/analytics' ? 'analytics' :
       path === '/learn' ? 'learn' :
       path === '/billing' ? 'billing' :
+      path === '/university' ? 'university' :
+      path === '/community' ? 'community' :
+      path === '/import-history' ? 'importHistory' :
+      path === '/settings' ? 'settings' :
       'home';
     setCurrentPage(pageFromPath);
 
@@ -118,6 +144,10 @@ function AppContent() {
         p === '/analytics' ? 'analytics' :
         p === '/learn' ? 'learn' :
         p === '/billing' ? 'billing' :
+        p === '/university' ? 'university' :
+        p === '/community' ? 'community' :
+        p === '/import-history' ? 'importHistory' :
+        p === '/settings' ? 'settings' :
         'home';
       setCurrentPage(next);
     };
@@ -133,8 +163,22 @@ function AppContent() {
     if (authLoading) return;
     if (!userEmail) return;
     if (isAuthDialogOpen) setIsAuthDialogOpen(false);
-    if (currentPage === 'home') setRoute('dashboard', { replace: true });
   }, [authLoading, userEmail, isAuthDialogOpen, currentPage]);
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    // If authenticated, auth pages are always redirected to dashboard.
+    if (userEmail && (currentPage === 'login' || currentPage === 'signup')) {
+      setRoute('dashboard', { replace: true });
+      return;
+    }
+
+    // If not authenticated, protected pages redirect to login.
+    if (!userEmail && isProtectedPage(currentPage) && currentPage !== 'login') {
+      setRoute('login', { replace: true });
+    }
+  }, [authLoading, userEmail, currentPage]);
 
   useEffect(() => {
     // When auth resolves, ensure profile row exists.
@@ -152,7 +196,9 @@ function AppContent() {
   useEffect(() => {
     if (authLoading) return;
     if (user) return;
-    setCurrentPage('home');
+    if (isProtectedPage(currentPage)) {
+      setRoute('login', { replace: true });
+    }
   }, [authLoading, user]);
 
   useEffect(() => {
@@ -172,19 +218,13 @@ function AppContent() {
   const handleNavigate = (page: Page) => {
     // Check if trying to access protected routes
     if (isProtectedPage(page) && !userEmail) {
-      toast.error('Please login to access this page');
-      openAuthDialog('login');
+      setRoute('login');
       return;
     }
     setRoute(page);
   };
 
   const renderPage = () => {
-    // Redirect to home if not logged in and trying to access protected routes
-    if (isProtectedPage(currentPage) && !userEmail) {
-      return <HomePage onGetStarted={() => openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
-    }
-
     const wrapApp = (node: React.ReactNode) => (
       <AppShell
         currentPage={currentPage}
@@ -198,33 +238,134 @@ function AppContent() {
 
     switch (currentPage) {
       case 'home':
-        return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
+        return (
+          <>
+            <Seo title="Trader Journal" />
+            <HomePage
+              onGetStarted={() => userEmail ? setRoute('dashboard') : openAuthDialog('signup')}
+              onLearnMore={() => setRoute('learn')}
+            />
+          </>
+        );
       case 'features':
-        return <FeaturesPage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
+        return (
+          <>
+            <Seo title="Features" />
+            <FeaturesPage
+              onGetStarted={() => userEmail ? setRoute('dashboard') : openAuthDialog('signup')}
+              onLearnMore={() => setRoute('learn')}
+            />
+          </>
+        );
       case 'brokers':
-        return <BrokersPage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
+        return (
+          <>
+            <Seo title="Brokers" />
+            <BrokersPage
+              onGetStarted={() => userEmail ? setRoute('dashboard') : openAuthDialog('signup')}
+              onLearnMore={() => setRoute('learn')}
+            />
+          </>
+        );
       case 'pricing':
-        return <PricingPage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
+        return (
+          <>
+            <Seo title="Pricing" />
+            <PricingPage
+              onGetStarted={() => userEmail ? setRoute('dashboard') : openAuthDialog('signup')}
+              onLearnMore={() => setRoute('learn')}
+            />
+          </>
+        );
       case 'login':
-        return <LoginPage onOpenAuth={() => openAuthDialog('login')} onHome={() => setCurrentPage('home')} />;
+        return (
+          <>
+            <Seo title="Log In" noindex />
+            <LoginPage onOpenAuth={() => openAuthDialog('login')} onHome={() => setRoute('home')} />
+          </>
+        );
       case 'signup':
-        return <SignupPage onOpenAuth={() => openAuthDialog('signup')} onHome={() => setCurrentPage('home')} />;
+        return (
+          <>
+            <Seo title="Sign Up" noindex />
+            <SignupPage onOpenAuth={() => openAuthDialog('signup')} onHome={() => setRoute('home')} />
+          </>
+        );
       case 'dashboard':
         return wrapApp(
-          <ErrorBoundary title="Dashboard crashed" description="Refresh the page and try opening the day drawer again.">
-            <Dashboard />
-          </ErrorBoundary>
+          <>
+            <Seo title="Dashboard" noindex />
+            <ErrorBoundary title="Dashboard crashed" description="Refresh the page and try opening the day drawer again.">
+              <Dashboard />
+            </ErrorBoundary>
+          </>
         );
       case 'journal':
-        return wrapApp(<JournalPage />);
+        return wrapApp(
+          <>
+            <Seo title="Journal" noindex />
+            <JournalPage />
+          </>
+        );
       case 'analytics':
-        return wrapApp(<Analytics />);
+        return wrapApp(
+          <>
+            <Seo title="Analytics" noindex />
+            <Analytics />
+          </>
+        );
       case 'learn':
-        return <LearnMorePage />;
+        return (
+          <>
+            <Seo title="Learn More" />
+            <LearnMorePage />
+          </>
+        );
       case 'billing':
-        return wrapApp(<BillingPage />);
+        return wrapApp(
+          <>
+            <Seo title="Billing" noindex />
+            <BillingPage />
+          </>
+        );
+      case 'university':
+        return wrapApp(
+          <>
+            <Seo title="University" noindex />
+            <UniversityPage />
+          </>
+        );
+      case 'community':
+        return wrapApp(
+          <>
+            <Seo title="Community" noindex />
+            <CommunityPage />
+          </>
+        );
+      case 'importHistory':
+        return wrapApp(
+          <>
+            <Seo title="Import History" noindex />
+            <ImportHistoryPage />
+          </>
+        );
+      case 'settings':
+        return wrapApp(
+          <>
+            <Seo title="Settings" noindex />
+            <SettingsPage onConnectBroker={() => handleNavigate('brokers')} onImport={() => handleNavigate('importHistory')} />
+          </>
+        );
       default:
-        return <HomePage onGetStarted={() => userEmail ? setCurrentPage('dashboard') : openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
+        return (
+          <>
+            <Seo title="Trader Journal" />
+            <HomePage
+              onGetStarted={() => userEmail ? setRoute('dashboard') : openAuthDialog('signup')}
+              onLearnMore={() => setRoute('learn')}
+            />
+          </>
+        );
     }
   };
 
