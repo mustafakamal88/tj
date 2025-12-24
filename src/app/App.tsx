@@ -34,6 +34,7 @@ export type Page =
   | 'dashboard'
   | 'journal'
   | 'analytics'
+  | 'university'
   | 'learn'
   | 'billing';
 
@@ -68,6 +69,7 @@ function AppContent() {
       page === 'dashboard' ? '/dashboard' :
       page === 'journal' ? '/journal' :
       page === 'analytics' ? '/analytics' :
+      page === 'university' ? '/university' :
       page === 'learn' ? '/learn' :
       '/billing';
     const url = new URL(window.location.href);
@@ -88,6 +90,7 @@ function AppContent() {
       path === '/dashboard' ? 'dashboard' :
       path === '/journal' ? 'journal' :
       path === '/analytics' ? 'analytics' :
+      path === '/university' ? 'university' :
       path === '/learn' ? 'learn' :
       path === '/billing' ? 'billing' :
       'home';
@@ -104,6 +107,7 @@ function AppContent() {
         p === '/dashboard' ? 'dashboard' :
         p === '/journal' ? 'journal' :
         p === '/analytics' ? 'analytics' :
+        p === '/university' ? 'university' :
         p === '/learn' ? 'learn' :
         p === '/billing' ? 'billing' :
         'home';
@@ -155,7 +159,7 @@ function AppContent() {
   // Protected route logic
   const handleNavigate = (page: Page) => {
     // Check if trying to access protected routes
-    if ((page === 'dashboard' || page === 'journal' || page === 'analytics' || page === 'billing') && !userEmail) {
+    if ((page === 'dashboard' || page === 'journal' || page === 'analytics' || page === 'university' || page === 'billing') && !userEmail) {
       toast.error('Please login to access this page');
       openAuthDialog('login');
       return;
@@ -165,7 +169,7 @@ function AppContent() {
 
   const renderPage = () => {
     // Redirect to home if not logged in and trying to access protected routes
-    if ((currentPage === 'dashboard' || currentPage === 'journal' || currentPage === 'analytics' || currentPage === 'billing') && !userEmail) {
+    if ((currentPage === 'dashboard' || currentPage === 'journal' || currentPage === 'analytics' || currentPage === 'university' || currentPage === 'billing') && !userEmail) {
       return <HomePage onGetStarted={() => openAuthDialog('signup')} onLearnMore={() => setCurrentPage('learn')} />;
     }
 
@@ -192,6 +196,13 @@ function AppContent() {
         return <JournalPage />;
       case 'analytics':
         return <Analytics />;
+      case 'university':
+        return (
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+            <h1 className="text-3xl mb-2">University</h1>
+            <p className="text-muted-foreground">Structured learning to improve consistency</p>
+          </div>
+        );
       case 'learn':
         return <LearnMorePage />;
       case 'billing':

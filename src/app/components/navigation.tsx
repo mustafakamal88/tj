@@ -33,7 +33,7 @@ export function Navigation({ currentPage, onNavigate, user, onAuthClick, onLogou
         { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard, protected: true },
         { id: 'journal' as Page, label: 'Journal', icon: BookOpen, protected: true },
         { id: 'analytics' as Page, label: 'Analytics', icon: BarChart3, protected: true },
-        { id: 'learn' as Page, label: 'Learn More', icon: GraduationCap },
+        { id: 'university' as Page, label: 'University', icon: GraduationCap, protected: true },
       ]
     : [
         { id: 'home' as Page, label: 'Home', icon: TrendingUp },
