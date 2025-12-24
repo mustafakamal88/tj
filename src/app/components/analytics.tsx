@@ -243,8 +243,8 @@ export function Analytics() {
     };
   }, [tradesArray]);
 
-  const totalPnL = stats.totalPnL ?? 0;
-  const averagePnL = stats.averagePnL ?? 0;
+  const totalPnL = typeof stats.totalPnL === 'number' && Number.isFinite(stats.totalPnL) ? stats.totalPnL : 0;
+  const averagePnL = typeof stats.averagePnL === 'number' && Number.isFinite(stats.averagePnL) ? stats.averagePnL : 0;
 
   const equityCurveData = useMemo(() => {
     const sorted = [...tradesArray]
@@ -490,6 +490,20 @@ export function Analytics() {
     return items;
   }, [tradesArray, stats.winRate, stats.profitFactor, riskDiscipline.disciplineScore]);
 
+  if (!Array.isArray(trades)) {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] bg-background">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <Card className="p-12 text-center">
+            <Activity className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+            <p className="text-muted-foreground mb-2">Unable to load analytics</p>
+            <p className="text-sm text-muted-foreground">Trade data was not available. Please refresh and try again.</p>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -508,15 +522,7 @@ export function Analytics() {
           </div>
         </div>
 
-        {!Array.isArray(trades) ? (
-          <Card className="p-12 text-center">
-            <Activity className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-            <p className="text-muted-foreground mb-2">Unable to load analytics</p>
-            <p className="text-sm text-muted-foreground">Trade data was not available. Please refresh and try again.</p>
-          </Card>
-        ) : null}
-
-        {!Array.isArray(trades) ? null : !access.advanced_analytics ? (
+        {!access.advanced_analytics ? (
           <Card className="p-8">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
