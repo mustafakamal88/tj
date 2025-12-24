@@ -93,7 +93,7 @@ export function Navigation({
       <nav className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="w-full">
           <div className="h-16 flex items-center px-4 sm:px-6 md:px-3">
-            <div className="flex items-center gap-2 w-[220px] sm:w-[260px] md:w-60 shrink-0">
+            <div className="flex items-center gap-2 w-[176px] sm:w-[260px] md:w-60 shrink-0">
               <div className="flex md:hidden">
                 <Button
                   variant="ghost"
@@ -112,44 +112,53 @@ export function Navigation({
 
             <div className="flex-1" />
 
-            <div className="flex items-center justify-end gap-2 w-[210px] sm:w-[260px] shrink-0">
-              <ThemeToggle />
-              <PlanBadge className="shrink-0" />
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-9 shrink-0"
-                    disabled={!user}
-                    aria-label="Open profile menu"
-                  >
-                    <User className="w-5 h-5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>
-                    <div className="flex flex-col">
-                      <span>My Account</span>
-                      <span className="text-xs font-normal text-muted-foreground">{user ?? 'Not signed in'}</span>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => onNavigate('settings')} disabled={!user}>
-                    <User className="w-4 h-4 mr-2" />
-                    Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onBillingClick} disabled={!user}>
-                    <Receipt className="w-4 h-4 mr-2" />
-                    Billing
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onLogout} disabled={!user}>
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Logout
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <div className="flex items-center justify-end w-[184px] sm:w-[260px] shrink-0">
+              <div className="flex items-center shrink-0">
+                <div className="flex items-center shrink-0 px-1.5 sm:px-0">
+                  <ThemeToggle />
+                </div>
+                <div aria-hidden="true" className="h-5 w-px bg-border shrink-0 sm:hidden" />
+                <div className="flex items-center shrink-0 px-1.5 sm:px-0">
+                  <PlanBadge className="shrink-0" />
+                </div>
+                <div aria-hidden="true" className="h-5 w-px bg-border shrink-0 sm:hidden" />
+                <div className="flex items-center shrink-0 px-1.5 sm:px-0">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-9 shrink-0"
+                        disabled={!user}
+                        aria-label="Open profile menu"
+                      >
+                        <User className="w-5 h-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>
+                        <div className="flex flex-col">
+                          <span>My Account</span>
+                          <span className="text-xs font-normal text-muted-foreground">{user ?? 'Not signed in'}</span>
+                        </div>
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => onNavigate('settings')} disabled={!user}>
+                        <User className="w-4 h-4 mr-2" />
+                        Settings
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={onBillingClick} disabled={!user}>
+                        <Receipt className="w-4 h-4 mr-2" />
+                        Billing
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={onLogout} disabled={!user}>
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Logout
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
             </div>
           </div>
         </div>
