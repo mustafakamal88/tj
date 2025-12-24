@@ -65,7 +65,7 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
   const faqs = [
     {
       question: 'Is TJ free to try?',
-      answer: 'Yes. Start with the free plan to explore core features. Upgrade anytime when you need more data and automation.',
+      answer: 'Yes. Start free to explore the core workflow. Upgrade anytime when you need imports, broker connect, and deeper analytics.',
     },
     {
       question: 'Can I import trades or sync MT4/MT5?',
@@ -73,7 +73,7 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
     },
     {
       question: 'Is my data private?',
-      answer: 'Your journal is designed for personal analysis. Keep detailed notes and review safely whenever you need.',
+      answer: 'Yes. Your journal is tied to your account and designed for private review and analysis.',
     },
   ];
 
@@ -91,7 +91,7 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
       price: '$15.34',
       period: '/month',
       description: 'For consistent traders who want more automation.',
-      bullets: ['Unlimited trades & history', 'Broker connect (MetaApi)', 'Advanced analytics & export'],
+      bullets: ['Unlimited trades & history', 'Imports + broker connect (MetaApi)', 'Advanced analytics'],
       highlighted: true,
     },
     {
@@ -99,7 +99,7 @@ export function HomePage({ onGetStarted, onLearnMore }: HomePageProps) {
       price: '$28.37',
       period: '/month',
       description: 'For advanced workflows and deeper insights.',
-      bullets: ['Priority features badge', 'AI-powered insights', 'Multiple accounts & API access'],
+      bullets: ['Everything in Pro', 'Priority badge', 'Early access to new integrations'],
       highlighted: false,
     },
   ];

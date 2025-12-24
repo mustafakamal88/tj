@@ -29,6 +29,11 @@ type JournalTradeDrawerProps = {
 const TRADE_EMOTIONS = ['Calm', 'Fear', 'FOMO', 'Revenge', 'Overconfident', 'Hesitation'] as const;
 const TRADE_MISTAKES = ['Entered early', 'No SL', 'Oversized', 'Moved SL', 'Overtraded', "Didn’t follow plan"] as const;
 
+const levelFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 });
+function formatLevel(value?: number | null) {
+  return typeof value === 'number' && Number.isFinite(value) ? levelFormatter.format(value) : '—';
+}
+
 export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTradeDrawerProps) {
   const [loading, setLoading] = useState(false);
   const [trade, setTrade] = useState<TradeWithDetails | null>(null);
@@ -260,7 +265,7 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
         className="w-full sm:max-w-[720px] p-0"
       >
         <div className="flex h-full flex-col">
-          <SheetHeader className="shrink-0 border-b p-4 bg-muted/30">
+          <SheetHeader className="shrink-0 border-b p-4 pr-12 bg-muted/30">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <SheetTitle className="truncate">
@@ -288,13 +293,42 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
             ) : (
               <div className="space-y-4">
                 <Card className="p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      {trade.type ? <Badge variant="secondary">{trade.type.toUpperCase()}</Badge> : null}
-                      {typeof pnl === 'number' ? (
-                        <Badge variant={pnl >= 0 ? 'default' : 'destructive'}>{formatCurrency(pnl)}</Badge>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold">Selected Trade</span>
+                        {trade.type ? <Badge variant="secondary">{trade.type.toUpperCase()}</Badge> : null}
+                        {typeof pnl === 'number' ? (
+                          <Badge variant={pnl >= 0 ? 'default' : 'destructive'}>{formatCurrency(pnl)}</Badge>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <div className="rounded-md border bg-background/50 p-3">
+                          <div className="text-[11px] text-muted-foreground">Entry</div>
+                          <div className="mt-1 font-mono text-sm">{formatLevel(trade.entry)}</div>
+                        </div>
+                        <div className="rounded-md border bg-background/50 p-3">
+                          <div className="text-[11px] text-muted-foreground">Exit</div>
+                          <div className="mt-1 font-mono text-sm">{formatLevel(trade.exit)}</div>
+                        </div>
+                        <div className="rounded-md border bg-background/50 p-3">
+                          <div className="text-[11px] text-muted-foreground">Stop Loss</div>
+                          <div className="mt-1 font-mono text-sm">{formatLevel(trade.stopLoss)}</div>
+                        </div>
+                        <div className="rounded-md border bg-background/50 p-3">
+                          <div className="text-[11px] text-muted-foreground">Take Profit</div>
+                          <div className="mt-1 font-mono text-sm">{formatLevel(trade.takeProfit)}</div>
+                        </div>
+                      </div>
+                      {trade.openTime || trade.closeTime ? (
+                        <div className="mt-3 text-xs text-muted-foreground">
+                          {trade.openTime ? `Opened ${new Date(trade.openTime).toLocaleString()}` : null}
+                          {trade.openTime && trade.closeTime ? ' • ' : null}
+                          {trade.closeTime ? `Closed ${new Date(trade.closeTime).toLocaleString()}` : null}
+                        </div>
                       ) : null}
                     </div>
+
                     <Button
                       type="button"
                       onClick={() => void handleSave({ source: 'manual' })}
@@ -327,9 +361,37 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
                     placeholder="Why did I take this trade? What was the plan?"
                     className="min-h-[140px] resize-y font-mono text-sm bg-background/50"
                   />
-                  {trade.note ? (
-                    <p className="text-[11px] text-muted-foreground">Autosaves after you pause typing.</p>
-                  ) : null}
+                  <p className="text-[11px] text-muted-foreground">Autosaves after you pause typing.</p>
+                </Card>
+
+                <Card className="p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="font-semibold text-sm">Screenshots</h4>
+                    <label className="inline-flex">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={uploadingShot}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleUploadScreenshot(file);
+                          e.currentTarget.value = '';
+                        }}
+                      />
+                      <Button type="button" variant="outline" size="sm" disabled={uploadingShot} className="gap-2">
+                        <Upload className="w-3 h-3" />
+                        {uploadingShot ? 'Uploading...' : 'Upload'}
+                      </Button>
+                    </label>
+                  </div>
+
+                  {shotError ? <div className="text-sm text-destructive">{shotError}</div> : null}
+
+                  <ScreenshotGallery
+                    media={trade.screenshots || []}
+                    onDelete={(mediaId) => void handleDeleteScreenshot(mediaId)}
+                  />
                 </Card>
 
                 <Card className="p-4 space-y-3">
@@ -392,36 +454,6 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
                     }}
                     placeholder="What went wrong / what to fix?"
                     className="min-h-[100px] resize-y font-mono text-sm bg-background/50"
-                  />
-                </Card>
-
-                <Card className="p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <h4 className="font-semibold text-sm">Screenshots</h4>
-                    <label className="inline-flex">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        disabled={uploadingShot}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) void handleUploadScreenshot(file);
-                          e.currentTarget.value = '';
-                        }}
-                      />
-                      <Button type="button" variant="outline" size="sm" disabled={uploadingShot} className="gap-2">
-                        <Upload className="w-3 h-3" />
-                        {uploadingShot ? 'Uploading...' : 'Upload'}
-                      </Button>
-                    </label>
-                  </div>
-
-                  {shotError ? <div className="text-sm text-destructive">{shotError}</div> : null}
-
-                  <ScreenshotGallery
-                    media={trade.screenshots || []}
-                    onDelete={(mediaId) => void handleDeleteScreenshot(mediaId)}
                   />
                 </Card>
               </div>

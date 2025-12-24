@@ -51,19 +51,19 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
       icon: '⚡',
       price: '$0',
       period: '14-day trial',
-      description: 'Perfect for getting started',
+      description: 'Try the essentials and build the habit',
       features: [
         'Up to 15 trades total',
         'Last 2 weeks of data only',
         'Basic calendar dashboard',
         'Manual trade entry',
         'Basic analytics',
-        'Trade notes & tags',
+        'Trade notes & screenshots',
       ],
       notIncluded: [
         'No trades after 15 or 14 days',
         'No broker connect (MetaApi)',
-        'No CSV/Excel export',
+        'No automated import',
         'No advanced analytics',
       ],
       highlighted: false,
@@ -75,17 +75,14 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
       icon: '👑',
       price: '$15.34',
       period: '/month',
-      description: 'For serious traders',
+      description: 'Unlimited trades + imports + advanced analytics',
       features: [
         'Unlimited historical data',
         'Unlimited trades',
+        'Import from MT4/MT5 reports and CSV',
         'Broker connect (MetaApi) + full history import',
         'Advanced analytics & charts',
-        'CSV/Excel export',
-        'Performance insights',
-        'Custom reports',
-        'Priority email support',
-        'Risk management tools',
+        'Day journal + screenshots',
       ],
       notIncluded: [],
       highlighted: true,
@@ -97,17 +94,11 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
       icon: '🚀',
       price: '$28.37',
       period: '/month',
-      description: 'For professional traders',
+      description: 'Pro + priority access',
       features: [
-        'Everything in Pro, plus:',
-        'Priority features badge',
-        'AI-powered trade insights',
-        'Performance coaching tips',
-        'Advanced risk analysis',
-        'Multiple account management',
-        'API access for integrations',
-        'White-label reports',
-        'Priority phone support',
+        'Everything in Pro',
+        'Priority badge',
+        'Early access to new integrations (coming soon)',
       ],
       notIncluded: [],
       highlighted: false,
@@ -253,19 +244,19 @@ export function SubscriptionDialog({ open, onOpenChange }: SubscriptionDialogPro
               <div className="flex flex-wrap justify-center gap-4 sm:gap-6 text-sm">
                 <span className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#34a85a]" />
-                  30-day money-back guarantee
-                </span>
-                <span className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#34a85a]" />
                   Cancel anytime
                 </span>
                 <span className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#34a85a]" />
                   Secure payment
                 </span>
+                <span className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-[#34a85a]" />
+                  Plan upgrades apply immediately
+                </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                All major payment methods accepted. Instant activation upon payment.
+                You can change your plan at any time.
               </p>
             </div>
           </div>

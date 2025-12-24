@@ -10,7 +10,6 @@ import {
   calculateAveragePnL,
   calculateProfitFactor,
   formatCurrency,
-  formatPercentage,
 } from '../utils/trade-calculations';
 import type { Trade } from '../types/trade';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -111,27 +110,41 @@ export function Analytics() {
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 5);
 
+  const chart = {
+    primary: 'var(--chart-1)',
+    destructive: 'var(--destructive)',
+    muted: 'var(--muted-foreground)',
+    grid: 'var(--border)',
+  };
+
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl mb-2">Analytics</h1>
-          <p className="text-muted-foreground">Analyze your trading performance</p>
+        <div className="mb-8 flex flex-col gap-2">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight">Analytics</h1>
+              <p className="text-sm text-muted-foreground">Performance overview and key patterns</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="tabular-nums">
+                {trades.length} trades
+              </Badge>
+              <Badge variant="secondary">{effectivePlan.toUpperCase()}</Badge>
+            </div>
+          </div>
         </div>
 
         {!access.advanced_analytics ? (
-          <Card className="p-10">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl mb-1">Advanced analytics are a Pro feature</h2>
+          <Card className="p-8">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold">Advanced analytics are a Pro feature</h2>
                 <p className="text-sm text-muted-foreground">
-                  Upgrade to Pro to unlock imports, broker connect, and deeper analytics.
+                  Upgrade to unlock imports, broker connect, and the full analytics dashboard.
                 </p>
               </div>
-              <Button onClick={() => requestUpgrade('advanced_analytics')} className="bg-[#34a85a] hover:bg-[#2d9450]">
-                Upgrade to Pro
-              </Button>
+              <Button onClick={() => requestUpgrade('advanced_analytics')}>Upgrade</Button>
             </div>
           </Card>
         ) : trades.length === 0 ? (
@@ -141,191 +154,203 @@ export function Analytics() {
             <p className="text-sm text-muted-foreground">Start adding trades to see your analytics</p>
           </Card>
         ) : (
-          <div className="space-y-8">
-            {/* Key Metrics */}
+          <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-muted-foreground">Total P&L</span>
+              <Card className="p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Total P&L</span>
                   <DollarSign className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className={`text-2xl ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <div className={`mt-2 text-2xl font-semibold tabular-nums ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {formatCurrency(totalPnL)}
                 </div>
               </Card>
 
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-muted-foreground">Win Rate</span>
+              <Card className="p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Win Rate</span>
                   <Percent className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className="text-2xl">{winRate.toFixed(1)}%</div>
-                <div className="text-sm text-muted-foreground mt-1">
+                <div className="mt-2 text-2xl font-semibold tabular-nums">{winRate.toFixed(1)}%</div>
+                <div className="mt-1 text-xs text-muted-foreground tabular-nums">
                   {wins.length}W / {losses.length}L
                 </div>
               </Card>
 
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-muted-foreground">Avg P&L</span>
+              <Card className="p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Avg P&L</span>
                   <Target className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className={`text-2xl ${averagePnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <div className={`mt-2 text-2xl font-semibold tabular-nums ${averagePnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {formatCurrency(averagePnL)}
                 </div>
               </Card>
 
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-muted-foreground">Profit Factor</span>
+              <Card className="p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Profit Factor</span>
                   <Activity className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className="text-2xl">
+                <div className="mt-2 text-2xl font-semibold tabular-nums">
                   {profitFactor === Infinity ? '∞' : profitFactor.toFixed(2)}
                 </div>
               </Card>
             </div>
 
-            <Card className="p-6">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h2 className="text-lg">Broker Metrics</h2>
-                  <p className="text-sm text-muted-foreground">Coming soon</p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card className="p-6 lg:col-span-2">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h2 className="text-base font-semibold">Equity Curve</h2>
+                    <p className="text-xs text-muted-foreground">Cumulative P&L over time</p>
+                  </div>
                 </div>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Broker metrics integration will be added in a future update. Your analytics above are based on the
-                trades already stored in your journal.
-              </p>
-            </Card>
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={equityCurveData}>
+                    <CartesianGrid stroke={chart.grid} strokeDasharray="4 4" />
+                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip
+                      formatter={(value: number) => formatCurrency(value)}
+                      contentStyle={{ backgroundColor: 'var(--card)' }}
+                    />
+                    <Line type="monotone" dataKey="equity" stroke={chart.primary} strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Card>
 
-            {/* Additional Stats */}
+              <Card className="p-6">
+                <h2 className="text-base font-semibold">Most Traded</h2>
+                <p className="text-xs text-muted-foreground">Top symbols by trade count</p>
+                <div className="mt-4 space-y-2">
+                  {topSymbols.map(([symbol, stats]) => (
+                    <div key={symbol} className="flex items-center justify-between rounded-md border bg-background/40 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">{symbol}</div>
+                        <div className="text-xs text-muted-foreground tabular-nums">{stats.count} trades</div>
+                      </div>
+                      <div className={`text-sm font-semibold tabular-nums ${stats.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {formatCurrency(stats.pnl)}
+                      </div>
+                    </div>
+                  ))}
+                  {topSymbols.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-3">No data available</p>
+                  ) : null}
+                </div>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card className="p-6">
+                <h2 className="text-base font-semibold">Win/Loss</h2>
+                <p className="text-xs text-muted-foreground">Outcome distribution</p>
+                <div className="mt-4">
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart>
+                      <Pie
+                        data={outcomeData.map((d) => ({ ...d, color: undefined }))}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        outerRadius={90}
+                        dataKey="value"
+                      >
+                        {outcomeData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={
+                              entry.name === 'Wins'
+                                ? chart.primary
+                                : entry.name === 'Losses'
+                                  ? chart.destructive
+                                  : chart.muted
+                            }
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: 'var(--card)' }} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
+
+              {monthlyData.length > 0 ? (
+                <Card className="p-6 lg:col-span-2">
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div>
+                      <h2 className="text-base font-semibold">Monthly Performance</h2>
+                      <p className="text-xs text-muted-foreground">P&L by month</p>
+                    </div>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={monthlyData}>
+                      <CartesianGrid stroke={chart.grid} strokeDasharray="4 4" />
+                      <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <Tooltip
+                        formatter={(value: number) => formatCurrency(value)}
+                        contentStyle={{ backgroundColor: 'var(--card)' }}
+                      />
+                      <Bar dataKey="pnl" fill={chart.primary} radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </Card>
+              ) : null}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-muted-foreground">Avg Win</span>
-                  <TrendingUp className="w-4 h-4 text-green-600" />
+              <Card className="p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Avg Win</span>
+                  <TrendingUp className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className="text-xl text-green-600">{formatCurrency(averageWin)}</div>
+                <div className="mt-2 text-xl font-semibold tabular-nums text-green-600">{formatCurrency(averageWin)}</div>
               </Card>
 
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-muted-foreground">Avg Loss</span>
-                  <TrendingDown className="w-4 h-4 text-red-600" />
+              <Card className="p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Avg Loss</span>
+                  <TrendingDown className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <div className="text-xl text-red-600">{formatCurrency(averageLoss)}</div>
+                <div className="mt-2 text-xl font-semibold tabular-nums text-red-600">{formatCurrency(averageLoss)}</div>
               </Card>
 
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-muted-foreground">Long Trades</span>
+              <Card className="p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Long</span>
+                  <Badge variant="secondary" className="tabular-nums">{longTrades.length}</Badge>
                 </div>
-                <div className="text-xl">{longTrades.length}</div>
-                <div className="text-sm text-muted-foreground mt-1">
+                <div className="mt-2 text-sm text-muted-foreground tabular-nums">
                   Win Rate: {calculateWinRate(longTrades).toFixed(1)}%
                 </div>
               </Card>
 
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-muted-foreground">Short Trades</span>
+              <Card className="p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Short</span>
+                  <Badge variant="secondary" className="tabular-nums">{shortTrades.length}</Badge>
                 </div>
-                <div className="text-xl">{shortTrades.length}</div>
-                <div className="text-sm text-muted-foreground mt-1">
+                <div className="mt-2 text-sm text-muted-foreground tabular-nums">
                   Win Rate: {calculateWinRate(shortTrades).toFixed(1)}%
                 </div>
               </Card>
             </div>
 
-            {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Equity Curve */}
-              <Card className="p-6">
-                <h2 className="mb-4">Equity Curve</h2>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={equityCurveData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <Tooltip
-                      formatter={(value: number) => formatCurrency(value)}
-                      contentStyle={{ backgroundColor: 'hsl(var(--card))' }}
-                    />
-                    <Line type="monotone" dataKey="equity" stroke="#3b82f6" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </Card>
-
-              {/* Win/Loss Distribution */}
-              <Card className="p-6">
-                <h2 className="mb-4">Win/Loss Distribution</h2>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={outcomeData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={(entry) => `${entry.name}: ${entry.value}`}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {outcomeData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </Card>
-
-              {/* Monthly Performance */}
-              {monthlyData.length > 0 && (
-                <Card className="p-6">
-                  <h2 className="mb-4">Monthly Performance</h2>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={monthlyData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="month" />
-                      <YAxis />
-                      <Tooltip
-                        formatter={(value: number) => formatCurrency(value)}
-                        contentStyle={{ backgroundColor: 'hsl(var(--card))' }}
-                      />
-                      <Bar dataKey="pnl" fill="#3b82f6" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </Card>
-              )}
-
-              {/* Top Symbols */}
-              <Card className="p-6">
-                <h2 className="mb-4">Most Traded Symbols</h2>
-                <div className="space-y-3">
-                  {topSymbols.map(([symbol, stats]) => (
-                    <div key={symbol} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="font-medium">{symbol}</div>
-                        <Badge variant="secondary">{stats.count} trades</Badge>
-                      </div>
-                      <div className="text-right">
-                        <div className={`font-medium ${stats.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(stats.pnl)}
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          {stats.wins}W / {stats.losses}L
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {topSymbols.length === 0 && (
-                    <p className="text-muted-foreground text-center py-4">No data available</p>
-                  )}
+            <Card className="p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-semibold">Broker Metrics</h2>
+                  <p className="text-xs text-muted-foreground">Coming soon</p>
                 </div>
-              </Card>
-            </div>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">
+                Broker metrics integration will be added in a future update. Analytics above are based on the trades
+                already stored in your journal.
+              </p>
+            </Card>
           </div>
         )}
       </div>

@@ -170,7 +170,7 @@ export function BillingPage() {
         <div className="flex items-start justify-between gap-4 mb-8">
             <div>
               <h1 className="text-3xl mb-2">Billing</h1>
-            <p className="text-muted-foreground">Upgrade to Pro/Premium to unlock imports, broker connect, and advanced analytics.</p>
+            <p className="text-muted-foreground">Upgrade to unlock imports, broker connect, and advanced analytics.</p>
             </div>
           <div className="flex items-center gap-2">
             {profileLoading || !profile ? (
@@ -250,7 +250,7 @@ export function BillingPage() {
                           disabled={profileLoading || isLoading || isCurrent}
                           onClick={() => void startCheckout(plan.key, 'stripe')}
                         >
-                          Pay with Stripe (test)
+                          Continue with Stripe
                         </Button>
                         <Button
                           className="w-full"
@@ -258,7 +258,7 @@ export function BillingPage() {
                           disabled={profileLoading || isLoading || isCurrent || !enablePayPal || isPaidActive}
                           onClick={() => void startCheckout(plan.key, 'paypal')}
                         >
-                          {enablePayPal ? 'Pay with PayPal (test)' : 'PayPal (disabled)'}
+                          {enablePayPal ? 'Continue with PayPal' : 'PayPal (disabled)'}
                         </Button>
                         <div className="grid grid-cols-2 gap-2">
                           <Button className="w-full" variant="outline" disabled={!enableApplePay}>
@@ -285,8 +285,7 @@ export function BillingPage() {
 
         <div className="mt-8 text-sm text-muted-foreground">
           <p>
-            Dev note: Stripe/PayPal require server-side keys configured in the Supabase Edge Function environment. The UI
-            won’t crash if keys are missing; buttons are disabled via `VITE_ENABLE_*` flags.
+            Payment methods may show as disabled depending on configuration.
           </p>
         </div>
       </div>
