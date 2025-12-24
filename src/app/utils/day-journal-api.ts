@@ -409,7 +409,7 @@ export async function fetchTradeScreenshots(tradeId: string): Promise<TradeScree
 
     const { data, error } = await supabase
       .from('trade_screenshots')
-      .select('*')
+      .select('id, trade_id, user_id, object_path, path, filename, metadata, size_bytes, created_at, mime_type')
       .eq('trade_id', tradeId)
       .order('created_at', { ascending: true });
 
@@ -423,15 +423,22 @@ export async function fetchTradeScreenshots(tradeId: string): Promise<TradeScree
     }
 
     return Array.isArray(data)
-      ? data.map((s: any) => ({
-          id: s.id,
-          tradeId: s.trade_id,
-          userId: s.user_id,
-          path: s.path,
-          mimeType: s.mime_type ?? undefined,
-          sizeBytes: Number(s.size_bytes),
-          createdAt: s.created_at,
-        }))
+      ? data
+          .map((s: any) => {
+            const normalizedPath = (s.object_path ?? s.path) ? String(s.object_path ?? s.path) : '';
+            return {
+              id: String(s.id),
+              tradeId: String(s.trade_id),
+              userId: String(s.user_id),
+              path: normalizedPath,
+              mimeType:
+                (s.metadata as any)?.mime ??
+                (typeof s.mime_type === 'string' ? s.mime_type : undefined),
+              sizeBytes: Number(s.size_bytes),
+              createdAt: String(s.created_at),
+            };
+          })
+          .filter((s: TradeScreenshot) => Boolean(s.path))
       : [];
   } catch (error) {
     console.error('[day-journal-api] fetchTradeScreenshots exception', { tradeId, error });
@@ -587,35 +594,45 @@ export async function uploadTradeScreenshot(tradeId: string, file: File): Promis
       storedPath,
     });
 
-    const insertWithMime = () =>
-      supabase.from('trade_screenshots').insert({
-        trade_id: tradeId,
-        user_id: userId,
-        path: storedPath,
-        size_bytes: fileSize,
-        mime_type: fileType || null,
-      });
+    const insertFull = () =>
+      supabase
+        .from('trade_screenshots')
+        .insert({
+          trade_id: tradeId,
+          user_id: userId,
+          object_path: storedPath,
+          filename: fileName,
+          metadata: { mime: fileType || undefined },
+          size_bytes: fileSize,
+        })
+        .select('id, trade_id, user_id, object_path, path, filename, metadata, size_bytes, created_at')
+        .maybeSingle();
 
-    const insertWithoutMime = () =>
-      supabase.from('trade_screenshots').insert({
-        trade_id: tradeId,
-        user_id: userId,
-        path: storedPath,
-        size_bytes: fileSize,
-      });
+    const insertMinimal = () =>
+      supabase
+        .from('trade_screenshots')
+        .insert({
+          trade_id: tradeId,
+          user_id: userId,
+          object_path: storedPath,
+          size_bytes: fileSize,
+        })
+        .select('id, trade_id, user_id, object_path, path, filename, metadata, size_bytes, created_at')
+        .maybeSingle();
 
     console.info('[day-journal-api] uploadTradeScreenshot db insert start', {
       table: 'trade_screenshots',
       tradeId,
       userId,
-      path: storedPath,
+      objectPath: storedPath,
+      filename: fileName,
       sizeBytes: fileSize,
       mimeType: fileType,
     });
 
-    let { error: insertError } = await insertWithMime();
+    let { data: insertedRow, error: insertError } = await insertFull();
     if (insertError && isMissingColumnOrSchemaCacheError(insertError)) {
-      ({ error: insertError } = await insertWithoutMime());
+      ({ data: insertedRow, error: insertError } = await insertMinimal());
     }
 
     if (insertError) {
@@ -634,7 +651,7 @@ export async function uploadTradeScreenshot(tradeId: string, file: File): Promis
         table: 'trade_screenshots',
         bucket: TRADE_SCREENSHOTS_BUCKET,
         file: { name: fileName, size: fileSize, type: fileType },
-        path: storedPath,
+        objectPath: storedPath,
         userId,
         error: summary,
       });
@@ -652,11 +669,23 @@ export async function uploadTradeScreenshot(tradeId: string, file: File): Promis
       };
     }
 
+    const normalizedPath = (insertedRow as any)?.object_path
+      ? String((insertedRow as any).object_path)
+      : (insertedRow as any)?.path
+      ? String((insertedRow as any).path)
+      : storedPath;
+
     console.info('[day-journal-api] uploadTradeScreenshot db insert ok', {
       table: 'trade_screenshots',
       tradeId,
       userId,
-      path: storedPath,
+      objectPath: normalizedPath,
+      inserted: {
+        id: (insertedRow as any)?.id,
+        object_path: (insertedRow as any)?.object_path,
+        path: (insertedRow as any)?.path,
+        filename: (insertedRow as any)?.filename,
+      },
     });
 
     // Keep legacy `trades.screenshots` in sync for other UI surfaces.
@@ -670,19 +699,19 @@ export async function uploadTradeScreenshot(tradeId: string, file: File): Promis
       const current = Array.isArray((tradeRow as any)?.screenshots)
         ? ((tradeRow as any).screenshots as string[]).filter(Boolean)
         : [];
-      if (!current.includes(storedPath)) {
-        await supabase.from('trades').update({ screenshots: [...current, storedPath] }).eq('id', tradeId);
+      if (!current.includes(normalizedPath)) {
+        await supabase.from('trades').update({ screenshots: [...current, normalizedPath] }).eq('id', tradeId);
       }
     } catch (syncError) {
       console.warn('[day-journal-api] uploadTradeScreenshot trades.screenshots sync failed', {
         tradeId,
-        path: storedPath,
+        path: normalizedPath,
         userId,
         syncError,
       });
     }
 
-    return { ok: true, path: storedPath };
+    return { ok: true, path: normalizedPath };
   } catch (error) {
     console.error('[day-journal-api] uploadTradeScreenshot exception', {
       tradeId,
@@ -711,11 +740,12 @@ export async function deleteTradeScreenshot(screenshotId: string): Promise<boole
 
     const { data: shot, error: fetchError } = await supabase
       .from('trade_screenshots')
-      .select('id, trade_id, path')
+      .select('id, trade_id, object_path, path')
       .eq('id', screenshotId)
       .single();
 
-    if (fetchError || !shot?.path || !shot?.trade_id) {
+    const normalizedPath = (shot as any)?.object_path ?? (shot as any)?.path;
+    if (fetchError || !normalizedPath || !(shot as any)?.trade_id) {
       console.error('[day-journal-api] deleteTradeScreenshot fetch failed', {
         screenshotId,
         userId,
@@ -724,8 +754,19 @@ export async function deleteTradeScreenshot(screenshotId: string): Promise<boole
       return false;
     }
 
-    const path = String((shot as any).path);
+    const path = String(normalizedPath);
     const tradeId = String((shot as any).trade_id);
+
+    const { error: storageError } = await supabase.storage.from(TRADE_SCREENSHOTS_BUCKET).remove([path]);
+    if (storageError) {
+      console.error('[day-journal-api] deleteTradeScreenshot storage remove failed', {
+        screenshotId,
+        userId,
+        bucket: TRADE_SCREENSHOTS_BUCKET,
+        path,
+        error: summarizeSupabaseError(storageError),
+      });
+    }
 
     const { error: dbError } = await supabase
       .from('trade_screenshots')
@@ -741,18 +782,6 @@ export async function deleteTradeScreenshot(screenshotId: string): Promise<boole
         error: summarizeSupabaseError(dbError),
       });
       return false;
-    }
-
-    const { error: storageError } = await supabase.storage.from(TRADE_SCREENSHOTS_BUCKET).remove([path]);
-    if (storageError) {
-      console.error('[day-journal-api] deleteTradeScreenshot storage remove failed', {
-        screenshotId,
-        userId,
-        bucket: TRADE_SCREENSHOTS_BUCKET,
-        path,
-        error: summarizeSupabaseError(storageError),
-      });
-      // DB row is already removed; treat as partial success.
     }
 
     // Best-effort: keep legacy `trades.screenshots` in sync.
