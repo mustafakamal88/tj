@@ -174,7 +174,7 @@ export function DashboardCalendarCard({
                   >
                     {/* Day Cells */}
                     {visibleDayIndexes.map((dayIndex) => {
-                      const day = week[dayIndex];
+                      const day = week[dayIndex] ?? new Date(0);
                       const dayData = getDayData(day);
                       const isEmpty = day.getTime() === 0;
                       const isClickable = !preview && !isEmpty && onDayClick;
@@ -456,6 +456,7 @@ export function Dashboard() {
     monthDays.forEach((day, index) => {
       currentWeekDays.push(day);
       if (getDay(day) === 6 || index === monthDays.length - 1) {
+        while (currentWeekDays.length < 7) currentWeekDays.push(new Date(0));
         out.push([...currentWeekDays]);
         currentWeekDays = [];
       }
