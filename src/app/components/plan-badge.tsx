@@ -5,9 +5,11 @@ import { hasPaidEntitlement } from '../utils/entitlements';
 export function PlanBadge({ className }: { className?: string }) {
   const { profile, loading } = useProfile();
 
+  const stableClass = `min-w-[140px] justify-center ${className ?? ''}`.trim();
+
   if (loading || !profile) {
     return (
-      <Badge variant="secondary" className={className}>
+      <Badge variant="secondary" className={stableClass}>
         Loading…
       </Badge>
     );
@@ -19,7 +21,11 @@ export function PlanBadge({ className }: { className?: string }) {
   return (
     <Badge
       variant="secondary"
-      className={isPaid ? `bg-[#34a85a] text-white border-transparent ${className ?? ''}`.trim() : className}
+      className={
+        isPaid
+          ? `bg-[#34a85a] text-white border-transparent ${stableClass}`.trim()
+          : stableClass
+      }
     >
       {label}
     </Badge>
