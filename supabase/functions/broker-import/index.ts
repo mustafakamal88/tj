@@ -621,6 +621,13 @@ async function brokerLiveUpsert(payload: {
 
     const url = `${trimTrailingSlashes(supabaseUrl)}/functions/v1/broker-live-upsert`;
 
+    console.log("[live-state] calling broker-live-upsert", {
+      url,
+      broker: payload.broker,
+      account_id: payload.account_id,
+      hasUserId: Boolean(payload.user_id),
+    });
+
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -633,7 +640,16 @@ async function brokerLiveUpsert(payload: {
     });
 
     if (!res.ok) {
-      console.warn("[broker-import] broker-live-upsert failed", { status: res.status });
+      let bodySnippet = "";
+      try {
+        const text = await res.text();
+        bodySnippet = (text ?? "").slice(0, 200);
+      } catch {
+        bodySnippet = "";
+      }
+      console.warn("[live-state] upsert failed", { status: res.status, bodySnippet });
+    } else {
+      console.log("[live-state] upsert ok", { status: res.status });
     }
   } catch (e) {
     console.warn("[broker-import] broker-live-upsert request error", { message: toShortSafeMessage(e) });
