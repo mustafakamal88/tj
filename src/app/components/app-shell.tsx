@@ -8,6 +8,8 @@ import { useEffect } from 'react';
 import svgPaths from '../../imports/svg-4h62f17bbh';
 import { ThemeToggle } from './theme-toggle';
 import { PlanBadge } from './plan-badge';
+import { Breadcrumbs } from './breadcrumbs';
+import { getNavLabelMeta } from '../utils/nav-labels';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,6 +58,17 @@ export function AppShell({
     if (p === '/settings' || p.startsWith('/settings/')) return 'settings';
     return null;
   })();
+
+  const { sectionLabel, currentLabel } = getNavLabelMeta({ pathname, currentPage: activeNavPage ?? currentPage });
+
+  const handleBack = () => {
+    const idx = (window.history.state as any)?.tjNavIndex;
+    if (typeof idx === 'number' && idx > 0) {
+      window.history.back();
+      return;
+    }
+    onNavigate('dashboard');
+  };
 
   const SidebarNav = ({ onItemClick }: { onItemClick?: () => void }) => (
     <div className="flex h-full min-h-0 flex-col text-sidebar-foreground">
@@ -239,7 +252,12 @@ export function AppShell({
           <SidebarNav />
         </aside>
 
-        <main className="flex-1 min-w-0">{children}</main>
+        <main className="flex-1 min-w-0">
+          <div className="px-4 sm:px-6 lg:px-8 pt-4">
+            <Breadcrumbs sectionLabel={sectionLabel} currentLabel={currentLabel} onBack={handleBack} />
+          </div>
+          {children}
+        </main>
       </div>
 
       <Sheet open={mobileSidebarOpen} onOpenChange={onMobileSidebarOpenChange}>

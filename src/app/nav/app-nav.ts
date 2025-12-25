@@ -23,7 +23,7 @@ export type AppNavGroup = {
 
 export const appNavGroups: AppNavGroup[] = [
   {
-    label: 'Main',
+    label: 'Tradespace',
     items: [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'calendar', label: 'Calendar', icon: CalendarDays },
