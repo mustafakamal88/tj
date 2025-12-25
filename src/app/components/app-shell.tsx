@@ -8,6 +8,8 @@ import { useEffect } from 'react';
 import svgPaths from '../../imports/svg-4h62f17bbh';
 import { ThemeToggle } from './theme-toggle';
 import { PlanBadge } from './plan-badge';
+import { Breadcrumbs } from './breadcrumbs';
+import { getNavLabelMeta } from '../utils/nav-labels';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +21,7 @@ import {
 
 type AppShellProps = {
   currentPage: Page;
+  pathname: string;
   onNavigate: (page: Page) => void;
   user: string | null;
   onLogout: () => void;
@@ -30,6 +33,7 @@ type AppShellProps = {
 
 export function AppShell({
   currentPage,
+  pathname,
   onNavigate,
   user,
   onLogout,
@@ -42,6 +46,32 @@ export function AppShell({
     onMobileSidebarOpenChange(false);
   }, [currentPage, onMobileSidebarOpenChange]);
 
+  const cleanPathname = (p: string) => p.replace(/\/+$/, '') || '/';
+  const activeNavPage: Page | null = (() => {
+    const p = cleanPathname(pathname);
+    if (p === '/' || p === '/dashboard') return 'dashboard';
+    if (p === '/calendar') return 'calendar';
+    if (p === '/journal') return 'journal';
+    if (p === '/analytics') return 'analytics';
+    if (p === '/community') return 'community';
+    if (p === '/university' || p.startsWith('/university/')) return 'university';
+    if (p === '/settings' || p.startsWith('/settings/')) return 'settings';
+    return null;
+  })();
+
+  const { sectionLabel, currentLabel } = getNavLabelMeta({
+    pathname,
+    currentPage: activeNavPage ?? currentPage,
+  });
+
+  const handleBack = () => {
+    const idx = (window.history.state as any)?.tjNavIndex;
+    if (typeof idx === 'number' && idx > 0) {
+      window.history.back();
+      return;
+    }
+    onNavigate('dashboard');
+  };
   const SidebarNav = ({ onItemClick }: { onItemClick?: () => void }) => (
     <div className="flex h-full min-h-0 flex-col text-sidebar-foreground">
       {/* Header */}
@@ -144,7 +174,7 @@ export function AppShell({
             <div className="mt-2 space-y-1">
               {group.items.map((item) => {
                 const Icon = item.icon;
-                const active = currentPage === item.id;
+                const active = activeNavPage ? activeNavPage === item.id : currentPage === item.id;
 
                 return (
                   <Button
@@ -201,11 +231,11 @@ export function AppShell({
             onItemClick?.();
           }}
           className={cn(
-            'h-11 w-full justify-start gap-3 rounded-xl px-3 text-[13px]',
+            'h-10 w-full justify-start gap-3 rounded-xl px-3 text-sm font-medium',
             'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
           )}
         >
-          <AlertCircle className="size-[18px] shrink-0 text-muted-foreground/70" />
+          <AlertCircle className="size-5 shrink-0 text-muted-foreground/70" />
           <span className="truncate">Get in touch</span>
         </Button>
       </div>
@@ -224,7 +254,12 @@ export function AppShell({
           <SidebarNav />
         </aside>
 
-        <main className="flex-1 min-w-0">{children}</main>
+        <main className="flex-1 min-w-0">
+          <div className="px-4 sm:px-6 lg:px-8 pt-4">
+            <Breadcrumbs sectionLabel={sectionLabel} currentLabel={currentLabel} onBack={handleBack} />
+          </div>
+          {children}
+        </main>
       </div>
 
       <Sheet open={mobileSidebarOpen} onOpenChange={onMobileSidebarOpenChange}>

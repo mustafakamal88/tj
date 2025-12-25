@@ -61,6 +61,7 @@ function AppContent() {
   const { profile, loading: profileLoading, refresh: refreshProfile } = useProfile();
   const userEmail = user?.email ?? null;
   const prevUserEmailRef = useRef<string | null>(null);
+  const navIndexRef = useRef<number>(0);
 
   const isProtectedPage = (page: Page) => {
     return (
@@ -120,12 +121,22 @@ function AppContent() {
       '/settings';
     const url = new URL(window.location.href);
     url.pathname = path;
-    if (opts?.replace) window.history.replaceState({}, '', url.toString());
-    else window.history.pushState({}, '', url.toString());
+
+    if (!opts?.replace) navIndexRef.current += 1;
+    const nextState = { ...(window.history.state ?? {}), tjNavIndex: navIndexRef.current };
+
+    if (opts?.replace) window.history.replaceState(nextState, '', url.toString());
+    else window.history.pushState(nextState, '', url.toString());
     setPathname(url.pathname);
   };
 
   useEffect(() => {
+    const existingIdx = (window.history.state as any)?.tjNavIndex;
+    navIndexRef.current = typeof existingIdx === 'number' ? existingIdx : 0;
+    if (typeof existingIdx !== 'number') {
+      window.history.replaceState({ ...(window.history.state ?? {}), tjNavIndex: 0 }, '', window.location.href);
+    }
+
     // Initial route based on path (important for Stripe redirect to /billing).
     const path = cleanPathname(window.location.pathname);
     setPathname(path);
@@ -148,7 +159,10 @@ function AppContent() {
       'home';
     setCurrentPage(pageFromPath);
 
-    const onPop = () => {
+    const onPop = (e: PopStateEvent) => {
+      const idx = (e.state as any)?.tjNavIndex;
+      navIndexRef.current = typeof idx === 'number' ? idx : 0;
+
       const p = cleanPathname(window.location.pathname);
       setPathname(p);
       const next: Page =
@@ -261,6 +275,7 @@ function AppContent() {
     const wrapApp = (node: React.ReactNode) => (
       <AppShell
         currentPage={currentPage}
+        pathname={pathname}
         onNavigate={handleNavigate}
         user={userEmail}
         onLogout={handleLogout}

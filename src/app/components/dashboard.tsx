@@ -382,7 +382,6 @@ export function Dashboard() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <div>
             <h1 className="text-3xl mb-2">Dashboard</h1>
-            <p className="text-muted-foreground">Track your trading performance</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
