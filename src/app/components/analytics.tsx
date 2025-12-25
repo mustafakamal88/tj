@@ -40,6 +40,7 @@ import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
 import { getEffectivePlan } from '../utils/entitlements';
 import { pnlTextClass, semanticColors } from '../utils/semantic-colors';
+import { BrokerMetricsCard } from './broker-metrics-card';
 
 type ChartPalette = {
   profit: string;
@@ -1005,18 +1006,7 @@ export function Analytics() {
               </Card>
             </div>
 
-            <Card className="p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-base font-semibold">Broker Metrics</h2>
-                  <p className="text-xs text-muted-foreground">Coming soon</p>
-                </div>
-              </div>
-              <p className="mt-3 text-sm text-muted-foreground">
-                Broker metrics integration will be added in a future update. Analytics above are based on the trades
-                already stored in your journal.
-              </p>
-            </Card>
+            <BrokerMetricsCard />
           </div>
         )}
       </div>
