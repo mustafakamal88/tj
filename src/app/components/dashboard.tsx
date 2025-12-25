@@ -1,8 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Plus, ChevronLeft, ChevronRight, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Link } from 'lucide-react';
+import { Plus, DollarSign, Percent, TrendingUp, TrendingDown, Upload, Link } from 'lucide-react';
 import { fetchTradesCount, fetchTradesForCalendarMonth } from '../utils/trades-api';
 import { calculateWinRate, calculateTotalPnL, formatCurrency } from '../utils/trade-calculations';
 import { filterTradesForFreeUser } from '../utils/data-limit';
@@ -15,296 +14,20 @@ import type { Trade } from '../types/trade';
 import { pnlBgSoftClass, pnlTextClass, semanticColors } from '../utils/semantic-colors';
 import { 
   format, 
-  parseISO,
   startOfMonth, 
-  endOfMonth, 
-  eachDayOfInterval, 
-  isSameDay,
-  getDay,
   addMonths,
-  subMonths
 } from 'date-fns';
 import { AddTradeDialog } from './add-trade-dialog';
 import { MTImportDialog } from './mt-import-dialog';
 import { BrokerConnectionDialog } from './broker-connection-dialog';
-import { DayViewDrawer } from './day-view-drawer';
-
-type CalendarDayData = {
-  count: number;
-  pnl: number;
-  isClosed: boolean;
-} | null;
-
-type CalendarWeekData = {
-  pnl: number;
-  days: number;
-};
-
-type DashboardCalendarCardProps = {
-  currentMonth: Date;
-  weeks: Date[][];
-  getDayData: (day: Date) => CalendarDayData;
-  getWeekData: (week: Date[]) => CalendarWeekData;
-  isToday: (day: Date) => boolean;
-  onPrevMonth?: () => void;
-  onNextMonth?: () => void;
-  onDayClick?: (day: Date) => void;
-  onGoToDate?: (day: Date) => void;
-  preview?: boolean;
-  hideWeekends?: boolean;
-};
-
-export function DashboardCalendarCard({
-  currentMonth,
-  weeks,
-  getDayData,
-  getWeekData,
-  isToday,
-  onPrevMonth,
-  onNextMonth,
-  onDayClick,
-  onGoToDate,
-  preview = false,
-  hideWeekends = false,
-}: DashboardCalendarCardProps) {
-  const [goToDate, setGoToDate] = useState('');
-  const showHideWeekends = !preview && hideWeekends;
-  const visibleDayIndexes = showHideWeekends ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
-  const dayHeaders = showHideWeekends
-    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Week']
-    : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Week'];
-
-  const handleGoToDate = () => {
-    if (!goToDate) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(goToDate)) {
-      toast.error('Enter a valid date');
-      return;
-    }
-    const parsed = parseISO(goToDate);
-    if (!Number.isFinite(parsed.getTime())) {
-      toast.error('Enter a valid date');
-      return;
-    }
-
-    if (onGoToDate) {
-      onGoToDate(parsed);
-      return;
-    }
-    if (onDayClick) {
-      onDayClick(parsed);
-    }
-  };
-
-  return (
-    <Card className="p-4 sm:p-6">
-      {/* Calendar Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <span className="text-muted-foreground">TODAY</span>
-          <span className="text-muted-foreground">-</span>
-          <h2>{format(currentMonth, 'MMMM yyyy')}</h2>
-        </div>
-        {!preview && (
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="flex items-center gap-2">
-              <Input
-                type="date"
-                aria-label="Go to date"
-                value={goToDate}
-                onChange={(e) => setGoToDate(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleGoToDate();
-                  }
-                }}
-                className="w-[160px]"
-              />
-              <Button variant="outline" onClick={handleGoToDate} disabled={!goToDate} aria-label="Go to date">
-                Go
-              </Button>
-            </div>
-            <Button variant="outline" size="icon" onClick={onPrevMonth} disabled={!onPrevMonth}>
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Button variant="outline" size="icon" onClick={onNextMonth} disabled={!onNextMonth}>
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* Calendar Grid */}
-      <div
-        className={
-          preview
-            ? 'overflow-hidden overflow-y-hidden'
-            : 'overflow-x-auto overflow-y-hidden -mx-4 px-4 sm:mx-0 sm:px-0'
-        }
-      >
-        <div className={preview ? 'flex justify-end' : ''}>
-          <div className="w-full min-w-[800px]">
-            {/* Day Headers */}
-            <div
-              className={
-                showHideWeekends
-                  ? 'grid grid-cols-6 gap-0 mb-2 [grid-template-columns:repeat(5,minmax(0,1fr))_120px]'
-                  : 'grid grid-cols-8 gap-0 mb-2 [grid-template-columns:repeat(7,minmax(0,1fr))_120px]'
-              }
-            >
-              {dayHeaders.map((day) => (
-                <div key={day} className="text-center text-[10px] sm:text-sm text-muted-foreground py-1.5 sm:py-2">
-                  {day}
-                </div>
-              ))}
-            </div>
-
-            {/* Calendar Rows */}
-            <div className="border rounded-lg overflow-hidden">
-              {weeks.map((week, weekIndex) => {
-                const weekData = getWeekData(week);
-                return (
-                  <div
-                    key={weekIndex}
-                    className={
-                      showHideWeekends
-                        ? 'grid grid-cols-6 gap-0 [grid-template-columns:repeat(5,minmax(0,1fr))_120px]'
-                        : 'grid grid-cols-8 gap-0 [grid-template-columns:repeat(7,minmax(0,1fr))_120px]'
-                    }
-                  >
-                    {/* Day Cells */}
-                    {visibleDayIndexes.map((dayIndex) => {
-                      const day = week[dayIndex] ?? new Date(0);
-                      const dayData = getDayData(day);
-                      const isEmpty = day.getTime() === 0;
-                      const isClickable = !preview && !isEmpty && onDayClick;
-                      const interactive = isClickable ? 'hover:bg-accent cursor-pointer' : '';
-
-                      const handleDayClick = () => {
-                        if (isClickable) {
-                          onDayClick(day);
-                        }
-                      };
-
-                      const handleKeyDown = (e: React.KeyboardEvent) => {
-                        if (isClickable && (e.key === 'Enter' || e.key === ' ')) {
-                          e.preventDefault();
-                          onDayClick(day);
-                        }
-                      };
-
-                      return (
-                        <button
-                          key={dayIndex}
-                          onClick={handleDayClick}
-                          onKeyDown={handleKeyDown}
-                          disabled={!isClickable}
-                          className={`
-                            border-b border-r p-1 sm:p-4 aspect-square sm:aspect-auto sm:min-h-[100px] flex flex-col min-w-0 overflow-hidden
-                            ${isEmpty ? 'bg-muted/20' : ''}
-                            ${!isEmpty && dayData && !dayData.isClosed && !isToday(day) ? pnlBgSoftClass(dayData.pnl) : ''}
-                            ${isToday(day) ? 'bg-blue-50 dark:bg-blue-950/20' : ''}
-                            ${interactive}
-                            ${isClickable ? 'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset' : ''}
-                            disabled:cursor-default
-                          `}
-                        >
-                          {!isEmpty && (
-                            <>
-                              {/* Date */}
-                              <div className="text-[10px] sm:text-sm text-muted-foreground mb-1 sm:mb-2 leading-none">
-                                {format(day, 'd')}
-                              </div>
-
-                              {/* P&L */}
-                              <div className="flex-1 min-h-0 flex items-center justify-center">
-                                {dayData?.isClosed ? (
-                                  <span className="text-sm sm:text-2xl text-muted-foreground leading-none">—</span>
-                                ) : (
-                                  <span
-                                    className={`block w-full text-center whitespace-nowrap text-[11px] sm:text-xl font-medium tabular-nums leading-tight ${pnlTextClass(dayData?.pnl)}`}
-                                  >
-                                    {dayData && formatCurrency(dayData.pnl).replace('.00', '')}
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* Trade Count */}
-                              <div className="w-full truncate whitespace-nowrap text-[10px] sm:text-xs text-center text-muted-foreground mt-1 sm:mt-2 leading-tight">
-                                {dayData?.isClosed ? (
-                                  'Closed'
-                                ) : (
-                                  <>
-                                    {dayData?.count} {dayData?.count === 1 ? 'trade' : 'trades'}
-                                  </>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </button>
-                      );
-                    })}
-
-                    {/* Week Summary Cell */}
-                    <div className="border-b p-2 sm:p-4 min-h-0 sm:min-h-[100px] flex flex-col items-center justify-center bg-muted/30 min-w-0 overflow-hidden">
-                      <div className="text-xs sm:text-sm text-muted-foreground mb-1 sm:mb-2 leading-none">
-                        Week {weekIndex + 1}
-                      </div>
-                      {weekData.days > 0 ? (
-                        <>
-                          <div
-                            className={`text-sm sm:text-xl font-medium tabular-nums whitespace-nowrap ${pnlTextClass(weekData.pnl)}`}
-                          >
-                            {formatCurrency(weekData.pnl).replace('.00', '')}
-                          </div>
-                          <div className="text-[10px] sm:text-xs text-muted-foreground mt-1 sm:mt-2 leading-tight whitespace-nowrap">
-                            {weekData.days} {weekData.days === 1 ? 'day' : 'days'}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-sm sm:text-xl text-muted-foreground leading-none">—</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {!preview && (
-        <>
-          {/* Legend */}
-          <div className="flex items-center justify-center gap-6 mt-6 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded bg-green-600"></div>
-              <span>Profit</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded bg-red-600"></div>
-              <span>Loss</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded border-2"></div>
-              <span>Closed</span>
-            </div>
-          </div>
-        </>
-      )}
-    </Card>
-  );
-}
-
+import { JudgmentCard } from './judgment-card';
+import { computeJudgment } from '../utils/judgment';
 export function Dashboard() {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
   const [trades, setTrades] = useState<Trade[]>([]);
   const [totalTradeCount, setTotalTradeCount] = useState(0);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isBrokerDialogOpen, setIsBrokerDialogOpen] = useState(false);
-  const [isDayViewOpen, setIsDayViewOpen] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const { profile, loading: profileLoading, refresh: refreshProfile } = useProfile();
   const effectivePlan = getEffectivePlan(profile);
   const paidActiveRef = useRef(false);
@@ -315,42 +38,10 @@ export function Dashboard() {
     paidActiveRef.current = hasPaidEntitlement(profile);
   }, [profile]);
 
-  // Handle URL query params for day view
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const dayParam = params.get('day');
-    if (dayParam && /^\d{4}-\d{2}-\d{2}$/.test(dayParam)) {
-      setSelectedDay(dayParam);
-      setIsDayViewOpen(true);
-    }
-  }, []);
-
-  const handleDayClick = (day: Date) => {
-    const dayString = format(day, 'yyyy-MM-dd');
-    setSelectedDay(dayString);
-    setIsDayViewOpen(true);
-
-    // Update URL with query param
-    const url = new URL(window.location.href);
-    url.searchParams.set('day', dayString);
-    window.history.pushState({}, '', url.toString());
-  };
-
-  const handleDayViewClose = (open: boolean) => {
-    setIsDayViewOpen(open);
-    if (!open) {
-      setSelectedDay(null);
-      
-      // Remove query param from URL
-      const url = new URL(window.location.href);
-      url.searchParams.delete('day');
-      window.history.pushState({}, '', url.toString());
-    }
-  };
-
   const refreshTrades = async () => {
-    const start = startOfMonth(currentMonth);
-    const end = startOfMonth(addMonths(currentMonth, 1));
+    const now = new Date();
+    const start = startOfMonth(now);
+    const end = startOfMonth(addMonths(now, 1));
     const allTrades = await fetchTradesForCalendarMonth(start, end);
     const filteredTrades = effectivePlan === 'free' ? filterTradesForFreeUser(allTrades) : allTrades;
     setTrades(filteredTrades);
@@ -371,7 +62,7 @@ export function Dashboard() {
     return () => {
       window.removeEventListener('subscription-changed', handleSubscriptionChanged);
     };
-  }, [effectivePlan, currentMonth]);
+  }, [effectivePlan]);
 
   useEffect(() => {
     // Stripe redirects back to /dashboard; webhooks update Supabase asynchronously.
@@ -430,9 +121,6 @@ export function Dashboard() {
       if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
     };
   }, []);
-  const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
-  const monthEnd = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
-
   // Calculate statistics
   const totalPnL = useMemo(() => calculateTotalPnL(trades), [trades]);
   const winRate = useMemo(() => calculateWinRate(trades), [trades]);
@@ -442,27 +130,6 @@ export function Dashboard() {
     () => trades.filter((t) => t.outcome === 'loss').length,
     [trades],
   );
-
-  const monthDays = useMemo(() => eachDayOfInterval({ start: monthStart, end: monthEnd }), [monthStart, monthEnd]);
-
-  // Group days by week
-  const weeks: Date[][] = useMemo(() => {
-    const out: Date[][] = [];
-    let currentWeekDays: Date[] = [];
-    const firstDayOfWeek = getDay(monthStart);
-    for (let i = 0; i < firstDayOfWeek; i++) {
-      currentWeekDays.push(new Date(0));
-    }
-    monthDays.forEach((day, index) => {
-      currentWeekDays.push(day);
-      if (getDay(day) === 6 || index === monthDays.length - 1) {
-        while (currentWeekDays.length < 7) currentWeekDays.push(new Date(0));
-        out.push([...currentWeekDays]);
-        currentWeekDays = [];
-      }
-    });
-    return out;
-  }, [monthDays, monthStart]);
 
   const dayStats = useMemo(() => {
     const map = new Map<string, { count: number; pnl: number }>();
@@ -486,44 +153,56 @@ export function Dashboard() {
     return map;
   }, [trades]);
 
-  // Calculate trade data for each day
-  const getDayData = (day: Date) => {
-    if (day.getTime() === 0) return null; // Empty cell
-    
-    const key = format(day, 'yyyy-MM-dd');
-    const stat = dayStats.get(key);
-    
-    return {
-      count: stat?.count ?? 0,
-      pnl: stat?.pnl ?? 0,
-      isClosed: !stat
-    };
-  };
+  const todayKey = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
+  const todayStat = dayStats.get(todayKey);
+  const tradesToday = todayStat?.count;
+  const todayPnL = todayStat?.pnl;
 
-  // Calculate weekly totals
-  const getWeekData = (week: Date[]) => {
-    const validDays = week.filter(d => d.getTime() !== 0);
-    let totalWeekPnL = 0;
-    let tradingDays = 0;
-    for (const day of validDays) {
-      const key = format(day, 'yyyy-MM-dd');
-      const stat = dayStats.get(key);
-      if (stat) {
-        tradingDays += 1;
-        totalWeekPnL += stat.pnl;
+  const recentTradesDesc = useMemo(() => {
+    const toTime = (t: Trade) => {
+      const time = t.closeTime || t.openTime || t.date;
+      const ms = new Date(time).getTime();
+      return Number.isFinite(ms) ? ms : 0;
+    };
+    return [...trades].sort((a, b) => toTime(b) - toTime(a));
+  }, [trades]);
+
+  const losingStreak = useMemo(() => {
+    let streak = 0;
+    for (const t of recentTradesDesc) {
+      if (t.outcome === 'loss') {
+        streak += 1;
+        continue;
       }
+      if (t.outcome === 'win') break;
     }
-    
-    return {
-      pnl: totalWeekPnL,
-      days: tradingDays
-    };
-  };
+    return streak;
+  }, [recentTradesDesc]);
 
-  const isToday = (day: Date) => {
-    if (day.getTime() === 0) return false;
-    return isSameDay(day, new Date());
-  };
+  const last10RiskValues = useMemo(() => {
+    const values: number[] = [];
+    for (const t of recentTradesDesc) {
+      if (typeof t.size !== 'number' || !Number.isFinite(t.size) || t.size <= 0) continue;
+      values.push(t.size);
+      if (values.length >= 10) break;
+    }
+    return values.length >= 2 ? values : undefined;
+  }, [recentTradesDesc]);
+
+  const judgmentResult = useMemo(() => {
+    // If there are no trades at all, don't penalize: show a neutral green state.
+    if (totalTradeCount === 0) {
+      return computeJudgment({});
+    }
+
+    return computeJudgment({
+      tradesToday,
+      last10RiskValues,
+      losingStreak,
+      todayPnL,
+      dailyMaxLoss: 200,
+    });
+  }, [totalTradeCount, tradesToday, last10RiskValues, losingStreak, todayPnL]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-background">
@@ -580,65 +259,54 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-muted-foreground">Total P&L (Month)</span>
-              <DollarSign className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <div className={`text-2xl ${pnlTextClass(totalPnL)}`}>
-              {formatCurrency(totalPnL)}
-            </div>
-          </Card>
+        {/* Top row */}
+        <div className="grid gap-4 lg:grid-cols-12 mb-8">
+          <JudgmentCard result={judgmentResult} className="lg:col-span-7" />
 
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-muted-foreground">Win Rate</span>
-              <Percent className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <div className="text-2xl">
-              {winRate.toFixed(1)}%
-            </div>
-          </Card>
+          <div className="lg:col-span-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-muted-foreground">Total P&L (Month)</span>
+                  <DollarSign className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div className={`text-2xl ${pnlTextClass(totalPnL)}`}>
+                  {formatCurrency(totalPnL)}
+                </div>
+              </Card>
 
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-muted-foreground">Wins / Losses</span>
-              <TrendingUp className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <div className="text-2xl">
-              <span className={semanticColors.profitText}>{wins}</span>
-              <span className="text-muted-foreground"> / </span>
-              <span className={semanticColors.lossText}>{losses}</span>
-            </div>
-          </Card>
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-muted-foreground">Win Rate</span>
+                  <Percent className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div className="text-2xl">
+                  {winRate.toFixed(1)}%
+                </div>
+              </Card>
 
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-muted-foreground">Total Trades</span>
-              <TrendingDown className="w-4 h-4 text-muted-foreground" />
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-muted-foreground">Wins / Losses</span>
+                  <TrendingUp className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div className="text-2xl">
+                  <span className={semanticColors.profitText}>{wins}</span>
+                  <span className="text-muted-foreground"> / </span>
+                  <span className={semanticColors.lossText}>{losses}</span>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-muted-foreground">Total Trades</span>
+                  <TrendingDown className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div className="text-2xl">{totalTrades}</div>
+              </Card>
             </div>
-            <div className="text-2xl">{totalTrades}</div>
-          </Card>
+          </div>
         </div>
-
-        {/* Calendar Card */}
-        <DashboardCalendarCard
-          currentMonth={currentMonth}
-          weeks={weeks}
-          getDayData={getDayData}
-          getWeekData={getWeekData}
-          isToday={isToday}
-          onPrevMonth={() => setCurrentMonth(subMonths(currentMonth, 1))}
-          onNextMonth={() => setCurrentMonth(addMonths(currentMonth, 1))}
-          onDayClick={handleDayClick}
-          onGoToDate={(day) => {
-            setCurrentMonth(day);
-            handleDayClick(day);
-          }}
-          hideWeekends
-        />
 
         {/* Empty State */}
         {totalTradeCount === 0 && (
@@ -668,12 +336,6 @@ export function Dashboard() {
         open={isBrokerDialogOpen}
         onOpenChange={setIsBrokerDialogOpen}
         onImportComplete={refreshTrades}
-      />
-
-      <DayViewDrawer
-        open={isDayViewOpen}
-        onOpenChange={handleDayViewClose}
-        selectedDay={selectedDay}
       />
     </div>
   );

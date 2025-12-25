@@ -14,14 +14,21 @@ export function SettingsPage({ onConnectBroker, onImport }: Props) {
 
       <div className="mt-8 grid gap-4">
         <Card className="p-5">
-          <div className="text-sm font-medium">Integrations</div>
-          <div className="mt-1 text-sm text-muted-foreground">Connect a broker account or import trade history.</div>
+          <div className="text-sm font-medium">Broker Connections</div>
+          <div className="mt-1 text-sm text-muted-foreground">Link accounts to sync trades into Trade Journal.</div>
           <div className="mt-4 flex flex-col sm:flex-row gap-2">
             <Button type="button" variant="outline" onClick={onConnectBroker}>
-              Connect Broker
+              Manage Brokers
             </Button>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="text-sm font-medium">Import History</div>
+          <div className="mt-1 text-sm text-muted-foreground">Review past imports and retry failed jobs.</div>
+          <div className="mt-4 flex flex-col sm:flex-row gap-2">
             <Button type="button" variant="outline" onClick={onImport}>
-              Import
+              View Import History
             </Button>
           </div>
         </Card>

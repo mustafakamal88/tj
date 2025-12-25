@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { eachDayOfInterval, endOfMonth, format, getDay, isSameDay, startOfMonth } from 'date-fns';
-import { DashboardCalendarCard } from '../../app/components/dashboard';
+import { DashboardCalendarCard } from '../../app/components/calendar/dashboard-calendar-card';
 
 type DayStat = {
   count: number;

@@ -42,6 +42,7 @@ export function Navigation({
 
   const isAppRoute =
     currentPage === 'dashboard' ||
+    currentPage === 'calendar' ||
     currentPage === 'journal' ||
     currentPage === 'analytics' ||
     currentPage === 'billing' ||
@@ -74,7 +75,7 @@ export function Navigation({
       aria-label={showAppTopbar ? 'Go to dashboard' : 'Go to home'}
     >
       <svg
-        className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 text-[#34a85a] block"
+        className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 text-primary block"
         viewBox="0 0 37 44"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
@@ -83,23 +84,70 @@ export function Navigation({
         <path d={svgPaths.p20226f80} fill="currentColor" />
       </svg>
       <span className="hidden sm:block text-base md:text-lg font-semibold leading-none tracking-tight text-foreground whitespace-nowrap">
-        <span className="text-foreground">Trade</span>{' '}
-        <span className="text-[#34a85a]">Journal</span>
+        <span className="text-foreground">Trade Journal</span>
       </span>
     </button>
   );
 
   if (showAppTopbar) {
+    const mobileUtilities = (
+      <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-center shrink-0">
+          <ThemeToggle />
+        </div>
+        <div className="flex items-center shrink-0 min-w-0">
+          <PlanBadge className="max-w-[92px] sm:max-w-[120px]" />
+        </div>
+        <div className="flex items-center shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-md shrink-0 p-0 hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                disabled={!user}
+                aria-label="Open profile menu"
+              >
+                <User className="w-5 h-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>
+                <div className="flex flex-col">
+                  <span>My Account</span>
+                  <span className="text-xs font-normal text-muted-foreground">{user ?? 'Not signed in'}</span>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onNavigate('settings')} disabled={!user}>
+                <User className="w-4 h-4 mr-2" />
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onBillingClick} disabled={!user}>
+                <Receipt className="w-4 h-4 mr-2" />
+                Billing
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onLogout} disabled={!user}>
+                <LogOut className="w-4 h-4 mr-2" />
+                Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    );
+
     return (
-      <nav className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-50 dark:border-white/10">
-        <div className="h-14 grid grid-cols-[1fr_auto] md:grid-cols-[15rem_1fr] items-center">
+      <>
+        <nav className={cn('border-b border-border bg-background sticky top-0 z-50', isAppRoute ? 'md:hidden' : null)}>
+          <div className="h-14 grid grid-cols-[1fr_auto] md:grid-cols-[15rem_1fr] items-center">
           <div className={cn('px-4 sm:px-6 md:px-4 flex items-center', isAppRoute ? 'md:px-0' : null)}>
             <div className="flex items-center gap-2 shrink-0">
               <div className="flex md:hidden">
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 hover:bg-muted/40 dark:hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-[#34a85a]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   onClick={() => onAppSidebarOpenChange?.(!Boolean(appSidebarOpen))}
                   aria-expanded={Boolean(appSidebarOpen)}
                   aria-label={Boolean(appSidebarOpen) ? 'Close sidebar' : 'Open sidebar'}
@@ -113,64 +161,16 @@ export function Navigation({
           </div>
 
           <div className="px-4 sm:px-6 lg:px-8 flex items-center justify-end min-w-0 md:border-l md:border-border/60">
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-              <div className="flex items-center justify-center shrink-0">
-                <ThemeToggle />
-              </div>
-
-              <div aria-hidden="true" className="hidden sm:block h-5 w-px bg-foreground/10 shrink-0" />
-
-              <div className="flex items-center shrink-0 min-w-0">
-                <PlanBadge className="max-w-[92px] sm:max-w-[120px]" />
-              </div>
-
-              <div aria-hidden="true" className="hidden sm:block h-5 w-px bg-foreground/10 shrink-0" />
-
-              <div className="flex items-center shrink-0">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 hover:bg-muted/40 dark:hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-[#34a85a]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      disabled={!user}
-                      aria-label="Open profile menu"
-                    >
-                      <User className="w-5 h-5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>
-                      <div className="flex flex-col">
-                        <span>My Account</span>
-                        <span className="text-xs font-normal text-muted-foreground">{user ?? 'Not signed in'}</span>
-                      </div>
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => onNavigate('settings')} disabled={!user}>
-                      <User className="w-4 h-4 mr-2" />
-                      Settings
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={onBillingClick} disabled={!user}>
-                      <Receipt className="w-4 h-4 mr-2" />
-                      Billing
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={onLogout} disabled={!user}>
-                      <LogOut className="w-4 h-4 mr-2" />
-                      Logout
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">{mobileUtilities}</div>
           </div>
-        </div>
-      </nav>
+          </div>
+        </nav>
+      </>
     );
   }
 
   return (
-    <nav className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-50 dark:border-white/10">
+    <nav className="border-b border-border bg-background sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {Logo}
@@ -188,7 +188,7 @@ export function Navigation({
                   aria-current={isActive ? 'page' : undefined}
                   className={`gap-2 ${
                     isActive
-                      ? 'bg-[#34a85a] hover:bg-[#2d9450] text-white'
+                      ? 'bg-muted/60 text-foreground'
                       : 'text-foreground/80 hover:text-foreground'
                   }`}
                 >
@@ -204,7 +204,7 @@ export function Navigation({
             <Button variant="ghost" onClick={() => onAuthClick()}>
               Log in
             </Button>
-            <Button onClick={() => onAuthClick('signup')} className="bg-[#34a85a] hover:bg-[#2d9450]">
+            <Button onClick={() => onAuthClick('signup')} className="bg-primary hover:bg-primary/90 text-primary-foreground">
               Get started
             </Button>
           </div>
@@ -214,7 +214,7 @@ export function Navigation({
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 sm:h-10 sm:w-10 hover:bg-muted/40 dark:hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-[#34a85a]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="h-9 w-9 sm:h-10 sm:w-10 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-expanded={mobileMenuOpen}
               aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
@@ -241,7 +241,7 @@ export function Navigation({
                     aria-current={isActive ? 'page' : undefined}
                     className={`gap-2 justify-start ${
                       isActive
-                        ? 'bg-[#34a85a] hover:bg-[#2d9450] text-white'
+                        ? 'bg-muted/60 text-foreground'
                         : 'text-foreground/80 hover:text-foreground'
                     }`}
                   >
@@ -268,7 +268,7 @@ export function Navigation({
                       onAuthClick('signup');
                       setMobileMenuOpen(false);
                     }}
-                    className="w-full bg-[#34a85a] hover:bg-[#2d9450]"
+                    className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
                   >
                     Get started
                   </Button>

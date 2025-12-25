@@ -16,6 +16,7 @@ import { Seo } from './components/seo';
 import { CommunityPage } from './pages/community';
 import { ImportHistoryPage } from './pages/import-history';
 import { SettingsPage } from './pages/settings';
+import { CalendarPage } from './pages/calendar';
 import { UniversityPage } from './pages/university';
 import { UniversityLessonPage } from './pages/university/lesson';
 import { ErrorBoundary } from './components/error-boundary';
@@ -39,6 +40,7 @@ export type Page =
   | 'login'
   | 'signup'
   | 'dashboard'
+  | 'calendar'
   | 'journal'
   | 'analytics'
   | 'learn'
@@ -63,6 +65,7 @@ function AppContent() {
   const isProtectedPage = (page: Page) => {
     return (
       page === 'dashboard' ||
+      page === 'calendar' ||
       page === 'journal' ||
       page === 'analytics' ||
       page === 'billing' ||
@@ -106,6 +109,7 @@ function AppContent() {
       page === 'login' ? '/login' :
       page === 'signup' ? '/signup' :
       page === 'dashboard' ? '/dashboard' :
+      page === 'calendar' ? '/calendar' :
       page === 'journal' ? '/journal' :
       page === 'analytics' ? '/analytics' :
       page === 'learn' ? '/learn' :
@@ -132,6 +136,7 @@ function AppContent() {
       path === '/login' ? 'login' :
       path === '/signup' ? 'signup' :
       path === '/dashboard' ? 'dashboard' :
+      path === '/calendar' ? 'calendar' :
       path === '/journal' ? 'journal' :
       path === '/analytics' ? 'analytics' :
       path === '/learn' ? 'learn' :
@@ -153,6 +158,7 @@ function AppContent() {
         p === '/login' ? 'login' :
         p === '/signup' ? 'signup' :
         p === '/dashboard' ? 'dashboard' :
+        p === '/calendar' ? 'calendar' :
         p === '/journal' ? 'journal' :
         p === '/analytics' ? 'analytics' :
         p === '/learn' ? 'learn' :
@@ -256,6 +262,9 @@ function AppContent() {
       <AppShell
         currentPage={currentPage}
         onNavigate={handleNavigate}
+        user={userEmail}
+        onLogout={handleLogout}
+        onBillingClick={() => handleNavigate('billing')}
         mobileSidebarOpen={mobileAppSidebarOpen}
         onMobileSidebarOpenChange={setMobileAppSidebarOpen}
       >
@@ -324,6 +333,15 @@ function AppContent() {
             <Seo title="Dashboard" noindex />
             <ErrorBoundary title="Dashboard crashed" description="Refresh the page and try opening the day drawer again.">
               <Dashboard />
+            </ErrorBoundary>
+          </>
+        );
+      case 'calendar':
+        return wrapApp(
+          <>
+            <Seo title="Calendar" noindex />
+            <ErrorBoundary title="Calendar crashed" description="Refresh the page and try again.">
+              <CalendarPage />
             </ErrorBoundary>
           </>
         );
