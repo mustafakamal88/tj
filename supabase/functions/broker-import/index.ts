@@ -131,7 +131,10 @@ function getSupabaseAdmin() {
   return createClient(
     requireEnv("SUPABASE_URL"),
     requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
-    { auth: { persistSession: false } },
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { "X-Client-Info": "tj-broker-import" } },
+    },
   );
 }
 
@@ -605,7 +608,7 @@ function toShortSafeMessage(e: unknown): string {
 
 type BrokerLiveStatus = "live" | "syncing" | "error" | "stale";
 
-async function brokerLiveUpsert(payload: {
+type BrokerLiveUpsertPayload = {
   user_id: string;
   broker: string;
   account_id: string;
@@ -613,7 +616,16 @@ async function brokerLiveUpsert(payload: {
   metrics?: Record<string, unknown>;
   exposure?: Record<string, unknown>;
   meta?: Record<string, unknown>;
-}): Promise<void> {
+};
+
+async function upsertBrokerLiveState(payload: BrokerLiveUpsertPayload): Promise<void> {
+  const userId = payload.user_id;
+  const broker = payload.broker;
+  const accountId = payload.account_id;
+  const status = payload.status;
+
+  console.log("[live-state] about to upsert", { userId, broker, account_id: accountId, status });
+
   try {
     // Ensure required env vars exist.
     requireEnv("SUPABASE_URL");
@@ -624,20 +636,45 @@ async function brokerLiveUpsert(payload: {
 
     const metrics = isRecord(payload.metrics) ? payload.metrics : {};
     const exposure = isRecord(payload.exposure) ? payload.exposure : {};
-    const meta = isRecord(payload.meta) ? payload.meta : {};
+    const inputMeta = isRecord(payload.meta) ? payload.meta : {};
+
+    const equity = toNumber((metrics as any).equity);
+    const balance = toNumber((metrics as any).balance);
+    const marginUsed = toNumber((metrics as any).margin_used);
+    const freeMargin = toNumber((metrics as any).free_margin);
+
+    const meta: Record<string, unknown> = {
+      ...inputMeta,
+      equity,
+      balance,
+      margin: marginUsed,
+      margin_used: marginUsed,
+      free_margin: freeMargin,
+      margin_level:
+        toNumber((inputMeta as any).margin_level) ??
+        toNumber((inputMeta as any).marginLevel) ??
+        undefined,
+      leverage: (inputMeta as any).leverage,
+      currency: (inputMeta as any).currency,
+      server_time: (inputMeta as any).server_time,
+      error_message:
+        toString((inputMeta as any).error_message) ??
+        toString((inputMeta as any).message) ??
+        undefined,
+    };
 
     const row = {
-      user_id: payload.user_id,
-      broker: payload.broker,
-      account_id: payload.account_id,
-      status: payload.status,
+      user_id: userId,
+      broker,
+      account_id: accountId,
+      status,
       last_sync_at: now,
-      balance: toNumber((metrics as any).balance),
-      equity: toNumber((metrics as any).equity),
+      balance,
+      equity,
       floating_pnl: toNumber((metrics as any).floating_pnl),
       open_positions_count: clampInt((metrics as any).open_positions_count, 0, 1_000_000),
-      margin_used: toNumber((metrics as any).margin_used),
-      free_margin: toNumber((metrics as any).free_margin),
+      margin_used: marginUsed,
+      free_margin: freeMargin,
       exposure,
       meta,
       updated_at: now,
@@ -648,17 +685,25 @@ async function brokerLiveUpsert(payload: {
       .upsert(row, { onConflict: "user_id,broker,account_id" });
 
     if (error) {
-      console.warn("[live-state] upsert failed", { message: error.message, account_id: payload.account_id });
+      console.warn("[live-state] direct upsert failed", {
+        userId,
+        broker,
+        account_id: accountId,
+        status,
+        errorMessage: error.message,
+      });
       return;
     }
 
-    console.log("[live-state] direct upsert ok", {
-      userId: payload.user_id,
-      account_id: payload.account_id,
-      status: payload.status,
-    });
+    console.log("[live-state] direct upsert ok", { userId, broker, account_id: accountId, status });
   } catch (e) {
-    console.warn("[live-state] upsert error", { message: toShortSafeMessage(e), account_id: payload.account_id });
+    console.warn("[live-state] direct upsert failed", {
+      userId,
+      broker,
+      account_id: accountId,
+      status,
+      errorMessage: toShortSafeMessage(e),
+    });
   }
 }
 
@@ -943,7 +988,7 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
         const accountInfo = await metaApiReadAccountInformation(metaapiAccountId);
         const positions = await metaApiReadPositions(metaapiAccountId);
         const { metrics, meta } = buildLiveMetricsFromAccountInfo({ accountInfo, positions });
-        await brokerLiveUpsert({
+        await upsertBrokerLiveState({
           user_id: userId,
           broker: PROVIDER,
           account_id: metaapiAccountId,
@@ -958,7 +1003,7 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
           },
         });
       } else {
-        await brokerLiveUpsert({
+        await upsertBrokerLiveState({
           user_id: userId,
           broker: PROVIDER,
           account_id: metaapiAccountId,
@@ -974,7 +1019,7 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
       }
     } catch (e) {
       if (e instanceof MetaApiRateLimitPauseError) {
-        await brokerLiveUpsert({
+        await upsertBrokerLiveState({
           user_id: userId,
           broker: PROVIDER,
           account_id: metaapiAccountId,
@@ -989,7 +1034,7 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
           },
         });
       } else {
-        await brokerLiveUpsert({
+        await upsertBrokerLiveState({
           user_id: userId,
           broker: PROVIDER,
           account_id: metaapiAccountId,
@@ -1412,7 +1457,7 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
       const accountInfo = await metaApiReadAccountInformation(accountId, { onRateLimit });
       const positions = await metaApiReadPositions(accountId, { onRateLimit });
       const { metrics, meta } = buildLiveMetricsFromAccountInfo({ accountInfo, positions });
-      await brokerLiveUpsert({
+      await upsertBrokerLiveState({
         user_id: userId,
         broker: PROVIDER,
         account_id: accountId,
@@ -1425,7 +1470,7 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
       });
     } catch (e) {
       if (e instanceof MetaApiRateLimitPauseError) {
-        await brokerLiveUpsert({
+        await upsertBrokerLiveState({
           user_id: userId,
           broker: PROVIDER,
           account_id: accountId,
@@ -1437,7 +1482,7 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
           },
         });
       } else {
-        await brokerLiveUpsert({
+        await upsertBrokerLiveState({
           user_id: userId,
           broker: PROVIDER,
           account_id: accountId,
@@ -1488,7 +1533,7 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
           if (state.error) delete state.error;
           rateLimited = { retryAt: e.retryAt, message: e.message };
 
-          await brokerLiveUpsert({
+          await upsertBrokerLiveState({
             user_id: userId,
             broker: PROVIDER,
             account_id: accountId,
@@ -1573,7 +1618,7 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
     console.error("[broker-import] import continue error", e);
 
     if (userId && state?.metaapiAccountId) {
-      await brokerLiveUpsert({
+      await upsertBrokerLiveState({
         user_id: userId,
         broker: PROVIDER,
         account_id: state.metaapiAccountId,
