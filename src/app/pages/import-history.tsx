@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { History, Link2, Upload } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
@@ -7,8 +8,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/toolti
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { pushPath } from '../utils/nav';
-import { listImportRuns, type ImportRun } from '../utils/import-history-api';
+import { createImportRun, listImportRuns, updateImportRun, type ImportRun } from '../utils/import-history-api';
 import { semanticColors } from '../utils/semantic-colors';
+import { getMetaApiStatus, continueMetaApiImport, startMetaApiQuickImport } from '../utils/broker-import-api';
 
 export function ImportHistoryPage() {
   const [runs, setRuns] = useState<ImportRun[]>([]);
@@ -16,13 +18,29 @@ export function ImportHistoryPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedRun, setSelectedRun] = useState<ImportRun | null>(null);
+  const [retryingRunIds, setRetryingRunIds] = useState<Set<string>>(() => new Set());
+
+  const refreshRuns = async (opts?: { showLoading?: boolean }) => {
+    const showLoading = opts?.showLoading ?? false;
+    if (showLoading) setLoading(true);
+    setLoadError(null);
+    try {
+      const data = await listImportRuns({ limit: 20 });
+      setRuns(data);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Failed to load import history.');
+      setRuns([]);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setLoadError(null);
     void (async () => {
       try {
+        setLoading(true);
+        setLoadError(null);
         const data = await listImportRuns({ limit: 20 });
         if (cancelled) return;
         setRuns(data);
@@ -65,6 +83,152 @@ export function ImportHistoryPage() {
     if (status === 'success') return semanticColors.winChipClasses;
     if (status === 'failed') return semanticColors.lossChipClasses;
     return 'border border-border bg-muted/30 text-muted-foreground';
+  };
+
+  const endNowIso = () => new Date().toISOString();
+
+  const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+  const parseImportTotals = (message: string | null | undefined): { fetchedTotal?: number; upsertedTotal?: number } => {
+    if (!message) return {};
+    try {
+      const parsed = JSON.parse(message) as any;
+      const fetchedTotal = typeof parsed?.fetchedTotal === 'number' ? parsed.fetchedTotal : Number(parsed?.fetchedTotal);
+      const upsertedTotal = typeof parsed?.upsertedTotal === 'number' ? parsed.upsertedTotal : Number(parsed?.upsertedTotal);
+      return {
+        fetchedTotal: Number.isFinite(fetchedTotal) ? fetchedTotal : undefined,
+        upsertedTotal: Number.isFinite(upsertedTotal) ? upsertedTotal : undefined,
+      };
+    } catch {
+      return {};
+    }
+  };
+
+  const providerSupportsRetry = (provider: string) => provider === 'metaapi';
+
+  const bestEffortResolveMetaApiConnectionId = async (run: ImportRun): Promise<string | null> => {
+    const details = run.errorDetails as any;
+    const candidate =
+      (typeof details?.connectionId === 'string' && details.connectionId.trim() ? details.connectionId.trim() : null) ??
+      (typeof details?.connection_id === 'string' && details.connection_id.trim() ? details.connection_id.trim() : null);
+    if (candidate) return candidate;
+
+    try {
+      const { connections } = await getMetaApiStatus();
+      if (!connections.length) return null;
+      if (connections.length === 1) return connections[0].id;
+      const preferred = connections.find((c) => c.status === 'connected' || c.status === 'imported');
+      return (preferred ?? connections[0]).id;
+    } catch {
+      return null;
+    }
+  };
+
+  const retryRun = async (run: ImportRun) => {
+    if (!providerSupportsRetry(run.provider)) {
+      toast.error('Retry not supported for this provider yet');
+      return;
+    }
+
+    setRetryingRunIds((prev) => {
+      const next = new Set(prev);
+      next.add(run.id);
+      return next;
+    });
+
+    let newRun: ImportRun | null = null;
+    try {
+      const connectionId = await bestEffortResolveMetaApiConnectionId(run);
+      if (!connectionId) {
+        toast.error('No connected broker found to retry this import.');
+        return;
+      }
+
+      newRun = await createImportRun({ source: run.source, provider: run.provider });
+
+      toast.success('Retry started.');
+      const started = await startMetaApiQuickImport({ connectionId });
+      let job = started.job;
+
+      while (job.status !== 'succeeded' && job.status !== 'failed') {
+        const res = await continueMetaApiImport({ jobId: job.id });
+        job = res.job;
+
+        if (job.status === 'succeeded' || job.status === 'failed') break;
+
+        if (res.status === 'rate_limited') {
+          const retryAtMs = Date.parse(res.retryAt);
+          const delay = Number.isFinite(retryAtMs) ? Math.min(15000, Math.max(250, retryAtMs - Date.now() + 250)) : 1000;
+          await sleep(delay);
+          continue;
+        }
+
+        await sleep(350);
+      }
+
+      if (job.status === 'succeeded') {
+        const totals = parseImportTotals(job.message);
+        const imported = typeof totals.upsertedTotal === 'number' ? totals.upsertedTotal : 0;
+        const fetched = typeof totals.fetchedTotal === 'number' ? totals.fetchedTotal : undefined;
+        const skipped = typeof fetched === 'number' && fetched >= imported ? fetched - imported : 0;
+
+        try {
+          await updateImportRun(newRun.id, {
+            status: 'success',
+            endedAt: endNowIso(),
+            importedCount: imported,
+            updatedCount: 0,
+            skippedCount: skipped,
+            errorMessage: null,
+            errorDetails: { provider: 'metaapi', mode: 'quick', connectionId, job },
+          });
+        } catch (e) {
+          console.warn('[import-history] update import run failed', e);
+        }
+
+        toast.success('Retry import complete.');
+        await refreshRuns();
+        return;
+      }
+
+      if (job.status === 'failed') {
+        try {
+          await updateImportRun(newRun.id, {
+            status: 'failed',
+            endedAt: endNowIso(),
+            errorMessage: job.message || 'Import failed.',
+            errorDetails: { provider: 'metaapi', mode: 'quick', connectionId, job },
+          });
+        } catch (e) {
+          console.warn('[import-history] update import run failed', e);
+        }
+        toast.error('Retry import failed.');
+        await refreshRuns();
+        return;
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Retry failed.';
+      if (newRun) {
+        try {
+          await updateImportRun(newRun.id, {
+            status: 'failed',
+            endedAt: endNowIso(),
+            errorMessage: msg,
+            errorDetails: { error: msg },
+          });
+        } catch (err) {
+          console.warn('[import-history] update import run failed', err);
+        }
+      }
+      toast.error(msg);
+      await refreshRuns();
+    } finally {
+      setRetryingRunIds((prev) => {
+        const next = new Set(prev);
+        next.delete(run.id);
+        return next;
+      });
+    }
   };
 
   return (
@@ -144,6 +308,8 @@ export function ImportHistoryPage() {
                 const duration = formatDuration(run.startedAt, run.endedAt);
                 const leftLabel = `${run.provider} • ${run.source}`;
                 const counts = `Imported ${run.importedCount} • Updated ${run.updatedCount} • Skipped ${run.skippedCount}`;
+                const isRetrying = retryingRunIds.has(run.id);
+                const canRetry = run.status === 'failed';
 
                 return (
                   <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-3 py-3">
@@ -164,6 +330,25 @@ export function ImportHistoryPage() {
                         </div>
                         <div className="text-xs text-muted-foreground">{counts}</div>
                       </div>
+
+                      {canRetry ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex" tabIndex={0}>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={isRetrying}
+                                onClick={() => void retryRun(run)}
+                              >
+                                {isRetrying ? 'Retrying…' : 'Retry'}
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent sideOffset={6}>Retry this import</TooltipContent>
+                        </Tooltip>
+                      ) : null}
 
                       <Button
                         type="button"
