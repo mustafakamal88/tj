@@ -26,31 +26,52 @@ export function AppShell({
   }, [currentPage, onMobileSidebarOpenChange]);
 
   const SidebarNav = ({ onItemClick }: { onItemClick?: () => void }) => (
-    <div className="flex h-full min-h-0 flex-col text-foreground dark:text-white">
-      <div className="px-3 pt-4 pb-3 border-b border-border dark:border-white/10">
+    <div className="flex h-full min-h-0 flex-col py-2 text-foreground dark:text-white">
+      {/* Brand */}
+      <div className="px-4 pt-2 pb-2">
         <button
           type="button"
-          className="w-full flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/40 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          onClick={() => {
-            onNavigate('dashboard');
-            onItemClick?.();
-          }}
-          aria-label="Go to dashboard"
+          onClick={() => onNavigate('dashboard')}
+          className={cn(
+            'group flex w-full h-14 items-center gap-3 rounded-xl px-3 text-left transition-colors',
+            'hover:bg-muted/40 dark:hover:bg-white/5',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          )}
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-foreground text-background text-xs font-semibold">
-            TJ
+          {/* Logo */}
+          <div
+            className={cn(
+              'flex size-10 items-center justify-center rounded-lg border shadow-sm',
+              'bg-white border-border text-foreground',
+              'dark:bg-neutral-950 dark:border-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]',
+            )}
+          >
+            <span className="text-[13px] font-bold tracking-tight">
+              <span className="text-[#34a85a]">T</span>J
+            </span>
           </div>
-          <div className="min-w-0 text-left">
-            <div className="text-sm font-semibold leading-none truncate">Trade Journal</div>
-            <div className="mt-0.5 text-xs text-muted-foreground dark:text-white/60 truncate">App</div>
+
+          {/* Name */}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[14px] font-semibold leading-5 tracking-tight text-foreground dark:text-white">
+              Trade Journal
+            </div>
+            <div className="truncate text-[12px] leading-4 text-muted-foreground dark:text-white/60">App</div>
+          </div>
+
+          {/* Optional chevron / affordance */}
+          <div className="text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 dark:text-white/50">
+            ›
           </div>
         </button>
       </div>
 
-      <div className="px-3 pt-4 pb-4">
+      <div className="mx-4 mb-2 h-px bg-border dark:bg-white/10" />
+
+      <div className="px-4 pt-2 pb-4">
         {appNavGroups.map((group, groupIndex) => (
           <div key={group.label} className={cn(groupIndex === 0 ? 'mt-0' : 'mt-7')}>
-            <div className="pl-3 pr-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground dark:text-white/50">
+            <div className="px-3 text-xs font-medium tracking-wide text-muted-foreground/80 dark:text-white/50">
               {group.label}
             </div>
             <div className="mt-2 space-y-1">
@@ -68,16 +89,16 @@ export function AppShell({
                     }}
                     aria-current={active ? 'page' : undefined}
                     className={cn(
-                      'relative h-10 w-full justify-start gap-3 rounded-md pl-3 pr-2 text-[13px] transition-colors box-border',
+                      'relative h-11 w-full justify-start gap-3 rounded-lg px-3 text-[13px] transition-colors box-border',
                       active
-                        ? 'bg-muted/60 text-foreground font-medium border border-border dark:bg-white/10 dark:text-white dark:border-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                        ? 'bg-muted/60 text-foreground font-medium border border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-white/10 dark:text-white dark:border-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
                         : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground dark:text-white/80 dark:hover:bg-white/5 dark:hover:text-white',
                     )}
                   >
                     <span
                       aria-hidden="true"
                       className={cn(
-                        'absolute left-1 top-2 bottom-2 w-1 rounded-r bg-[#34a85a] transition-opacity',
+                        'absolute left-0 top-2.5 bottom-2.5 w-[2px] rounded-r bg-[#34a85a] transition-opacity',
                         active ? 'opacity-100' : 'opacity-0',
                       )}
                     />
@@ -96,7 +117,7 @@ export function AppShell({
         ))}
       </div>
 
-      <div className="mt-auto border-t border-border dark:border-white/10 px-3 py-3">
+      <div className="mt-auto border-t border-border dark:border-white/10 px-4 py-3">
         <Button
           type="button"
           variant="ghost"
@@ -104,7 +125,7 @@ export function AppShell({
             onNavigate('learn');
             onItemClick?.();
           }}
-          className="h-10 w-full justify-start gap-3 rounded-md pl-3 pr-2 text-[13px] text-muted-foreground hover:bg-muted/40 hover:text-foreground dark:text-white/80 dark:hover:bg-white/5 dark:hover:text-white"
+          className="h-11 w-full justify-start gap-3 rounded-lg px-3 text-[13px] text-muted-foreground hover:bg-muted/40 hover:text-foreground dark:text-white/80 dark:hover:bg-white/5 dark:hover:text-white"
         >
           <AlertCircle className="size-[18px] shrink-0 text-muted-foreground/70 dark:text-white/55" />
           <span className="truncate">Learn More</span>
@@ -116,7 +137,16 @@ export function AppShell({
   return (
     <div className="bg-background">
       <div className="flex min-h-[calc(100vh-4rem)]">
-        <aside className="hidden md:flex w-60 border-r bg-white text-foreground border-border dark:bg-neutral-950 dark:text-white dark:border-white/10 dark:bg-gradient-to-b dark:from-neutral-950 dark:to-neutral-900/60 dark:shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)]">
+        <aside
+          className={cn(
+            'hidden md:flex w-60',
+            'border-r',
+            'bg-white text-foreground border-border shadow-sm',
+            'dark:bg-neutral-950 dark:text-white dark:border-white/10',
+            'dark:bg-gradient-to-b dark:from-neutral-950 dark:to-neutral-900/60',
+            'dark:shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)]',
+          )}
+        >
           <SidebarNav />
         </aside>
 
@@ -128,7 +158,14 @@ export function AppShell({
       <Sheet open={mobileSidebarOpen} onOpenChange={onMobileSidebarOpenChange}>
         <SheetContent
           side="left"
-          className="w-60 p-0 bg-white text-foreground border-r border-border dark:bg-neutral-950 dark:text-white dark:border-white/10 dark:bg-gradient-to-b dark:from-neutral-950 dark:to-neutral-900/60 dark:shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)] [&>button]:hidden"
+          className={cn(
+            'w-60 p-0 [&>button]:hidden',
+            'border-r',
+            'bg-white text-foreground border-border shadow-sm',
+            'dark:bg-neutral-950 dark:text-white dark:border-white/10',
+            'dark:bg-gradient-to-b dark:from-neutral-950 dark:to-neutral-900/60',
+            'dark:shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)]',
+          )}
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>

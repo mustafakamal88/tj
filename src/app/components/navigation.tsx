@@ -5,6 +5,7 @@ import type { Page } from '../App';
 import { ThemeToggle } from './theme-toggle';
 import { PlanBadge } from './plan-badge';
 import svgPaths from '../../imports/svg-4h62f17bbh';
+import { cn } from './ui/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -92,7 +93,7 @@ export function Navigation({
     return (
       <nav className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-50 dark:border-white/10">
         <div className="h-16 grid grid-cols-[1fr_auto] md:grid-cols-[15rem_1fr] items-center">
-          <div className="px-4 sm:px-6 md:px-4 flex items-center">
+          <div className={cn('px-4 sm:px-6 md:px-4 flex items-center', isAppRoute ? 'md:px-0' : null)}>
             <div className="flex items-center gap-2 shrink-0">
               <div className="flex md:hidden">
                 <Button
