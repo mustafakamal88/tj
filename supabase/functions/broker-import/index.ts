@@ -652,7 +652,7 @@ async function brokerLiveUpsert(payload: {
       return;
     }
 
-    console.log("[live-state] upsert ok", {
+    console.log("[live-state] direct upsert ok", {
       userId: payload.user_id,
       account_id: payload.account_id,
       status: payload.status,
