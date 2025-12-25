@@ -98,7 +98,7 @@ export function Navigation({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 sm:h-10 sm:w-10 shrink-0"
+                  className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 hover:bg-muted/40 dark:hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-[#34a85a]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   onClick={() => onAppSidebarOpenChange?.(!Boolean(appSidebarOpen))}
                   aria-expanded={Boolean(appSidebarOpen)}
                   aria-label={Boolean(appSidebarOpen) ? 'Close sidebar' : 'Open sidebar'}
@@ -131,7 +131,7 @@ export function Navigation({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 sm:h-10 sm:w-10 shrink-0"
+                      className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 hover:bg-muted/40 dark:hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-[#34a85a]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                       disabled={!user}
                       aria-label="Open profile menu"
                     >
@@ -213,6 +213,7 @@ export function Navigation({
             <Button
               variant="ghost"
               size="icon"
+              className="h-9 w-9 sm:h-10 sm:w-10 hover:bg-muted/40 dark:hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-[#34a85a]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-expanded={mobileMenuOpen}
               aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}

@@ -50,8 +50,8 @@ export function AppShell({
                     className={cn(
                       'relative h-10 w-full justify-start gap-3 rounded-md pl-3 pr-2 text-[13px] transition-colors box-border',
                       active
-                        ? 'bg-muted/60 text-foreground font-medium border border-border dark:bg-white/10 dark:text-white dark:border-white/10'
-                        : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground dark:text-white/70 dark:hover:bg-white/5 dark:hover:text-white',
+                        ? 'bg-muted/60 text-foreground font-medium border border-border dark:bg-white/10 dark:text-white dark:border-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                        : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground dark:text-white/80 dark:hover:bg-white/5 dark:hover:text-white',
                     )}
                   >
                     <span
@@ -64,7 +64,7 @@ export function AppShell({
                     <Icon
                       className={cn(
                         'size-[18px] shrink-0',
-                        active ? 'text-foreground dark:text-white' : 'text-muted-foreground/70 dark:text-white/50',
+                        active ? 'text-foreground dark:text-white' : 'text-muted-foreground/70 dark:text-white/55',
                       )}
                     />
                     <span className="truncate">{item.label}</span>
@@ -84,9 +84,9 @@ export function AppShell({
             onNavigate('learn');
             onItemClick?.();
           }}
-          className="h-10 w-full justify-start gap-3 rounded-md pl-3 pr-2 text-[13px] text-muted-foreground hover:bg-muted/40 hover:text-foreground dark:text-white/70 dark:hover:bg-white/5 dark:hover:text-white"
+          className="h-10 w-full justify-start gap-3 rounded-md pl-3 pr-2 text-[13px] text-muted-foreground hover:bg-muted/40 hover:text-foreground dark:text-white/80 dark:hover:bg-white/5 dark:hover:text-white"
         >
-          <AlertCircle className="size-[18px] shrink-0 text-muted-foreground/70 dark:text-white/50" />
+          <AlertCircle className="size-[18px] shrink-0 text-muted-foreground/70 dark:text-white/55" />
           <span className="truncate">Learn More</span>
         </Button>
       </div>
