@@ -21,6 +21,17 @@
 
   If these are not set, login/signup can work locally but fail or behave differently on Vercel.
 
+  ## Supabase Realtime (Live Broker Matrix)
+
+  The Live Broker Matrix uses Supabase Realtime subscriptions on `public.broker_live_state`.
+
+  - The migration attempts to add the table to the `supabase_realtime` publication.
+  - If your project manages Realtime via the dashboard, ensure `broker_live_state` is enabled for Realtime.
+
+  The Edge Function `broker-live-upsert` requires a Supabase Function secret:
+
+  - `TJ_INTERNAL_KEY` (requests must send header `x-tj-internal-key` matching this value)
+
   ## Running the code
 
   Run `npm i` to install the dependencies.

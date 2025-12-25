@@ -23,6 +23,7 @@ import { BrokerConnectionDialog } from './broker-connection-dialog';
 import { JudgmentCard } from './judgment-card';
 import { computeJudgment } from '../utils/judgment';
 import { BrokerMetricsCard } from './broker-metrics-card';
+import { BrokerMatrix } from './broker-matrix';
 export function Dashboard() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [totalTradeCount, setTotalTradeCount] = useState(0);
@@ -306,6 +307,10 @@ export function Dashboard() {
               </Card>
             </div>
           </div>
+        </div>
+
+        <div className="mt-6">
+          <BrokerMatrix userId={profile?.id} />
         </div>
 
         <div className="mt-6">
