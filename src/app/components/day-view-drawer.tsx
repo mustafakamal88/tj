@@ -327,22 +327,23 @@ export function DayViewDrawer({ open, onOpenChange, selectedDay }: DayViewDrawer
       }
 
       const firstFailure = results.find((r) => !r.ok);
-      if (firstFailure && !firstFailure.ok) {
-        if (firstFailure.userMessage) {
-          setTradeShotError(firstFailure.userMessage);
-          toast.error(firstFailure.userMessage);
+      if (firstFailure && firstFailure.ok === false) {
+        const failure = firstFailure;
+        if (failure.userMessage) {
+          setTradeShotError(failure.userMessage);
+          toast.error(failure.userMessage);
         } else 
-        if (firstFailure.kind === 'bucket_missing') {
+        if (failure.kind === 'bucket_missing') {
           setTradeShotError(`Storage bucket missing (${TRADE_SCREENSHOTS_BUCKET}).`);
           toast.error(`Storage bucket missing (${TRADE_SCREENSHOTS_BUCKET}).`);
-        } else if (firstFailure.kind === 'storage_policy' || firstFailure.kind === 'db_policy') {
+        } else if (failure.kind === 'storage_policy' || failure.kind === 'db_policy') {
           setTradeShotError('Permission denied. Check Supabase storage/table policies.');
           toast.error('Permission denied uploading screenshots.');
         } else {
           setTradeShotError('Upload failed. See console for details.');
           toast.error('Screenshot upload failed.');
         }
-        console.error('[DayViewDrawer] trade screenshot upload failed', firstFailure);
+        console.error('[DayViewDrawer] trade screenshot upload failed', failure);
       }
     } finally {
       setUploadingTradeShot(false);

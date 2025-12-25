@@ -74,15 +74,16 @@ export function TradeDetailPanel({ trade, onClose, onTradeUpdated }: TradeDetail
         onTradeUpdated();
       } else {
         const firstFailure = results.find((r) => !r.ok);
-        if (firstFailure && !firstFailure.ok) {
-          if (firstFailure.userMessage) {
-            toast.error(firstFailure.userMessage);
+        if (firstFailure && firstFailure.ok === false) {
+          const failure = firstFailure;
+          if (failure.userMessage) {
+            toast.error(failure.userMessage);
           } else 
-          if (firstFailure.kind === 'bucket_missing') {
+          if (failure.kind === 'bucket_missing') {
             toast.error(
               `Storage bucket missing (${TRADE_SCREENSHOTS_BUCKET}). See docs/day-journal-feature.md`,
             );
-          } else if (firstFailure.kind === 'storage_policy' || firstFailure.kind === 'db_policy') {
+          } else if (failure.kind === 'storage_policy' || failure.kind === 'db_policy') {
             toast.error(
               `Permission denied uploading screenshots. Check Supabase policies (bucket: ${TRADE_SCREENSHOTS_BUCKET}).`,
             );
@@ -91,7 +92,7 @@ export function TradeDetailPanel({ trade, onClose, onTradeUpdated }: TradeDetail
               `Screenshot upload failed (bucket: ${TRADE_SCREENSHOTS_BUCKET}). See console for details.`,
             );
           }
-          console.error('[TradeDetailPanel] upload failed', firstFailure);
+          console.error('[TradeDetailPanel] upload failed', failure);
         } else {
           toast.error(
             `Screenshot upload failed (bucket: ${TRADE_SCREENSHOTS_BUCKET}). See console for details.`,

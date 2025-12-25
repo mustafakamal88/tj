@@ -17,6 +17,7 @@ import { CommunityPage } from './pages/community';
 import { ImportHistoryPage } from './pages/import-history';
 import { SettingsPage } from './pages/settings';
 import { UniversityPage } from './pages/university';
+import { UniversityLessonPage } from './pages/university/lesson';
 import { ErrorBoundary } from './components/error-boundary';
 import { AuthDialog } from './components/auth-dialog';
 import { SubscriptionDialog } from './components/subscription-dialog';
@@ -74,6 +75,17 @@ function AppContent() {
 
   const cleanPathname = (p: string) => p.replace(/\/+$/, '') || '/';
 
+  const parseUniversityLessonPath = (p: string) => {
+    const cleaned = cleanPathname(p);
+    if (!cleaned.startsWith('/university/')) return null;
+    const parts = cleaned.split('/').filter(Boolean);
+    // parts: ['university', stageId, lessonId]
+    if (parts.length !== 3) return null;
+    const [, stageId, lessonId] = parts;
+    if (!stageId || !lessonId) return null;
+    return { stageId, lessonId };
+  };
+
   const openAuthDialog = (tab: 'login' | 'signup' = 'login') => {
     setAuthDialogDefaultTab(tab);
     setIsAuthDialogOpen(true);
@@ -124,7 +136,7 @@ function AppContent() {
       path === '/analytics' ? 'analytics' :
       path === '/learn' ? 'learn' :
       path === '/billing' ? 'billing' :
-      path === '/university' ? 'university' :
+      (path === '/university' || path.startsWith('/university/')) ? 'university' :
       path === '/community' ? 'community' :
       path === '/import-history' ? 'importHistory' :
       path === '/settings' ? 'settings' :
@@ -145,7 +157,7 @@ function AppContent() {
         p === '/analytics' ? 'analytics' :
         p === '/learn' ? 'learn' :
         p === '/billing' ? 'billing' :
-        p === '/university' ? 'university' :
+        (p === '/university' || p.startsWith('/university/')) ? 'university' :
         p === '/community' ? 'community' :
         p === '/import-history' ? 'importHistory' :
         p === '/settings' ? 'settings' :
@@ -190,7 +202,7 @@ function AppContent() {
     }
 
     // If not authenticated, protected pages redirect to login.
-    if (!userEmail && isProtectedPage(currentPage) && currentPage !== 'login') {
+    if (!userEmail && isProtectedPage(currentPage)) {
       setRoute('login', { replace: true });
     }
   }, [authLoading, userEmail, currentPage]);
@@ -344,10 +356,15 @@ function AppContent() {
           </>
         );
       case 'university':
+        const universityLesson = parseUniversityLessonPath(pathname);
         return wrapApp(
           <>
             <Seo title="University" noindex />
-            <UniversityPage />
+            {universityLesson ? (
+              <UniversityLessonPage stageId={universityLesson.stageId} lessonId={universityLesson.lessonId} />
+            ) : (
+              <UniversityPage />
+            )}
           </>
         );
       case 'community':

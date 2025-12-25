@@ -47,10 +47,11 @@ export type DayNews = {
   createdAt: string;
 };
 
-export type TradeWithDetails = Trade & {
+export type TradeWithDetails = Omit<Trade, 'screenshots'> & {
   note?: TradeNote;
   screenshots: TradeScreenshot[];
 };
+
 
 export const TRADE_SCREENSHOTS_BUCKET = 'trade-screenshots';
 

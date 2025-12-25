@@ -291,6 +291,20 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
     entryType: 'in' | 'out' | 'inout';
   };
 
+  const weightedAverage = (items: Array<{ price: number; volume: number }>): number | null => {
+    if (!items || items.length === 0) return null;
+    let totalVolume = 0;
+    let weightedSum = 0;
+    for (const item of items) {
+      if (!Number.isFinite(item.price) || !Number.isFinite(item.volume)) continue;
+      if (item.volume <= 0) continue;
+      totalVolume += item.volume;
+      weightedSum += item.price * item.volume;
+    }
+    if (totalVolume <= 0) return null;
+    return weightedSum / totalVolume;
+  };
+
   const buildTradesFromDeals = (deals: ParsedDeal[], source: string): TradeInput[] => {
     const byPosition = new Map<string, ParsedDeal[]>();
     for (const deal of deals) {
@@ -748,10 +762,12 @@ export function MTImportDialog({ open, onOpenChange, onImportComplete }: MTImpor
         onProgress: (p) => setImportProgress(p),
       });
       if (!result.ok) {
-        toast.error(result.message);
-        if (result.reason === 'upgrade_required') {
+        const message = 'message' in result ? result.message : undefined;
+        const reason = 'reason' in result ? result.reason : 'unknown';
+        toast.error(message || 'Failed to import trades.');
+        if (reason === 'upgrade_required') {
           window.dispatchEvent(new Event('open-billing'));
-        } else if (result.reason === 'trade_limit' || result.reason === 'trial_expired') {
+        } else if (reason === 'trade_limit' || reason === 'trial_expired') {
           window.dispatchEvent(new Event('open-subscription-dialog'));
         }
         return;

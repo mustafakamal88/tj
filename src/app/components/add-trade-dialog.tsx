@@ -342,7 +342,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
     void (async () => {
       const check = await canUploadScreenshots(next.slice(0, MAX_SCREENSHOTS_PER_TRADE));
       if (!check.ok) {
-        if (check.reason === 'not_authenticated' && !storageWarningShownRef.current) {
+        if ('reason' in check && check.reason === 'not_authenticated' && !storageWarningShownRef.current) {
           storageWarningShownRef.current = true;
           toastSessionExpiredOnce();
         }
@@ -566,7 +566,7 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
 
     const storageCheck = await canUploadScreenshots();
     if (!storageCheck.ok) {
-      if (storageCheck.reason === 'not_authenticated') {
+      if ('reason' in storageCheck && storageCheck.reason === 'not_authenticated') {
         toastSessionExpiredOnce();
       }
       return;
@@ -629,15 +629,18 @@ export function AddTradeDialog({ open, onOpenChange, onTradeAdded }: AddTradeDia
       if (!result.ok) {
         if (result.status === 401) {
           toastSessionExpiredOnce();
-        } else if (result.status === 403 || result.reason === 'forbidden') {
+        } else if (result.status === 403 || ('reason' in result && result.reason === 'forbidden')) {
           toast.error('Permission denied saving trade.');
         } else {
-          const msg = (result.message ?? '').trim();
+          const msg = ('message' in result ? (result.message ?? '') : '').trim();
           toast.error(msg || 'Failed to save trade.');
         }
-        if (result.reason === 'upgrade_required') {
+        if ('reason' in result && result.reason === 'upgrade_required') {
           window.dispatchEvent(new Event('open-billing'));
-        } else if (result.reason === 'trade_limit' || result.reason === 'trial_expired') {
+        } else if (
+          'reason' in result &&
+          (result.reason === 'trade_limit' || result.reason === 'trial_expired')
+        ) {
           window.dispatchEvent(new Event('open-subscription-dialog'));
         }
         return;

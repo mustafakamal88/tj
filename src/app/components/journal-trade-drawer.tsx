@@ -227,7 +227,8 @@ export function JournalTradeDrawer({ open, tradeId, onOpenChange }: JournalTrade
     try {
       const result = await uploadTradeScreenshot(trade.id, file);
       if (!result.ok) {
-        setShotError(result.userMessage || 'Failed to upload screenshot');
+        const userMessage = 'userMessage' in result ? result.userMessage : undefined;
+        setShotError(userMessage || 'Failed to upload screenshot');
         toast.error('Failed to upload screenshot');
         return;
       }
