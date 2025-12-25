@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/app/components/ui/utils";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 
 export type JudgmentStatus = "green" | "yellow" | "red";
 
@@ -15,6 +16,24 @@ export type JudgmentResult = {
   reason: JudgmentReason;
   message: string;
   updatedAt: Date;
+};
+
+type RuleRow = {
+  id: JudgmentReason;
+  label: string;
+  status: JudgmentStatus;
+  valueText: string;
+  thresholdText: string;
+  missing?: boolean;
+  tips?: string[];
+};
+
+type JudgmentBreakdown = {
+  rows: RuleRow[];
+  signalsPresent: number;
+  confidence: "High" | "Medium" | "Low";
+  showAccuracyHint: boolean;
+  worstRowId: JudgmentReason;
 };
 
 function statusStyles(status: JudgmentStatus) {
@@ -44,12 +63,26 @@ export function JudgmentCard({
   result,
   className,
   onViewBreakdown,
+  breakdown,
+  updatedAt,
 }: {
   result: JudgmentResult;
   className?: string;
   onViewBreakdown?: () => void;
+  breakdown?: JudgmentBreakdown;
+  updatedAt?: Date;
 }) {
   const s = statusStyles(result.status);
+  const [open, setOpen] = React.useState(false);
+
+  const lastUpdated = updatedAt ?? result.updatedAt;
+
+  const showBreakdown = Boolean(breakdown);
+  const handleOpenBreakdown = onViewBreakdown
+    ? onViewBreakdown
+    : showBreakdown
+      ? () => setOpen(true)
+      : undefined;
 
   return (
     <div
@@ -107,17 +140,17 @@ export function JudgmentCard({
         <div className="text-[12px] text-muted-foreground">
           Last updated:{" "}
           <span className="text-foreground/80">
-            {result.updatedAt.toLocaleTimeString([], {
+            {lastUpdated.toLocaleTimeString([], {
               hour: "2-digit",
               minute: "2-digit",
             })}
           </span>
         </div>
 
-        {onViewBreakdown ? (
+        {handleOpenBreakdown ? (
           <button
             type="button"
-            onClick={onViewBreakdown}
+            onClick={handleOpenBreakdown}
             className="text-[12px] font-semibold text-foreground/80 hover:text-foreground"
           >
             View breakdown
@@ -128,6 +161,61 @@ export function JudgmentCard({
           </span>
         )}
       </div>
+
+      {showBreakdown ? (
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent className="max-w-lg w-full rounded-2xl border bg-background p-5 shadow-lg">
+            <DialogHeader className="space-y-1 text-left">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <DialogTitle className="text-base">Trading Judgment v1</DialogTitle>
+                  <DialogDescription className="text-sm">How this score was calculated</DialogDescription>
+                </div>
+                <div className="shrink-0 text-xs text-muted-foreground">
+                  Confidence: <span className="font-medium text-foreground">{breakdown.confidence}</span>
+                </div>
+              </div>
+              {breakdown.showAccuracyHint ? (
+                <div className="text-xs text-muted-foreground">Add risk per trade to improve accuracy.</div>
+              ) : null}
+            </DialogHeader>
+
+            <div className="mt-4 space-y-2">
+              {breakdown.rows.map((row) => {
+                const dotClass =
+                  row.status === "green"
+                    ? "bg-emerald-500"
+                    : row.status === "red"
+                      ? "bg-rose-500"
+                      : "bg-amber-400";
+
+                const isWorst = row.id === breakdown.worstRowId;
+
+                return (
+                  <div key={row.id}>
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={cn("inline-flex size-2.5 rounded-full", dotClass)} aria-hidden="true" />
+                        <span className="text-sm text-foreground truncate">{row.label}</span>
+                      </div>
+                      <div className="text-sm font-semibold text-foreground shrink-0">{row.valueText}</div>
+                      <div className="text-xs text-muted-foreground shrink-0">{row.thresholdText}</div>
+                    </div>
+
+                    {isWorst && row.tips && row.tips.length > 0 ? (
+                      <ul className="mt-2 list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                        {row.tips.slice(0, 2).map((t) => (
+                          <li key={t}>{t}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }
