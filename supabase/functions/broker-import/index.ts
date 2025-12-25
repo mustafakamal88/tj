@@ -610,20 +610,24 @@ async function brokerLiveUpsert(payload: {
   exposure?: Record<string, unknown>;
   meta?: Record<string, unknown>;
 }): Promise<void> {
-  const supabaseUrl = requireEnv("SUPABASE_URL");
-  const serviceRole = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const internalKey = requireEnv("TJ_INTERNAL_KEY");
-
-  const url = `${trimTrailingSlashes(supabaseUrl)}/functions/v1/broker-live-upsert`;
-
   try {
+    const supabaseUrl = requireEnv("SUPABASE_URL");
+    const supabaseAuthKey =
+      (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim() ||
+      (Deno.env.get("SUPABASE_ANON_KEY") ?? "").trim();
+    const internalKey = requireEnv("TJ_INTERNAL_KEY");
+
+    if (!supabaseAuthKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY). ");
+
+    const url = `${trimTrailingSlashes(supabaseUrl)}/functions/v1/broker-live-upsert`;
+
     const res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${supabaseAuthKey}`,
+        "apikey": supabaseAuthKey,
         "x-tj-internal-key": internalKey,
-        apikey: serviceRole,
-        Authorization: `Bearer ${serviceRole}`,
       },
       body: JSON.stringify(payload),
     });
