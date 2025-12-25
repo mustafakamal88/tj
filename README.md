@@ -32,7 +32,7 @@
 
   - `TJ_INTERNAL_KEY` (requests must send header `x-tj-internal-key` matching this value)
 
-  `broker-import` uses this same secret to call `broker-live-upsert` server-side (the client still cannot write to `broker_live_state`).
+  Note: `broker-import` writes to `broker_live_state` directly using the service role key (the client still cannot write to `broker_live_state`).
 
   ## Running the code
 

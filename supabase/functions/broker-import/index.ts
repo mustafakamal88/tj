@@ -128,7 +128,11 @@ function getBearerToken(authHeader: string | undefined | null): string | null {
 }
 
 function getSupabaseAdmin() {
-  return createClient(requireEnv("SUPABASE_URL"), requireEnv("SUPABASE_SERVICE_ROLE_KEY"));
+  return createClient(
+    requireEnv("SUPABASE_URL"),
+    requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
+    { auth: { persistSession: false } },
+  );
 }
 
 async function requireUserId(req: Request): Promise<string> {
@@ -611,48 +615,50 @@ async function brokerLiveUpsert(payload: {
   meta?: Record<string, unknown>;
 }): Promise<void> {
   try {
-    const supabaseUrl = requireEnv("SUPABASE_URL");
-    const supabaseAuthKey =
-      (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim() ||
-      (Deno.env.get("SUPABASE_ANON_KEY") ?? "").trim();
-    const internalKey = requireEnv("TJ_INTERNAL_KEY");
+    // Ensure required env vars exist.
+    requireEnv("SUPABASE_URL");
+    requireEnv("SUPABASE_SERVICE_ROLE_KEY");
 
-    if (!supabaseAuthKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY). ");
+    const supabaseAdmin = getSupabaseAdmin();
+    const now = new Date().toISOString();
 
-    const url = `${trimTrailingSlashes(supabaseUrl)}/functions/v1/broker-live-upsert`;
+    const metrics = isRecord(payload.metrics) ? payload.metrics : {};
+    const exposure = isRecord(payload.exposure) ? payload.exposure : {};
+    const meta = isRecord(payload.meta) ? payload.meta : {};
 
-    console.log("[live-state] calling broker-live-upsert", {
-      url,
+    const row = {
+      user_id: payload.user_id,
       broker: payload.broker,
       account_id: payload.account_id,
-      hasUserId: Boolean(payload.user_id),
-    });
+      status: payload.status,
+      last_sync_at: now,
+      balance: toNumber((metrics as any).balance),
+      equity: toNumber((metrics as any).equity),
+      floating_pnl: toNumber((metrics as any).floating_pnl),
+      open_positions_count: clampInt((metrics as any).open_positions_count, 0, 1_000_000),
+      margin_used: toNumber((metrics as any).margin_used),
+      free_margin: toNumber((metrics as any).free_margin),
+      exposure,
+      meta,
+      updated_at: now,
+    };
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${supabaseAuthKey}`,
-        "apikey": supabaseAuthKey,
-        "x-tj-internal-key": internalKey,
-      },
-      body: JSON.stringify(payload),
-    });
+    const { error } = await supabaseAdmin
+      .from("broker_live_state")
+      .upsert(row, { onConflict: "user_id,broker,account_id" });
 
-    if (!res.ok) {
-      let bodySnippet = "";
-      try {
-        const text = await res.text();
-        bodySnippet = (text ?? "").slice(0, 200);
-      } catch {
-        bodySnippet = "";
-      }
-      console.warn("[live-state] upsert failed", { status: res.status, bodySnippet });
-    } else {
-      console.log("[live-state] upsert ok", { status: res.status });
+    if (error) {
+      console.warn("[live-state] upsert failed", { message: error.message, account_id: payload.account_id });
+      return;
     }
+
+    console.log("[live-state] upsert ok", {
+      userId: payload.user_id,
+      account_id: payload.account_id,
+      status: payload.status,
+    });
   } catch (e) {
-    console.warn("[broker-import] broker-live-upsert request error", { message: toShortSafeMessage(e) });
+    console.warn("[live-state] upsert error", { message: toShortSafeMessage(e), account_id: payload.account_id });
   }
 }
 
@@ -687,6 +693,9 @@ function buildLiveMetricsFromAccountInfo(input: {
     toNumber((input.accountInfo as any).freeMargin) ??
     toNumber((input.accountInfo as any).free_margin);
   const leverage = toNumber((input.accountInfo as any).leverage);
+  const marginLevel =
+    toNumber((input.accountInfo as any).marginLevel) ??
+    toNumber((input.accountInfo as any).margin_level);
 
   const floatingPnl =
     equity !== null && balance !== null && Number.isFinite(equity) && Number.isFinite(balance) ? equity - balance : null;
@@ -704,6 +713,7 @@ function buildLiveMetricsFromAccountInfo(input: {
     broker_name: toString((input.accountInfo as any).broker),
     currency: toString((input.accountInfo as any).currency),
     leverage: leverage ?? undefined,
+    margin_level: marginLevel ?? undefined,
     account_login: toString((input.accountInfo as any).login),
     server: toString((input.accountInfo as any).server),
   };
