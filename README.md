@@ -32,6 +32,8 @@
 
   - `TJ_INTERNAL_KEY` (requests must send header `x-tj-internal-key` matching this value)
 
+  `broker-import` uses this same secret to call `broker-live-upsert` server-side (the client still cannot write to `broker_live_state`).
+
   ## Running the code
 
   Run `npm i` to install the dependencies.

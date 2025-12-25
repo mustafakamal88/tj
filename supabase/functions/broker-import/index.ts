@@ -593,6 +593,104 @@ async function metaApiFetchDealsByTimeRange(
   });
 }
 
+function toShortSafeMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "Unknown error";
+  const s = String(raw);
+  return s.length > 240 ? `${s.slice(0, 240)}…` : s;
+}
+
+type BrokerLiveStatus = "live" | "syncing" | "error" | "stale";
+
+async function brokerLiveUpsert(payload: {
+  user_id: string;
+  broker: string;
+  account_id: string;
+  status: BrokerLiveStatus;
+  metrics?: Record<string, unknown>;
+  exposure?: Record<string, unknown>;
+  meta?: Record<string, unknown>;
+}): Promise<void> {
+  const supabaseUrl = requireEnv("SUPABASE_URL");
+  const serviceRole = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const internalKey = requireEnv("TJ_INTERNAL_KEY");
+
+  const url = `${trimTrailingSlashes(supabaseUrl)}/functions/v1/broker-live-upsert`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-tj-internal-key": internalKey,
+        apikey: serviceRole,
+        Authorization: `Bearer ${serviceRole}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      console.warn("[broker-import] broker-live-upsert failed", { status: res.status });
+    }
+  } catch (e) {
+    console.warn("[broker-import] broker-live-upsert request error", { message: toShortSafeMessage(e) });
+  }
+}
+
+async function metaApiReadAccountInformation(
+  accountId: string,
+  opts?: MetaApiRetryOptions,
+): Promise<Record<string, unknown>> {
+  const base = metaApiClientBaseUrl();
+  const url = `${base}/users/current/accounts/${encodeURIComponent(accountId)}/account-information`;
+  const json = await metaApiJson(url, { method: "GET", headers: metaApiAuthHeaders() }, opts);
+  return isRecord(json) ? (json as Record<string, unknown>) : {};
+}
+
+async function metaApiReadPositions(accountId: string, opts?: MetaApiRetryOptions): Promise<any[]> {
+  const base = metaApiClientBaseUrl();
+  const url = `${base}/users/current/accounts/${encodeURIComponent(accountId)}/positions`;
+  const json = await metaApiJson(url, { method: "GET", headers: metaApiAuthHeaders() }, opts);
+  return Array.isArray(json) ? json : [];
+}
+
+function buildLiveMetricsFromAccountInfo(input: {
+  accountInfo: Record<string, unknown>;
+  positions: any[];
+}): { metrics: Record<string, unknown>; meta: Record<string, unknown> } {
+  const balance = toNumber((input.accountInfo as any).balance);
+  const equity = toNumber((input.accountInfo as any).equity);
+  const marginUsed =
+    toNumber((input.accountInfo as any).margin) ??
+    toNumber((input.accountInfo as any).marginUsed) ??
+    toNumber((input.accountInfo as any).margin_used);
+  const freeMargin =
+    toNumber((input.accountInfo as any).freeMargin) ??
+    toNumber((input.accountInfo as any).free_margin);
+  const leverage = toNumber((input.accountInfo as any).leverage);
+
+  const floatingPnl =
+    equity !== null && balance !== null && Number.isFinite(equity) && Number.isFinite(balance) ? equity - balance : null;
+
+  const metrics: Record<string, unknown> = {
+    balance,
+    equity,
+    floating_pnl: floatingPnl,
+    margin_used: marginUsed,
+    free_margin: freeMargin,
+    open_positions_count: Array.isArray(input.positions) ? input.positions.length : 0,
+  };
+
+  const meta: Record<string, unknown> = {
+    broker_name: toString((input.accountInfo as any).broker),
+    currency: toString((input.accountInfo as any).currency),
+    leverage: leverage ?? undefined,
+    account_login: toString((input.accountInfo as any).login),
+    server: toString((input.accountInfo as any).server),
+  };
+
+  return { metrics, meta };
+}
+
 function dealKey(positionId: string, ticket: string): string {
   return `${positionId}:${ticket}`;
 }
@@ -807,6 +905,75 @@ async function handleConnect(c: any, body: Record<string, unknown>): Promise<Res
       .select("id,provider,metaapi_account_id,platform,environment,server,login,status,last_import_at,created_at,updated_at")
       .eq("id", inserted.id)
       .single();
+
+    // Best-effort: seed/refresh live broker state so the dashboard can show real data.
+    // Never log or persist passwords.
+    try {
+      if (deployed.status === "connected") {
+        const accountInfo = await metaApiReadAccountInformation(metaapiAccountId);
+        const positions = await metaApiReadPositions(metaapiAccountId);
+        const { metrics, meta } = buildLiveMetricsFromAccountInfo({ accountInfo, positions });
+        await brokerLiveUpsert({
+          user_id: userId,
+          broker: PROVIDER,
+          account_id: metaapiAccountId,
+          status: "live",
+          metrics,
+          meta: {
+            ...meta,
+            platform,
+            environment,
+            server,
+            login,
+          },
+        });
+      } else {
+        await brokerLiveUpsert({
+          user_id: userId,
+          broker: PROVIDER,
+          account_id: metaapiAccountId,
+          status: deployed.status === "error" ? "error" : "syncing",
+          meta: {
+            platform,
+            environment,
+            server,
+            login,
+            connection_status: deployed.status,
+          },
+        });
+      }
+    } catch (e) {
+      if (e instanceof MetaApiRateLimitPauseError) {
+        await brokerLiveUpsert({
+          user_id: userId,
+          broker: PROVIDER,
+          account_id: metaapiAccountId,
+          status: "stale",
+          meta: {
+            platform,
+            environment,
+            server,
+            login,
+            rate_limited_until: e.retryAt,
+            message: "Rate limited fetching live metrics",
+          },
+        });
+      } else {
+        await brokerLiveUpsert({
+          user_id: userId,
+          broker: PROVIDER,
+          account_id: metaapiAccountId,
+          status: "error",
+          meta: {
+            platform,
+            environment,
+            server,
+            login,
+            message: toShortSafeMessage(e),
+          },
+        });
+      }
+    }
 
     console.log("[broker-import] connect done", { userId, connectionId: inserted.id, status: deployed.status });
     return ok(c, { connection: fresh ?? inserted });
@@ -1209,6 +1376,50 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
       }
     };
 
+    // Best-effort: refresh Live Broker Matrix metrics during import.
+    // If MetaApi is rate limited, mark the live state as stale but do not fail the import.
+    try {
+      const accountInfo = await metaApiReadAccountInformation(accountId, { onRateLimit });
+      const positions = await metaApiReadPositions(accountId, { onRateLimit });
+      const { metrics, meta } = buildLiveMetricsFromAccountInfo({ accountInfo, positions });
+      await brokerLiveUpsert({
+        user_id: userId,
+        broker: PROVIDER,
+        account_id: accountId,
+        status: "live",
+        metrics,
+        meta: {
+          ...meta,
+          account_login: accountLogin,
+        },
+      });
+    } catch (e) {
+      if (e instanceof MetaApiRateLimitPauseError) {
+        await brokerLiveUpsert({
+          user_id: userId,
+          broker: PROVIDER,
+          account_id: accountId,
+          status: "stale",
+          meta: {
+            account_login: accountLogin,
+            rate_limited_until: e.retryAt,
+            message: "Rate limited fetching live metrics",
+          },
+        });
+      } else {
+        await brokerLiveUpsert({
+          user_id: userId,
+          broker: PROVIDER,
+          account_id: accountId,
+          status: "error",
+          meta: {
+            account_login: accountLogin,
+            message: toShortSafeMessage(e),
+          },
+        });
+      }
+    }
+
     const results: Array<{ index: number; start: Date; end: Date; fetched: number; upserted: number }> = [];
     let rateLimited: { retryAt: string; message: string } | null = null;
 
@@ -1246,6 +1457,18 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
           state.rateLimitedUntil = e.retryAt;
           if (state.error) delete state.error;
           rateLimited = { retryAt: e.retryAt, message: e.message };
+
+          await brokerLiveUpsert({
+            user_id: userId,
+            broker: PROVIDER,
+            account_id: accountId,
+            status: "stale",
+            meta: {
+              account_login: accountLogin,
+              rate_limited_until: e.retryAt,
+              message: "Rate limited during import",
+            },
+          });
           break;
         }
         throw e;
@@ -1318,6 +1541,20 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
     const message = e instanceof Error ? e.message : "Import failed.";
     const status = (e as any)?.status;
     console.error("[broker-import] import continue error", e);
+
+    if (userId && state?.metaapiAccountId) {
+      await brokerLiveUpsert({
+        user_id: userId,
+        broker: PROVIDER,
+        account_id: state.metaapiAccountId,
+        status: e instanceof MetaApiRateLimitPauseError ? "stale" : "error",
+        meta: {
+          account_login: state.accountLogin,
+          message: e instanceof MetaApiRateLimitPauseError ? "Rate limited during import" : toShortSafeMessage(e),
+          ...(e instanceof MetaApiRateLimitPauseError ? { rate_limited_until: e.retryAt } : {}),
+        },
+      });
+    }
 
     if (userId && job) {
       if (e instanceof MetaApiRateLimitPauseError) {
