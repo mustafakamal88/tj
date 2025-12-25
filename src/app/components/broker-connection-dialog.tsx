@@ -27,6 +27,7 @@ import {
   writeMetaApiBackgroundImport,
   type MetaApiBackgroundImport,
 } from '../utils/broker-import-background';
+import { createImportRun, updateImportRun } from '../utils/import-history-api';
 
 const QUICK_IMPORT_DAYS = 30;
 
@@ -43,6 +44,10 @@ function parseImportTotals(message: string | null | undefined): { fetchedTotal?:
   } catch {
     return {};
   }
+}
+
+function endNowIso(): string {
+  return new Date().toISOString();
 }
 
 interface BrokerConnectionDialogProps {
@@ -80,6 +85,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
   const continueTimerRef = useRef<number | null>(null);
   const jobIdRef = useRef<string | null>(null);
   const backgroundJobIdRef = useRef<string | null>(null);
+  const quickImportRunIdRef = useRef<string | null>(null);
 
   const [platform, setPlatform] = useState<BrokerPlatform>('mt5');
   const [environment, setEnvironment] = useState<BrokerEnvironment>('demo');
@@ -220,6 +226,14 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
     setImporting(true);
     setImportMode('quick');
     try {
+      try {
+        const run = await createImportRun({ source: 'broker', provider: 'metaapi' });
+        quickImportRunIdRef.current = run.id;
+      } catch (e) {
+        console.warn('[broker] create import run failed', e);
+        quickImportRunIdRef.current = null;
+      }
+
       const started = await startMetaApiQuickImport({ connectionId, days: QUICK_IMPORT_DAYS });
       setJob(started.job);
       toast.success('Quick import started.');
@@ -234,6 +248,29 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
 	          if (res.job.status === 'succeeded') {
               const totals = parseImportTotals(res.job.message);
               const imported = typeof totals.upsertedTotal === 'number' ? totals.upsertedTotal : undefined;
+              const fetched = typeof totals.fetchedTotal === 'number' ? totals.fetchedTotal : undefined;
+              const skipped =
+                typeof fetched === 'number' && typeof imported === 'number' && fetched >= imported
+                  ? fetched - imported
+                  : undefined;
+
+              const importRunId = quickImportRunIdRef.current;
+              if (importRunId) {
+                try {
+                  await updateImportRun(importRunId, {
+                    status: 'success',
+                    endedAt: endNowIso(),
+                    importedCount: imported ?? 0,
+                    updatedCount: 0,
+                    skippedCount: skipped ?? 0,
+                    errorMessage: null,
+                    errorDetails: { provider: 'metaapi', mode: 'quick', connectionId, job: res.job },
+                  });
+                } catch (e) {
+                  console.warn('[broker] update import run failed', e);
+                }
+              }
+
               toast.success(
                 imported != null
                   ? `Imported ${imported} trades (last ${QUICK_IMPORT_DAYS} days).`
@@ -247,6 +284,20 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
 	          }
 
 	          if (res.job.status === 'failed') {
+              const importRunId = quickImportRunIdRef.current;
+              if (importRunId) {
+                try {
+                  await updateImportRun(importRunId, {
+                    status: 'failed',
+                    endedAt: endNowIso(),
+                    errorMessage: res.job.message || 'Import failed.',
+                    errorDetails: { provider: 'metaapi', mode: 'quick', connectionId, job: res.job },
+                  });
+                } catch (e) {
+                  console.warn('[broker] update import run failed', e);
+                }
+              }
+
 	            toast.error('Import failed. Please try again.');
 	            setImporting(false);
 	            await refresh();
@@ -265,6 +316,19 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
 	          continueTimerRef.current = window.setTimeout(() => void run(jobId), 250);
 	        } catch (e) {
 	          console.error('[broker] import continue failed', e);
+            const importRunId = quickImportRunIdRef.current;
+            if (importRunId) {
+              try {
+                await updateImportRun(importRunId, {
+                  status: 'failed',
+                  endedAt: endNowIso(),
+                  errorMessage: e instanceof Error ? e.message : 'Import failed.',
+                  errorDetails: { provider: 'metaapi', mode: 'quick', connectionId, error: String(e) },
+                });
+              } catch (err) {
+                console.warn('[broker] update import run failed', err);
+              }
+            }
 	          toast.error(e instanceof Error ? e.message : 'Import failed.');
 	          setImporting(false);
 	        }
@@ -291,6 +355,15 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
     setImportMode('full');
     try {
       const to = lastQuickImport?.connectionId === connectionId ? lastQuickImport.from : undefined;
+
+      let importRunId: string | null = null;
+      try {
+        const run = await createImportRun({ source: 'broker', provider: 'metaapi' });
+        importRunId = run.id;
+      } catch (e) {
+        console.warn('[broker] create import run failed', e);
+      }
+
       const started = await startMetaApiImport({ connectionId, ...(to ? { to } : {}) });
       setJob(started.job);
       writeMetaApiBackgroundImport({
@@ -299,6 +372,7 @@ export function BrokerConnectionDialog({ open, onOpenChange, onImportComplete }:
         mode: 'full',
         startedAt: new Date().toISOString(),
         to,
+        importRunId: importRunId ?? undefined,
       });
       toast.success('Full history import started in background.');
     } catch (e) {

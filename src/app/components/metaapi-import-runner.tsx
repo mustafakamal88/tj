@@ -9,6 +9,26 @@ import {
   type MetaApiBackgroundImport,
 } from '../utils/broker-import-background';
 import { useAuth } from '../utils/auth';
+import { updateImportRun } from '../utils/import-history-api';
+
+function parseImportTotals(message: string | null | undefined): { fetchedTotal?: number; upsertedTotal?: number } {
+  if (!message) return {};
+  try {
+    const parsed = JSON.parse(message) as any;
+    const fetchedTotal = typeof parsed?.fetchedTotal === 'number' ? parsed.fetchedTotal : Number(parsed?.fetchedTotal);
+    const upsertedTotal = typeof parsed?.upsertedTotal === 'number' ? parsed.upsertedTotal : Number(parsed?.upsertedTotal);
+    return {
+      fetchedTotal: Number.isFinite(fetchedTotal) ? fetchedTotal : undefined,
+      upsertedTotal: Number.isFinite(upsertedTotal) ? upsertedTotal : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function endNowIso(): string {
+  return new Date().toISOString();
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -23,6 +43,7 @@ export function MetaApiImportRunner() {
 
   const runningRef = useRef(false);
   const cancelledRef = useRef(false);
+  const finalizedRunIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -55,12 +76,60 @@ export function MetaApiImportRunner() {
 	            window.dispatchEvent(new CustomEvent(METAAPI_IMPORT_JOB_UPDATED_EVENT, { detail: res }));
 
 	            if (res.job.status === 'succeeded') {
+                const runId = active.importRunId;
+                if (runId && !finalizedRunIdsRef.current.has(runId)) {
+                  finalizedRunIdsRef.current.add(runId);
+                  const totals = parseImportTotals(res.job.message);
+                  const imported = typeof totals.upsertedTotal === 'number' ? totals.upsertedTotal : 0;
+                  const fetched = typeof totals.fetchedTotal === 'number' ? totals.fetchedTotal : undefined;
+                  const skipped =
+                    typeof fetched === 'number' && fetched >= imported ? fetched - imported : 0;
+                  try {
+                    await updateImportRun(runId, {
+                      status: 'success',
+                      endedAt: endNowIso(),
+                      importedCount: imported,
+                      updatedCount: 0,
+                      skippedCount: skipped,
+                      errorMessage: null,
+                      errorDetails: {
+                        provider: 'metaapi',
+                        mode: 'full',
+                        connectionId: active.connectionId,
+                        job: res.job,
+                      },
+                    });
+                  } catch (e) {
+                    console.warn('[broker] update import run failed', e);
+                  }
+                }
+
 	              writeMetaApiBackgroundImport(null);
 	              toast.success('Full history import complete.');
 	              return;
 	            }
 
 	            if (res.job.status === 'failed') {
+                const runId = active.importRunId;
+                if (runId && !finalizedRunIdsRef.current.has(runId)) {
+                  finalizedRunIdsRef.current.add(runId);
+                  try {
+                    await updateImportRun(runId, {
+                      status: 'failed',
+                      endedAt: endNowIso(),
+                      errorMessage: res.job.message || 'Full history import failed.',
+                      errorDetails: {
+                        provider: 'metaapi',
+                        mode: 'full',
+                        connectionId: active.connectionId,
+                        job: res.job,
+                      },
+                    });
+                  } catch (e) {
+                    console.warn('[broker] update import run failed', e);
+                  }
+                }
+
 	              writeMetaApiBackgroundImport(null);
 	              toast.error('Full history import failed. Please try again.');
 	              return;

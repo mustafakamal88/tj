@@ -4,6 +4,7 @@ export type MetaApiBackgroundImport = {
   mode: 'full';
   startedAt: string;
   to?: string;
+  importRunId?: string;
 };
 
 const STORAGE_KEY = 'tj-metaapi-import';
@@ -26,6 +27,10 @@ export function readMetaApiBackgroundImport(): MetaApiBackgroundImport | null {
       mode: 'full',
       startedAt: parsed.startedAt,
       to: typeof parsed.to === 'string' && parsed.to.trim() ? parsed.to : undefined,
+      importRunId:
+        typeof (parsed as any).importRunId === 'string' && String((parsed as any).importRunId).trim()
+          ? String((parsed as any).importRunId)
+          : undefined,
     };
   } catch {
     return null;
