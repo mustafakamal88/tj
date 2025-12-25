@@ -28,8 +28,8 @@ export function AppShell({
 
   const SidebarNav = ({ onItemClick }: { onItemClick?: () => void }) => (
     <div className="flex h-full min-h-0 flex-col text-foreground dark:text-white">
-      {/* Brand */}
-      <div className="px-4 pt-3">
+      {/* Header */}
+      <div className="sticky top-0 z-10 h-14 flex items-center px-4 border-b border-border/80 dark:border-white/10">
         <button
           type="button"
           onClick={() => {
@@ -37,7 +37,7 @@ export function AppShell({
             onItemClick?.();
           }}
           className={cn(
-            'group flex w-full h-14 items-center gap-3 rounded-xl px-3 text-left transition-colors',
+            'group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors',
             'hover:bg-muted/40 dark:hover:bg-white/5',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           )}
@@ -60,12 +60,10 @@ export function AppShell({
             </div>
           </div>
         </button>
-
-        <div className="mt-3 h-px bg-border dark:bg-white/10" />
       </div>
 
       {/* Nav */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {appNavGroups.map((group, groupIndex) => (
           <div key={group.label} className={cn(groupIndex === 0 ? 'mt-1' : 'mt-7')}>
             <div className="px-3 text-xs font-medium tracking-wide text-muted-foreground/80 dark:text-white/45">
