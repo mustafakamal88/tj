@@ -21,6 +21,8 @@ type Metrics = {
   free_margin?: unknown;
 };
 
+type AuthMode = "jwt" | "service" | "internal-key";
+
 function requireEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing ${name} env var.`);
@@ -96,12 +98,18 @@ async function sha256Hex(value: string): Promise<string> {
   return toHex(new Uint8Array(digest));
 }
 
-async function requireInternalKey(req: Request): Promise<boolean> {
+function getBearerToken(req: Request): string | null {
+  const auth = (req.headers.get("Authorization") ?? "").trim();
+  if (!auth) return null;
+  const prefix = "bearer ";
+  if (!auth.toLowerCase().startsWith(prefix)) return null;
+  const token = auth.slice(prefix.length).trim();
+  return token ? token : null;
+}
+
+async function hasInternalKey(req: Request): Promise<boolean> {
   const expected = (Deno.env.get("TJ_INTERNAL_KEY") ?? "").trim();
-  if (!expected) {
-    console.error("[broker-live-upsert] TJ_INTERNAL_KEY missing");
-    return false;
-  }
+  if (!expected) return false;
 
   const provided = (req.headers.get("x-tj-internal-key") ?? "").trim();
   if (!provided) return false;
@@ -109,6 +117,29 @@ async function requireInternalKey(req: Request): Promise<boolean> {
   // Compare hashes so timingSafeEqual can be used on fixed-length strings.
   const [a, b] = await Promise.all([sha256Hex(expected), sha256Hex(provided)]);
   return timingSafeEqual(a, b);
+}
+
+async function isServiceRoleBearer(req: Request): Promise<boolean> {
+  const token = getBearerToken(req);
+  if (!token) return false;
+  const expected = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+  if (!expected) return false;
+  const [a, b] = await Promise.all([sha256Hex(expected), sha256Hex(token)]);
+  return timingSafeEqual(a, b);
+}
+
+async function verifyUserJwtAndGetUserId(req: Request): Promise<string | null> {
+  const token = getBearerToken(req);
+  if (!token) return null;
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error) return null;
+    const id = data?.user?.id;
+    return typeof id === "string" && id.trim() ? id : null;
+  } catch {
+    return null;
+  }
 }
 
 function getSupabaseAdmin() {
@@ -126,8 +157,24 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("", { status: 204 });
   if (req.method !== "POST") return methodNotAllowed();
 
-  const authed = await requireInternalKey(req);
-  if (!authed) return unauthorized();
+  // Auth modes:
+  // - jwt: normal client calls with user JWT
+  // - service: internal service calls using Bearer <SERVICE_ROLE_KEY>
+  // - internal-key: internal service calls using x-tj-internal-key
+  let authMode: AuthMode | null = null;
+  let jwtUserId: string | null = null;
+
+  if (await hasInternalKey(req)) {
+    authMode = "internal-key";
+  } else if (await isServiceRoleBearer(req)) {
+    authMode = "service";
+  } else {
+    jwtUserId = await verifyUserJwtAndGetUserId(req);
+    if (jwtUserId) authMode = "jwt";
+  }
+
+  if (!authMode) return unauthorized();
+  console.log(`[broker-live-upsert] auth=${authMode}`);
 
   let body: Payload;
   try {
@@ -140,9 +187,10 @@ Deno.serve(async (req) => {
   const broker = toNonEmptyString(body.broker);
   const accountId = toNonEmptyString(body.account_id);
 
-  if (!userId || !broker || !accountId) {
+  const effectiveUserId = authMode === "jwt" ? jwtUserId : userId;
+  if (!effectiveUserId || !broker || !accountId) {
     return badRequest("MISSING_FIELDS", {
-      required: ["user_id", "broker", "account_id"],
+      required: authMode === "jwt" ? ["broker", "account_id"] : ["user_id", "broker", "account_id"],
     });
   }
 
@@ -152,7 +200,7 @@ Deno.serve(async (req) => {
   const metrics: Metrics = isRecord(metricsRaw) ? (metricsRaw as Metrics) : {};
 
   const row = {
-    user_id: userId,
+    user_id: effectiveUserId,
     broker,
     account_id: accountId,
     status,
