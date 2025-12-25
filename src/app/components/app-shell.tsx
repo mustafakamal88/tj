@@ -29,7 +29,7 @@ export function AppShell({
   const SidebarNav = ({ onItemClick }: { onItemClick?: () => void }) => (
     <div className="flex h-full min-h-0 flex-col text-foreground dark:text-white">
       {/* Header */}
-      <div className="sticky top-0 z-10 h-14 flex items-center px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border/60">
+      <div className="sticky top-0 z-10 h-14 flex items-center px-4 border-b border-border/80 dark:border-white/10">
         <button
           type="button"
           onClick={() => {
@@ -37,14 +37,14 @@ export function AppShell({
             onItemClick?.();
           }}
           className={cn(
-            'group flex w-full h-10 items-center gap-3 rounded-xl px-2.5 text-left transition-colors',
+            'group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors',
             'hover:bg-muted/40 dark:hover:bg-white/5',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           )}
           aria-label="Go to dashboard"
         >
           <svg
-            className="size-9 shrink-0 text-[#34a85a]"
+            className="h-9 w-9 shrink-0 text-[#34a85a]"
             viewBox="0 0 37 44"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
