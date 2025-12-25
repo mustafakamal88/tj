@@ -92,7 +92,7 @@ export function Navigation({
   if (showAppTopbar) {
     return (
       <nav className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-50 dark:border-white/10">
-        <div className="h-16 grid grid-cols-[1fr_auto] md:grid-cols-[15rem_1fr] items-center">
+        <div className="h-14 grid grid-cols-[1fr_auto] md:grid-cols-[15rem_1fr] items-center">
           <div className={cn('px-4 sm:px-6 md:px-4 flex items-center', isAppRoute ? 'md:px-0' : null)}>
             <div className="flex items-center gap-2 shrink-0">
               <div className="flex md:hidden">
