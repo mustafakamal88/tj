@@ -11,7 +11,7 @@ import { getEffectivePlan, hasPaidEntitlement } from '../utils/entitlements';
 import { getSupabaseClient } from '../utils/supabase';
 import { toast } from 'sonner';
 import type { Trade } from '../types/trade';
-import { pnlBgSoftClass, pnlTextClass, semanticColors } from '../utils/semantic-colors';
+import { pnlTextClass, semanticColors } from '../utils/semantic-colors';
 import { 
   format, 
   startOfMonth, 
@@ -205,10 +205,10 @@ export function Dashboard() {
   }, [totalTradeCount, tradesToday, last10RiskValues, losingStreak, todayPnL]);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="bg-background">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
             <h1 className="text-3xl mb-2">Dashboard</h1>
             <p className="text-muted-foreground">Track your trading performance</p>
@@ -260,7 +260,7 @@ export function Dashboard() {
         </div>
 
         {/* Top row */}
-        <div className="grid gap-4 lg:grid-cols-12 mb-8">
+        <div className="grid gap-4 lg:grid-cols-12 mb-6">
           <JudgmentCard result={judgmentResult} className="lg:col-span-7" />
 
           <div className="lg:col-span-5">
@@ -310,7 +310,7 @@ export function Dashboard() {
 
         {/* Empty State */}
         {totalTradeCount === 0 && (
-          <Card className="p-12 text-center mt-8">
+          <Card className="p-12 text-center mt-6">
             <p className="text-muted-foreground mb-4">No trades yet. Start tracking your performance!</p>
             <Button onClick={() => setIsAddDialogOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />

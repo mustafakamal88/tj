@@ -78,6 +78,28 @@ function AppContent() {
 
   const cleanPathname = (p: string) => p.replace(/\/+$/, '') || '/';
 
+  const isKnownPath = (p: string) => {
+    const cleaned = cleanPathname(p);
+    if (cleaned === '/') return true;
+    if (cleaned === '/features') return true;
+    if (cleaned === '/brokers') return true;
+    if (cleaned === '/pricing') return true;
+    if (cleaned === '/login') return true;
+    if (cleaned === '/signup') return true;
+    if (cleaned === '/dashboard') return true;
+    if (cleaned === '/calendar') return true;
+    if (cleaned === '/journal') return true;
+    if (cleaned === '/analytics') return true;
+    if (cleaned === '/learn') return true;
+    if (cleaned === '/billing') return true;
+    if (cleaned === '/community') return true;
+    if (cleaned === '/import-history') return true;
+    if (cleaned === '/settings') return true;
+    if (cleaned === '/university' || cleaned.startsWith('/university/')) return true;
+    if (cleaned.startsWith('/settings/')) return true;
+    return false;
+  };
+
   const parseUniversityLessonPath = (p: string) => {
     const cleaned = cleanPathname(p);
     if (!cleaned.startsWith('/university/')) return null;
@@ -214,6 +236,23 @@ function AppContent() {
   }, [authLoading, userEmail, currentPage]);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!userEmail) return;
+
+    const p = cleanPathname(window.location.pathname);
+
+    // Logged-in users should not land on an empty/unknown route.
+    if (p === '/') {
+      setRoute('dashboard', { replace: true });
+      return;
+    }
+
+    if (!isKnownPath(p)) {
+      setRoute('dashboard', { replace: true });
+    }
+  }, [authLoading, userEmail]);
+
+  useEffect(() => {
     // When auth resolves, ensure profile row exists.
     if (!user) return;
     void (async () => {
@@ -261,6 +300,7 @@ function AppContent() {
     const wrapApp = (node: React.ReactNode) => (
       <AppShell
         currentPage={currentPage}
+        pathname={pathname}
         onNavigate={handleNavigate}
         user={userEmail}
         onLogout={handleLogout}

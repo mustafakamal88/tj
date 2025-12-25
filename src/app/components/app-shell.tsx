@@ -19,6 +19,7 @@ import {
 
 type AppShellProps = {
   currentPage: Page;
+  pathname: string;
   onNavigate: (page: Page) => void;
   user: string | null;
   onLogout: () => void;
@@ -30,6 +31,7 @@ type AppShellProps = {
 
 export function AppShell({
   currentPage,
+  pathname,
   onNavigate,
   user,
   onLogout,
@@ -41,6 +43,19 @@ export function AppShell({
   useEffect(() => {
     onMobileSidebarOpenChange(false);
   }, [currentPage, onMobileSidebarOpenChange]);
+
+  const cleanPathname = (p: string) => p.replace(/\/+$/, '') || '/';
+  const activeNavPage: Page | null = (() => {
+    const p = cleanPathname(pathname);
+    if (p === '/' || p === '/dashboard') return 'dashboard';
+    if (p === '/calendar') return 'calendar';
+    if (p === '/journal') return 'journal';
+    if (p === '/analytics') return 'analytics';
+    if (p === '/community') return 'community';
+    if (p === '/university' || p.startsWith('/university/')) return 'university';
+    if (p === '/settings' || p.startsWith('/settings/')) return 'settings';
+    return null;
+  })();
 
   const SidebarNav = ({ onItemClick }: { onItemClick?: () => void }) => (
     <div className="flex h-full min-h-0 flex-col text-sidebar-foreground">
@@ -144,7 +159,7 @@ export function AppShell({
             <div className="mt-2 space-y-1">
               {group.items.map((item) => {
                 const Icon = item.icon;
-                const active = currentPage === item.id;
+                const active = activeNavPage ? activeNavPage === item.id : currentPage === item.id;
 
                 return (
                   <Button
@@ -201,11 +216,11 @@ export function AppShell({
             onItemClick?.();
           }}
           className={cn(
-            'h-11 w-full justify-start gap-3 rounded-xl px-3 text-[13px]',
+            'h-10 w-full justify-start gap-3 rounded-xl px-3 text-sm font-medium',
             'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
           )}
         >
-          <AlertCircle className="size-[18px] shrink-0 text-muted-foreground/70" />
+          <AlertCircle className="size-5 shrink-0 text-muted-foreground/70" />
           <span className="truncate">Get in touch</span>
         </Button>
       </div>
