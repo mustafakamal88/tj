@@ -40,7 +40,6 @@ import { getFeatureAccess, requestUpgrade } from '../utils/feature-access';
 import { useProfile } from '../utils/use-profile';
 import { getEffectivePlan } from '../utils/entitlements';
 import { pnlTextClass, semanticColors } from '../utils/semantic-colors';
-import { BrokerMetricsCard } from './broker-metrics-card';
 
 type ChartPalette = {
   profit: string;
@@ -1005,8 +1004,6 @@ export function Analytics() {
                 </div>
               </Card>
             </div>
-
-            <BrokerMetricsCard />
           </div>
         )}
       </div>

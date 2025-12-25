@@ -22,7 +22,6 @@ import { MTImportDialog } from './mt-import-dialog';
 import { BrokerConnectionDialog } from './broker-connection-dialog';
 import { JudgmentCard } from './judgment-card';
 import { computeJudgment } from '../utils/judgment';
-import { BrokerMetricsCard } from './broker-metrics-card';
 import { BrokerMatrix } from './broker-matrix';
 export function Dashboard() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -311,10 +310,6 @@ export function Dashboard() {
 
         <div className="mt-6">
           <BrokerMatrix userId={profile?.id} />
-        </div>
-
-        <div className="mt-6">
-          <BrokerMetricsCard />
         </div>
 
         {/* Empty State */}
