@@ -22,6 +22,7 @@ import { MTImportDialog } from './mt-import-dialog';
 import { BrokerConnectionDialog } from './broker-connection-dialog';
 import { JudgmentCard } from './judgment-card';
 import { computeJudgment } from '../utils/judgment';
+import { BrokerMetricsCard } from './broker-metrics-card';
 export function Dashboard() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [totalTradeCount, setTotalTradeCount] = useState(0);
@@ -259,7 +260,7 @@ export function Dashboard() {
         </div>
 
         {/* Top row */}
-        <div className="grid gap-4 lg:grid-cols-12 mb-6">
+        <div className="grid gap-4 lg:grid-cols-12">
           <JudgmentCard result={judgmentResult} className="lg:col-span-7" />
 
           <div className="lg:col-span-5">
@@ -305,6 +306,10 @@ export function Dashboard() {
               </Card>
             </div>
           </div>
+        </div>
+
+        <div className="mt-6">
+          <BrokerMetricsCard />
         </div>
 
         {/* Empty State */}
