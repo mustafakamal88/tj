@@ -107,7 +107,7 @@ export function Navigation({
                   {Boolean(appSidebarOpen) ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
                 </Button>
               </div>
-              {Logo}
+              {!isAppRoute ? Logo : null}
             </div>
           </div>
 

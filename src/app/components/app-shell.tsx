@@ -27,6 +27,26 @@ export function AppShell({
 
   const SidebarNav = ({ onItemClick }: { onItemClick?: () => void }) => (
     <div className="flex h-full min-h-0 flex-col text-foreground dark:text-white">
+      <div className="px-3 pt-4 pb-3 border-b border-border dark:border-white/10">
+        <button
+          type="button"
+          className="w-full flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/40 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          onClick={() => {
+            onNavigate('dashboard');
+            onItemClick?.();
+          }}
+          aria-label="Go to dashboard"
+        >
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-foreground text-background text-xs font-semibold">
+            TJ
+          </div>
+          <div className="min-w-0 text-left">
+            <div className="text-sm font-semibold leading-none truncate">Trade Journal</div>
+            <div className="mt-0.5 text-xs text-muted-foreground dark:text-white/60 truncate">App</div>
+          </div>
+        </button>
+      </div>
+
       <div className="px-3 pt-4 pb-4">
         {appNavGroups.map((group, groupIndex) => (
           <div key={group.label} className={cn(groupIndex === 0 ? 'mt-0' : 'mt-7')}>
