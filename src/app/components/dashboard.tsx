@@ -33,6 +33,7 @@ export function Dashboard() {
   const paidActiveRef = useRef(false);
   const handledReturnRef = useRef(false);
   const pollTimerRef = useRef<number | null>(null);
+  const [judgmentUpdatedAt, setJudgmentUpdatedAt] = useState<Date>(() => new Date());
 
   useEffect(() => {
     paidActiveRef.current = hasPaidEntitlement(profile);
@@ -121,6 +122,10 @@ export function Dashboard() {
       if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    setJudgmentUpdatedAt(new Date());
+  }, [trades]);
   // Calculate statistics
   const totalPnL = useMemo(() => calculateTotalPnL(trades), [trades]);
   const winRate = useMemo(() => calculateWinRate(trades), [trades]);
@@ -155,8 +160,8 @@ export function Dashboard() {
 
   const todayKey = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
   const todayStat = dayStats.get(todayKey);
-  const tradesToday = todayStat?.count;
-  const todayPnL = todayStat?.pnl;
+  const tradesToday = todayStat?.count ?? 0;
+  const todayPnL = todayStat?.pnl ?? 0;
 
   const recentTradesDesc = useMemo(() => {
     const toTime = (t: Trade) => {
@@ -179,15 +184,181 @@ export function Dashboard() {
     return streak;
   }, [recentTradesDesc]);
 
+  const extractRiskValue = (t: Trade): number | null => {
+    const anyT = t as any;
+
+    const candidates = [anyT?.riskUsd, anyT?.risk, anyT?.riskPct];
+    for (const v of candidates) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
+    }
+
+    if (
+      typeof t.entry === 'number' &&
+      Number.isFinite(t.entry) &&
+      typeof t.stopLoss === 'number' &&
+      Number.isFinite(t.stopLoss) &&
+      typeof t.quantity === 'number' &&
+      Number.isFinite(t.quantity) &&
+      t.quantity > 0
+    ) {
+      const approx = Math.abs(t.entry - t.stopLoss) * t.quantity;
+      if (Number.isFinite(approx) && approx > 0) return approx;
+    }
+
+    if (typeof t.size === 'number' && Number.isFinite(t.size) && t.size > 0) return t.size;
+    return null;
+  };
+
   const last10RiskValues = useMemo(() => {
     const values: number[] = [];
     for (const t of recentTradesDesc) {
-      if (typeof t.size !== 'number' || !Number.isFinite(t.size) || t.size <= 0) continue;
-      values.push(t.size);
+      const v = extractRiskValue(t);
+      if (v === null) continue;
+      values.push(v);
       if (values.length >= 10) break;
     }
     return values.length >= 2 ? values : undefined;
   }, [recentTradesDesc]);
+
+  const judgmentBreakdown = useMemo(() => {
+    const rows = [] as Array<{
+      id: 'trade_frequency' | 'risk_spike' | 'losing_streak' | 'daily_drawdown';
+      label: string;
+      status: 'green' | 'yellow' | 'red';
+      valueText: string;
+      thresholdText: string;
+      missing?: boolean;
+      tips?: string[];
+    }>;
+
+    const hasAnyTrades = totalTradeCount > 0;
+
+    // Trades today
+    const tradesTodayMissing = !hasAnyTrades;
+    const tradesTodayValue = tradesTodayMissing ? null : tradesToday;
+    const tradesTodayStatus: 'green' | 'yellow' | 'red' = tradesTodayMissing
+      ? 'yellow'
+      : tradesTodayValue >= 7
+        ? 'red'
+        : tradesTodayValue >= 4
+          ? 'yellow'
+          : 'green';
+    rows.push({
+      id: 'trade_frequency',
+      label: 'Trades today',
+      status: tradesTodayStatus,
+      valueText: tradesTodayMissing ? '—' : String(tradesTodayValue),
+      thresholdText: '0–3 / 4–6 / 7+',
+      missing: tradesTodayMissing,
+      tips: tradesTodayStatus === 'red'
+        ? ['Stop for today after 7 trades.', 'Set a hard trade limit.']
+        : tradesTodayStatus === 'yellow'
+          ? ['Slow down and reduce frequency.']
+          : undefined,
+    });
+
+    // Risk spike
+    const riskMissing = !hasAnyTrades || !Array.isArray(last10RiskValues);
+    let riskRatio: number | null = null;
+    if (!riskMissing) {
+      const cleaned = last10RiskValues.filter((v) => Number.isFinite(v) && v > 0);
+      if (cleaned.length >= 2) {
+        const avg = cleaned.reduce((s, v) => s + v, 0) / cleaned.length;
+        const max = Math.max(...cleaned);
+        const ratio = avg > 0 ? max / avg : NaN;
+        riskRatio = Number.isFinite(ratio) ? ratio : null;
+      }
+    }
+
+    const riskStatus: 'green' | 'yellow' | 'red' = riskMissing || riskRatio === null
+      ? 'yellow'
+      : riskRatio > 2.0
+        ? 'red'
+        : riskRatio > 1.5
+          ? 'yellow'
+          : 'green';
+
+    rows.push({
+      id: 'risk_spike',
+      label: 'Risk spike',
+      status: riskStatus,
+      valueText: riskMissing || riskRatio === null ? '—' : `${riskRatio.toFixed(2)}×`,
+      thresholdText: '≤1.5× / 1.5–2.0× / >2.0×',
+      missing: riskMissing || riskRatio === null,
+      tips: riskStatus === 'red'
+        ? ['Cut size back to baseline.', 'Avoid revenge-sizing.']
+        : riskStatus === 'yellow'
+          ? ['Keep risk consistent trade-to-trade.']
+          : undefined,
+    });
+
+    // Losing streak
+    const losingStreakMissing = !hasAnyTrades;
+    const streakValue = losingStreakMissing ? null : losingStreak;
+    const streakStatus: 'green' | 'yellow' | 'red' = losingStreakMissing
+      ? 'yellow'
+      : streakValue >= 4
+        ? 'red'
+        : streakValue === 3
+          ? 'yellow'
+          : 'green';
+
+    rows.push({
+      id: 'losing_streak',
+      label: 'Losing streak',
+      status: streakStatus,
+      valueText: losingStreakMissing ? '—' : String(streakValue),
+      thresholdText: '0–2 / 3 / 4+',
+      missing: losingStreakMissing,
+      tips: streakStatus === 'red'
+        ? ['Pause or trade micro-size.', 'Tighten your A+ criteria.']
+        : streakStatus === 'yellow'
+          ? ['Reduce risk until you reset.']
+          : undefined,
+    });
+
+    // Daily drawdown
+    const maxLoss = 200;
+    const drawdownMissing = !hasAnyTrades;
+    const ddPct = drawdownMissing ? null : Math.abs(Math.min(0, todayPnL)) / maxLoss;
+    const ddStatus: 'green' | 'yellow' | 'red' = drawdownMissing || ddPct === null
+      ? 'yellow'
+      : ddPct > 0.7
+        ? 'red'
+        : ddPct >= 0.4
+          ? 'yellow'
+          : 'green';
+
+    rows.push({
+      id: 'daily_drawdown',
+      label: 'Daily drawdown',
+      status: ddStatus,
+      valueText: drawdownMissing || ddPct === null ? '—' : `${Math.round(ddPct * 100)}%`,
+      thresholdText: '<40% / 40–70% / >70%',
+      missing: drawdownMissing || ddPct === null,
+      tips: ddStatus === 'red'
+        ? ['Stop trading for today.', 'Review journal before next session.']
+        : ddStatus === 'yellow'
+          ? ['Trade smaller or pause.']
+          : undefined,
+    });
+
+    const signalsPresent = rows.filter((r) => !r.missing).length;
+    const confidence: 'High' | 'Medium' | 'Low' =
+      signalsPresent >= 3 ? 'High' : signalsPresent === 2 ? 'Medium' : 'Low';
+    const showAccuracyHint = confidence !== 'High';
+
+    const rank = (s: 'green' | 'yellow' | 'red') => (s === 'red' ? 3 : s === 'yellow' ? 2 : 1);
+    const worstRow = rows.reduce((acc, cur) => (rank(cur.status) > rank(acc.status) ? cur : acc), rows[0]);
+
+    return {
+      rows,
+      signalsPresent,
+      confidence,
+      showAccuracyHint,
+      worstRowId: worstRow.id,
+    };
+  }, [totalTradeCount, tradesToday, todayPnL, losingStreak, last10RiskValues]);
 
   const judgmentResult = useMemo(() => {
     // If there are no trades at all, don't penalize: show a neutral green state.
@@ -261,7 +432,12 @@ export function Dashboard() {
 
         {/* Top row */}
         <div className="grid gap-4 lg:grid-cols-12 mb-8">
-          <JudgmentCard result={judgmentResult} className="lg:col-span-7" />
+          <JudgmentCard
+            result={judgmentResult}
+            breakdown={judgmentBreakdown}
+            updatedAt={judgmentUpdatedAt}
+            className="lg:col-span-7"
+          />
 
           <div className="lg:col-span-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
