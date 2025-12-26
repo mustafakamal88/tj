@@ -72,6 +72,25 @@ function requireEnv(name: string): string {
   return value;
 }
 
+const SERVICE_KEY = Deno.env.get("TJ_SERVICE_ROLE_KEY");
+let loggedMissingLiveStateServiceKey = false;
+
+function getServiceKeyOrNullForLiveState(): string | null {
+  const key = (SERVICE_KEY ?? "").trim();
+  if (key) return key;
+  if (!loggedMissingLiveStateServiceKey) {
+    loggedMissingLiveStateServiceKey = true;
+    console.error("[live-state] missing TJ_SERVICE_ROLE_KEY");
+  }
+  return null;
+}
+
+function requireServiceKey(): string {
+  const key = (SERVICE_KEY ?? "").trim();
+  if (!key) throw new Error("Missing TJ_SERVICE_ROLE_KEY env var.");
+  return key;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -130,7 +149,7 @@ function getBearerToken(authHeader: string | undefined | null): string | null {
 function getSupabaseAdmin() {
   return createClient(
     requireEnv("SUPABASE_URL"),
-    requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
+    requireServiceKey(),
     {
       auth: { persistSession: false, autoRefreshToken: false },
       global: { headers: { "X-Client-Info": "tj-broker-import" } },
@@ -629,9 +648,13 @@ async function upsertBrokerLiveState(payload: BrokerLiveUpsertPayload): Promise<
   try {
     // Ensure required env vars exist.
     requireEnv("SUPABASE_URL");
-    requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const serviceKey = getServiceKeyOrNullForLiveState();
+    if (!serviceKey) return;
 
-    const supabaseAdmin = getSupabaseAdmin();
+    const supabaseAdmin = createClient(requireEnv("SUPABASE_URL"), serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { "X-Client-Info": "tj-broker-import-live-state" } },
+    });
     const now = new Date().toISOString();
 
     const metrics = isRecord(payload.metrics) ? payload.metrics : {};
@@ -690,7 +713,7 @@ async function upsertBrokerLiveState(payload: BrokerLiveUpsertPayload): Promise<
         broker,
         account_id: accountId,
         status,
-        errorMessage: error.message,
+        error: String(error.message),
       });
       return;
     }
@@ -702,7 +725,7 @@ async function upsertBrokerLiveState(payload: BrokerLiveUpsertPayload): Promise<
       broker,
       account_id: accountId,
       status,
-      errorMessage: toShortSafeMessage(e),
+      error: String(e instanceof Error ? e.message : e),
     });
   }
 }
@@ -1505,6 +1528,16 @@ async function handleImportContinue(c: any, body: Record<string, unknown>): Prom
         connectionId,
         chunkIndex: chunk.index,
         window: { from: chunk.start.toISOString(), to: chunk.end.toISOString() },
+      });
+
+      // Bulletproof: always seed a live-state row so the dashboard can prove the pipeline is working
+      // even if account metrics cannot be fetched yet.
+      await upsertBrokerLiveState({
+        user_id: userId,
+        broker: PROVIDER,
+        account_id: accountId,
+        status: "syncing",
+        meta: {},
       });
 
       try {
