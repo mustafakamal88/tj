@@ -1,4 +1,4 @@
-import { requireSupabaseClient } from './supabase';
+import { ensureSession, requireSupabaseClient } from './supabase';
 
 export type BrokerPlatform = 'mt4' | 'mt5';
 export type BrokerEnvironment = 'demo' | 'live';
@@ -103,10 +103,9 @@ function toInvokeErrorMessage(error: any): string {
 
 async function requireAccessToken(): Promise<string> {
   const supabase = requireSupabaseClient();
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw new Error(error.message);
-  const token = data.session?.access_token;
-  if (!token) throw new Error('You must be logged in.');
+  const session = await ensureSession(supabase);
+  const token = session?.access_token;
+  if (!token) throw new Error('Session missing. Please log in again.');
   return token;
 }
 

@@ -1736,14 +1736,20 @@ async function handleAction(c: any): Promise<Response> {
   const action = toString(body.action);
   if (!action) return fail(c, 400, "Missing action.", "bad_request");
 
-  if (action === "status") return handleStatus(c);
-  if (action === "connect") return handleConnect(c, body);
-  if (action === "import") return handleImport(c, body);
-  if (action === "quick_import") return handleQuickImport(c, body);
-  if (action === "import_continue") return handleImportContinue(c, body);
-  if (action === "import_job") return handleImportJob(c, body);
+  const hasAuthorizationHeader = Boolean(c.req.raw.headers.get("Authorization"));
+  console.log("[broker-import] action start", { action, hasAuthorizationHeader });
 
-  return fail(c, 400, `Unknown action: ${action}`, "bad_request");
+  let res: Response;
+  if (action === "status") res = await handleStatus(c);
+  else if (action === "connect") res = await handleConnect(c, body);
+  else if (action === "import") res = await handleImport(c, body);
+  else if (action === "quick_import") res = await handleQuickImport(c, body);
+  else if (action === "import_continue") res = await handleImportContinue(c, body);
+  else if (action === "import_job") res = await handleImportJob(c, body);
+  else res = fail(c, 400, `Unknown action: ${action}`, "bad_request");
+
+  console.log("[broker-import] action end", { action, status: res.status });
+  return res;
 }
 
 app.onError((err, c) => {
