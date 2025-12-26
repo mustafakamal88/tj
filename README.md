@@ -32,7 +32,10 @@
 
   - `TJ_INTERNAL_KEY` (requests must send header `x-tj-internal-key` matching this value)
 
-  Note: `broker-import` writes to `broker_live_state` directly using the service role key (the client still cannot write to `broker_live_state`).
+  Note: `broker-import` writes to `broker_live_state` directly using a service role key.
+  This project expects the function secret `TJ_SERVICE_ROLE_KEY` to be set (used by `broker-import` to avoid relying on reserved `SUPABASE_*` env vars).
+
+  The dashboard will also call the RPC `ensure_broker_live_state()` once on load to seed missing rows from your broker connections.
 
   ## Running the code
 

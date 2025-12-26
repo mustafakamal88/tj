@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { formatCurrency } from '../utils/trade-calculations';
 import { semanticColors } from '../utils/semantic-colors';
 import {
+  ensureBrokerLiveState,
   getBrokerLiveState,
   subscribeBrokerLiveState,
   type BrokerLiveStateRow,
@@ -95,7 +96,9 @@ export function BrokerMatrix({ userId }: BrokerMatrixProps) {
     setLoading(true);
 
     void (async () => {
-      const initial = await getBrokerLiveState();
+      // First-load safety: ensure missing live-state rows exist based on broker connections.
+      const ensured = await ensureBrokerLiveState();
+      const initial = ensured ?? await getBrokerLiveState();
       if (!mounted) return;
       setRows(initial);
       setLoading(false);

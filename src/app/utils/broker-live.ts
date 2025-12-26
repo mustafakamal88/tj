@@ -26,6 +26,19 @@ export type BrokerLiveStateChange =
   | { type: 'snapshot'; rows: BrokerLiveStateRow[] }
   | { type: 'mode'; mode: 'realtime' | 'polling' | 'unavailable' };
 
+export async function ensureBrokerLiveState(): Promise<BrokerLiveStateRow[] | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase.rpc('ensure_broker_live_state');
+  if (error) {
+    console.warn('[broker-live] ensureBrokerLiveState failed', error);
+    return null;
+  }
+
+  return (data ?? []) as BrokerLiveStateRow[];
+}
+
 export async function getBrokerLiveState(): Promise<BrokerLiveStateRow[]> {
   const supabase = getSupabaseClient();
   if (!supabase) return [];
